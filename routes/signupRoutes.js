@@ -1,6 +1,6 @@
 // routes/signupRoutes.js
 const express = require('express');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const db = require('../db');
 const router = express.Router();
 const saltRounds = 10; // 비밀번호 해싱 강도

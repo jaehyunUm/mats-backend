@@ -42,7 +42,7 @@ wss.on('connection', (ws) => {
 });
 
 require('dotenv').config(); // 환경 변수 설정
-const bcrypt = require("bcrypt"); // ✅ bcrypt 불러오기
+const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const path = require('path');
 const jwt = require('jsonwebtoken'); // jwt 모듈 가져오기

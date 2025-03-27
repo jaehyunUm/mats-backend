@@ -1,7 +1,7 @@
 // routes/registerParentRoutes.js
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const db = require('../db'); // 데이터베이스 연결 가져오기
 
 router.post('/register-parent', async (req, res) => {
