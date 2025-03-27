@@ -250,15 +250,6 @@ app.post('/webhook', (req, res) => {
 });
 
 
-
-// React 앱의 빌드된 정적 파일 제공
-app.use(express.static(path.join(__dirname, '../../Frontend/build')));
-
-// 모든 GET 요청을 React의 index.html로 리다이렉트
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../Frontend/build', 'index.html'));
-});
-
 // 패스워드 재설정
 app.post("/api/reset-password", async (req, res) => {
   console.log("📢 DEBUG: Received request at /api/reset-password");
