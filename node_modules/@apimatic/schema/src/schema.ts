@@ -210,8 +210,8 @@ function createSchemaContextCreator(
     createSchemaContextCreator({
       value,
       type: childSchema.type(),
-      branch: [...currentContext.branch, value],
-      path: [...currentContext.path, key],
+      branch: currentContext.branch.concat(value),
+      path: currentContext.path.concat(key),
       strictValidation: currentContext.strictValidation,
     });
 

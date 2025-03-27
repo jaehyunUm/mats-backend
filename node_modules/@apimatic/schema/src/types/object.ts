@@ -4,6 +4,8 @@ import {
   SchemaMappedType,
   SchemaType,
   SchemaValidationError,
+  validateAndMap,
+  validateAndUnmap,
 } from '../schema';
 import { OptionalizeObject } from '../typeUtils';
 import {
@@ -15,6 +17,8 @@ import {
   objectKeyEncode,
   omitKeysFromObject,
 } from '../utils';
+import { dict } from './dict';
+import { optional } from './optional';
 
 type AnyObjectSchema = Record<
   string,
@@ -61,6 +65,18 @@ export interface ObjectSchema<
   readonly objectSchema: T;
 }
 
+export interface ExtendedObjectSchema<
+  V extends string,
+  T extends Record<string, [V, Schema<any, any>, ObjectXmlOptions?]>,
+  K extends string,
+  U
+> extends Schema<
+    ObjectType<T> & { [key in K]?: Record<string, U> },
+    MappedObjectType<T> & { [key in K]?: Record<string, U> }
+  > {
+  readonly objectSchema: T;
+}
+
 /**
  * Create a Strict Object type schema.
  *
@@ -80,7 +96,7 @@ export function strictObject<
 }
 
 /**
- * Create an Expandable Object type schema.
+ * Create an Expandable Object type schema, allowing all additional properties.
  *
  * The object schema allows additional properties during mapping and unmapping. The
  * additional properties are copied over as is.
@@ -90,6 +106,29 @@ export function expandoObject<
   T extends Record<string, [V, Schema<any, any>, ObjectXmlOptions?]>
 >(objectSchema: T): ObjectSchema<V, T> {
   return internalObject(objectSchema, true, true);
+}
+
+/**
+ * Create an Expandable Object type schema, allowing only typed additional properties.
+ *
+ * The object schema allows additional properties during mapping and unmapping. The
+ * additional properties are copied over in a Record<string, SchemaType<S>>
+ * with key represented by K.
+ */
+export function typedExpandoObject<
+  V extends string,
+  T extends Record<string, [V, Schema<any, any>, ObjectXmlOptions?]>,
+  K extends string,
+  S extends Schema<any, any>
+>(
+  objectSchema: T,
+  additionalPropertyKey: K,
+  additionalPropertySchema: S
+): ExtendedObjectSchema<V, T, K, SchemaType<S>> {
+  return internalObject(objectSchema, true, [
+    additionalPropertyKey,
+    optional(dict(additionalPropertySchema)),
+  ]);
 }
 
 /**
@@ -161,11 +200,11 @@ function internalObject<
   T extends Record<string, [V, Schema<any, any>, ObjectXmlOptions?]>
 >(
   objectSchema: T,
-  skipValidateAdditionalProps: boolean,
-  mapAdditionalProps: boolean
+  skipAdditionalPropValidation: boolean,
+  mapAdditionalProps: boolean | [string, Schema<any, any>]
 ): StrictObjectSchema<V, T> {
   const keys = Object.keys(objectSchema);
-  const reverseObjectSchema = createReverseObjectSchema<T>(objectSchema);
+  const reverseObjectSchema = createReverseObjectSchema(objectSchema);
   const xmlMappingInfo = getXmlPropMappingForObjectSchema(objectSchema);
   const xmlObjectSchema = createXmlObjectSchema(objectSchema);
   const reverseXmlObjectSchema = createReverseXmlObjectSchema(xmlObjectSchema);
@@ -174,19 +213,22 @@ function internalObject<
     validateBeforeMap: validateObject(
       objectSchema,
       'validateBeforeMap',
-      skipValidateAdditionalProps
+      skipAdditionalPropValidation,
+      mapAdditionalProps
     ),
     validateBeforeUnmap: validateObject(
       reverseObjectSchema,
       'validateBeforeUnmap',
-      skipValidateAdditionalProps
+      skipAdditionalPropValidation,
+      mapAdditionalProps
     ),
     map: mapObject(objectSchema, 'map', mapAdditionalProps),
     unmap: mapObject(reverseObjectSchema, 'unmap', mapAdditionalProps),
     validateBeforeMapXml: validateObjectBeforeMapXml(
       objectSchema,
       xmlMappingInfo,
-      skipValidateAdditionalProps
+      skipAdditionalPropValidation,
+      mapAdditionalProps
     ),
     mapXml: mapObjectFromXml(xmlObjectSchema, mapAdditionalProps),
     unmapXml: unmapObjectToXml(reverseXmlObjectSchema, mapAdditionalProps),
@@ -197,7 +239,8 @@ function internalObject<
 function validateObjectBeforeMapXml(
   objectSchema: Record<string, [string, Schema<any>, ObjectXmlOptions?]>,
   xmlMappingInfo: ReturnType<typeof getXmlPropMappingForObjectSchema>,
-  allowAdditionalProperties: boolean
+  skipAdditionalPropValidation: boolean,
+  mapAdditionalProps: boolean | [string, Schema<any, any>]
 ) {
   const { elementsToProps, attributesToProps } = xmlMappingInfo;
   return (
@@ -219,42 +262,42 @@ function validateObjectBeforeMapXml(
       [key: string]: unknown;
     };
     const { $: attrs, ...elements } = valueObject;
-    const attributes = attrs ?? {};
 
-    // Validate all known elements and attributes using the schema
-    return [
-      ...validateValueObject({
-        validationMethod: 'validateBeforeMapXml',
-        propTypeName: 'child elements',
-        propTypePrefix: 'element',
-        valueTypeName: 'element',
-        propMapping: elementsToProps,
-        objectSchema,
-        valueObject: elements,
-        ctxt,
-        allowAdditionalProperties,
-      }),
-      ...validateValueObject({
-        validationMethod: 'validateBeforeMapXml',
-        propTypeName: 'attributes',
-        propTypePrefix: '@',
-        valueTypeName: 'element',
-        propMapping: attributesToProps,
-        objectSchema,
-        valueObject: attributes,
-        ctxt,
-        allowAdditionalProperties,
-      }),
-    ];
+    let validationObj = {
+      validationMethod: 'validateBeforeMapXml',
+      propTypeName: 'child elements',
+      propTypePrefix: 'element',
+      valueTypeName: 'element',
+      propMapping: elementsToProps,
+      objectSchema,
+      valueObject: elements,
+      ctxt,
+      skipAdditionalPropValidation,
+      mapAdditionalProps,
+    };
+    // Validate all known elements using the schema
+    const elementErrors = validateValueObject(validationObj);
+
+    validationObj = {
+      ...validationObj,
+      propTypeName: 'attributes',
+      propTypePrefix: '@',
+      propMapping: attributesToProps,
+      valueObject: attrs ?? {},
+    };
+    // Validate all known attributes using the schema
+    const attributesErrors = validateValueObject(validationObj);
+
+    return elementErrors.concat(attributesErrors);
   };
 }
 
 function mapObjectFromXml(
   xmlObjectSchema: XmlObjectSchema,
-  allowAdditionalProps: boolean
+  mapAdditionalProps: boolean | [string, Schema<any, any>]
 ) {
   const { elementsSchema, attributesSchema } = xmlObjectSchema;
-  const mapElements = mapObject(elementsSchema, 'mapXml', allowAdditionalProps);
+  const mapElements = mapObject(elementsSchema, 'mapXml', mapAdditionalProps);
   const mapAttributes = mapObject(
     attributesSchema,
     'mapXml',
@@ -280,7 +323,7 @@ function mapObjectFromXml(
       ...mapElements(elements, ctxt),
     };
 
-    if (allowAdditionalProps) {
+    if (mapAdditionalProps) {
       // Omit known attributes and copy the rest as additional attributes.
       const additionalAttrs = omitKeysFromObject(attributes, attributeKeys);
       if (Object.keys(additionalAttrs).length > 0) {
@@ -295,14 +338,10 @@ function mapObjectFromXml(
 
 function unmapObjectToXml(
   xmlObjectSchema: XmlObjectSchema,
-  allowAdditionalProps: boolean
+  mapAdditionalProps: boolean | [string, Schema<any, any>]
 ) {
   const { elementsSchema, attributesSchema } = xmlObjectSchema;
-  const mapElements = mapObject(
-    elementsSchema,
-    'unmapXml',
-    allowAdditionalProps
-  );
+  const mapElements = mapObject(elementsSchema, 'unmapXml', mapAdditionalProps);
   const mapAttributes = mapObject(
     attributesSchema,
     'unmapXml',
@@ -310,7 +349,7 @@ function unmapObjectToXml(
   );
 
   // These are later used to omit attribute props from the value object so that they
-  // do not get mapped during element mapping, if the allowAdditionalProps is true.
+  // do not get mapped during element mapping, if the mapAdditionalProps is set.
   const attributeKeys = objectEntries(attributesSchema).map(
     ([_, [name]]) => name
   );
@@ -326,7 +365,7 @@ function unmapObjectToXml(
     const additionalAttributes =
       typeof attributes === 'object' &&
       attributes !== null &&
-      allowAdditionalProps
+      mapAdditionalProps
         ? attributes
         : {};
 
@@ -346,24 +385,49 @@ function validateValueObject({
   objectSchema,
   valueObject,
   ctxt,
-  allowAdditionalProperties,
+  skipAdditionalPropValidation,
+  mapAdditionalProps,
 }: {
-  validationMethod:
-    | 'validateBeforeMap'
-    | 'validateBeforeUnmap'
-    | 'validateBeforeMapXml';
+  validationMethod: string;
   propTypeName: string;
   propTypePrefix: string;
   valueTypeName: string;
   propMapping: Record<string, string>;
   objectSchema: AnyObjectSchema;
-  valueObject: { [key: string]: unknown };
+  valueObject: { [key: string]: any };
   ctxt: SchemaContextCreator;
-  allowAdditionalProperties: boolean;
+  skipAdditionalPropValidation: boolean;
+  mapAdditionalProps: boolean | [string, Schema<any, any>];
 }) {
   const errors: SchemaValidationError[] = [];
   const missingProps: Set<string> = new Set();
+  const conflictingProps: Set<string> = new Set();
   const unknownProps: Set<string> = new Set(Object.keys(valueObject));
+
+  if (
+    validationMethod !== 'validateBeforeMap' &&
+    typeof mapAdditionalProps !== 'boolean' &&
+    mapAdditionalProps[0] in valueObject
+  ) {
+    for (const [key, _] of Object.entries(valueObject[mapAdditionalProps[0]])) {
+      if (Object.prototype.hasOwnProperty.call(objectSchema, key)) {
+        conflictingProps.add(key);
+      }
+    }
+  }
+
+  // Create validation errors for conflicting additional properties keys
+  addErrorsIfAny(
+    conflictingProps,
+    (names) =>
+      createErrorMessage(
+        `Some keys in additional properties are conflicting with the keys in`,
+        valueTypeName,
+        names
+      ),
+    errors,
+    ctxt
+  );
 
   // Validate all known properties using the schema
   for (const key in propMapping) {
@@ -372,12 +436,10 @@ function validateValueObject({
       const schema = objectSchema[propName][1];
       unknownProps.delete(key);
       if (key in valueObject) {
-        errors.push(
-          ...schema[validationMethod](
-            valueObject[key],
-            ctxt.createChild(propTypePrefix + key, valueObject[key], schema)
-          )
-        );
+        schema[validationMethod](
+          valueObject[key],
+          ctxt.createChild(propTypePrefix + key, valueObject[key], schema)
+        ).forEach((e) => errors.push(e));
       } else if (!isOptionalOrNullableType(schema.type())) {
         // Add to missing keys if it is not an optional property
         missingProps.add(key);
@@ -386,30 +448,55 @@ function validateValueObject({
   }
 
   // Create validation error for unknown properties encountered
-  const unknownPropsArray = Array.from(unknownProps);
-  if (unknownPropsArray.length > 0 && !allowAdditionalProperties) {
-    errors.push(
-      ...ctxt.fail(
-        `Some unknown ${propTypeName} were found in the ${valueTypeName}: ${unknownPropsArray
-          .map(literalToString)
-          .join(', ')}.`
-      )
+  if (!skipAdditionalPropValidation) {
+    addErrorsIfAny(
+      unknownProps,
+      (names) =>
+        createErrorMessage(
+          `Some unknown ${propTypeName} were found in the`,
+          valueTypeName,
+          names
+        ),
+      errors,
+      ctxt
     );
   }
 
   // Create validation error for missing required properties
-  const missingPropsArray = Array.from(missingProps);
-  if (missingPropsArray.length > 0) {
-    errors.push(
-      ...ctxt.fail(
-        `Some ${propTypeName} are missing in the ${valueTypeName}: ${missingPropsArray
-          .map(literalToString)
-          .join(', ')}.`
-      )
-    );
-  }
+  addErrorsIfAny(
+    missingProps,
+    (names) =>
+      createErrorMessage(
+        `Some ${propTypeName} are missing in the`,
+        valueTypeName,
+        names
+      ),
+    errors,
+    ctxt
+  );
 
   return errors;
+}
+
+function createErrorMessage(
+  message: string,
+  type: string,
+  properties: string[]
+): string {
+  return `${message} ${type}: ${properties.map(literalToString).join(', ')}.`;
+}
+
+function addErrorsIfAny(
+  conflictingProps: Set<string>,
+  messageGetter: (propNames: string[]) => string,
+  errors: SchemaValidationError[],
+  ctxt: SchemaContextCreator
+) {
+  const conflictingPropsArray = Array.from(conflictingProps);
+  if (conflictingPropsArray.length > 0) {
+    const message = messageGetter(conflictingPropsArray);
+    ctxt.fail(message).forEach((e) => errors.push(e));
+  }
 }
 
 function validateObject(
@@ -418,9 +505,10 @@ function validateObject(
     | 'validateBeforeMap'
     | 'validateBeforeUnmap'
     | 'validateBeforeMapXml',
-  allowAdditionalProperties: boolean
+  skipAdditionalPropValidation: boolean,
+  mapAdditionalProps: boolean | [string, Schema<any, any>]
 ) {
-  const propsMapping = getPropMappingForObjectSchema(objectSchema);
+  const propMapping = getPropMappingForObjectSchema(objectSchema);
   return (value: unknown, ctxt: SchemaContextCreator) => {
     if (typeof value !== 'object' || value === null) {
       return ctxt.fail();
@@ -437,11 +525,12 @@ function validateObject(
       propTypeName: 'properties',
       propTypePrefix: '',
       valueTypeName: 'object',
-      propMapping: propsMapping,
+      propMapping,
       objectSchema,
-      valueObject: value as Record<string, unknown>,
+      valueObject: value as Record<string, any>,
       ctxt,
-      allowAdditionalProperties,
+      skipAdditionalPropValidation,
+      mapAdditionalProps,
     });
   };
 }
@@ -449,53 +538,92 @@ function validateObject(
 function mapObject<T extends AnyObjectSchema>(
   objectSchema: T,
   mappingFn: 'map' | 'unmap' | 'mapXml' | 'unmapXml',
-  allowAdditionalProperties: boolean
+  mapAdditionalProps: boolean | [string, Schema<any, any>]
 ) {
   return (value: unknown, ctxt: SchemaContextCreator): any => {
     const output: Record<string, unknown> = {};
-    const objectValue = value as Record<string, any>;
-    /** Properties seen in the object but not in the schema */
-    const unknownKeys = new Set(Object.keys(objectValue));
+    const objectValue = { ...(value as Record<string, any>) };
+    const isUnmaping = mappingFn === 'unmap' || mappingFn === 'unmapXml';
 
-    // Map known properties using the schema
-    for (const key in objectSchema) {
-      if (!Object.prototype.hasOwnProperty.call(objectSchema, key)) {
-        continue;
-      }
+    if (
+      isUnmaping &&
+      typeof mapAdditionalProps !== 'boolean' &&
+      mapAdditionalProps[0] in objectValue
+    ) {
+      // Pre process to flatten additional properties in objectValue
+      Object.entries(objectValue[mapAdditionalProps[0]]).forEach(
+        ([k, v]) => (objectValue[k] = v)
+      );
+      delete objectValue[mapAdditionalProps[0]];
+    }
 
-      const element = objectSchema[key];
+    // Map known properties to output using the schema
+    Object.entries(objectSchema).forEach(([key, element]) => {
       const propName = element[0];
       const propValue = objectValue[propName];
-      unknownKeys.delete(propName);
+      delete objectValue[propName];
 
       if (isOptionalNullable(element[1].type(), propValue)) {
         if (typeof propValue === 'undefined') {
           // Skip mapping to avoid creating properties with value 'undefined'
-          continue;
+          return;
         }
         output[key] = null;
-        continue;
+        return;
       }
 
       if (isOptional(element[1].type(), propValue)) {
         // Skip mapping to avoid creating properties with value 'undefined'
-        continue;
+        return;
       }
 
       output[key] = element[1][mappingFn](
         propValue,
         ctxt.createChild(propName, propValue, element[1])
       );
-    }
+    });
 
-    // Copy unknown properties over if additional properties flag is set
-    if (allowAdditionalProperties) {
-      unknownKeys.forEach((unknownKey) => {
-        output[unknownKey] = objectValue[unknownKey];
-      });
-    }
+    // Copy the additional unknown properties in output when allowed
+    Object.entries(
+      extractAdditionalProperties(objectValue, isUnmaping, mapAdditionalProps)
+    ).forEach(([k, v]) => (output[k] = v));
+
     return output;
   };
+}
+
+function extractAdditionalProperties(
+  objectValue: Record<string, any>,
+  isUnmaping: boolean,
+  mapAdditionalProps: boolean | [string, Schema<any, any>]
+): Record<string, any> {
+  const properties: Record<string, any> = {};
+
+  if (!mapAdditionalProps) {
+    return properties;
+  }
+
+  if (typeof mapAdditionalProps === 'boolean') {
+    Object.entries(objectValue).forEach(([k, v]) => (properties[k] = v));
+    return properties;
+  }
+
+  Object.entries(objectValue).forEach(([k, v]) => {
+    const testValue = { [k]: v };
+    const mappingResult = isUnmaping
+      ? validateAndUnmap(testValue, mapAdditionalProps[1])
+      : validateAndMap(testValue, mapAdditionalProps[1]);
+    if (mappingResult.errors) {
+      return;
+    }
+    properties[k] = mappingResult.result[k];
+  });
+
+  if (isUnmaping || Object.entries(properties).length === 0) {
+    return properties;
+  }
+
+  return { [mapAdditionalProps[0]]: properties };
 }
 
 function getXmlPropMappingForObjectSchema(objectSchema: AnyObjectSchema) {
@@ -531,19 +659,16 @@ function getPropMappingForObjectSchema(
   return propsMapping;
 }
 
-function createReverseObjectSchema<T extends AnyObjectSchema>(
+const createReverseObjectSchema = <T extends AnyObjectSchema>(
   objectSchema: T
-): AnyObjectSchema {
-  const reverseObjectSchema: AnyObjectSchema = {};
-  for (const key in objectSchema) {
-    /* istanbul ignore else */
-    if (Object.prototype.hasOwnProperty.call(objectSchema, key)) {
-      const element = objectSchema[key];
-      reverseObjectSchema[element[0]] = [key, element[1], element[2]];
-    }
-  }
-  return reverseObjectSchema;
-}
+): AnyObjectSchema =>
+  Object.entries(objectSchema).reduce(
+    (result, [key, element]) => ({
+      ...result,
+      [element[0]]: [key, element[1], element[2]],
+    }),
+    {} as AnyObjectSchema
+  );
 
 interface XmlObjectSchema {
   elementsSchema: AnyObjectSchema;

@@ -195,16 +195,15 @@ router.get('/subscription/status', verifyToken, async (req, res) => {
 // 📌 ✅ 구독 상태 조회 API
 router.get("/subscription-status", verifyToken, async (req, res) => {
   try {
-    const userId = req.query.userId;
+    const { id: userId, dojang_code } = req.user;
 
     if (!userId) {
       return res.status(400).json({ success: false, message: "Missing userId" });
     }
 
-    // ✅ 구독 정보 조회
     const [rows] = await db.query(
-      "SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE user_id = ?",
-      [userId]
+      "SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE user_id = ? AND dojang_code = ?",
+      [userId, dojang_code]
     );
 
     if (rows.length === 0) {
