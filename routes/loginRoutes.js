@@ -23,7 +23,7 @@ router.post('/login', async (req, res) => {
       user = userResults[0];
       role = 'owner';
     } else {
-      const queryParents = `SELECT * FROM Parents WHERE email = ?`;
+      const queryParents = `SELECT * FROM parents WHERE email = ?`;
       const [parentResults] = await db.query(queryParents, [email]);
 
       if (parentResults.length === 0) {
