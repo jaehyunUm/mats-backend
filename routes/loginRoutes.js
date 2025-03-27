@@ -16,7 +16,7 @@ router.post('/login', async (req, res) => {
     let user;
     let role;
 
-    const queryUsers = `SELECT * FROM Users WHERE email = ?`;
+    const queryUsers = `SELECT * FROM users WHERE email = ?`;
     const [userResults] = await db.query(queryUsers, [email]);
 
     if (userResults.length > 0) {
