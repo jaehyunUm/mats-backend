@@ -594,7 +594,8 @@ router.post("/customer-create", verifyToken, async (req, res) => {
 });
 
 router.post('/card-save', verifyToken, async (req, res) => {
-  const { cardToken, customerId, ownerId, billingInfo, payment_policy_agreed } = req.body;
+  const { nonce, customerId, ownerId, billingInfo, payment_policy_agreed } = req.body;
+  const cardToken = nonce;
   const { dojang_code } = req.user; // 토큰에서 도장코드
 
   if (!ownerId) {
@@ -612,14 +613,17 @@ router.post('/card-save', verifyToken, async (req, res) => {
   }
 
   try {
-    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_PRODUCTION;
+    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_SANDBOX;
 
     if (!ownerAccessToken) {
       return res.status(500).json({ success: false, message: "Square Access Token is not configured." });
     }
 
     // Square API 호출
+    cardsApi.configuration.accessToken = ownerAccessToken;
+
     const { result: cardResult } = await cardsApi.createCard({
+      
       idempotencyKey: uuidv4(),
       sourceId: cardToken,
       card: {
@@ -636,7 +640,12 @@ router.post('/card-save', verifyToken, async (req, res) => {
     });
 
     if (!cardResult || cardResult.errors) {
-      return res.status(400).json({ success: false, message: "Failed to save card. Square API Error", squareError: cardResult.errors });
+      console.error('Square error:', cardResult.errors); // 🔥 여기에 추가!!
+      return res.status(400).json({
+        success: false,
+        message: "Failed to save card. Square API Error",
+        squareError: cardResult.errors
+      });
     }
 
     const savedCardId = cardResult.card.id;

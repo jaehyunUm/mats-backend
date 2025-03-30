@@ -20,8 +20,9 @@ router.post('/students/upload-image/:studentId', verifyToken, upload.single('ima
       }
   
       // S3에 이미지 업로드
-      const imageUrl = await uploadFileToS3(req.file.originalname, req.file.buffer, dojang_code); // dojang_code 전달
-  
+      const uniqueFilename = `student_${studentId}_${Date.now()}.jpg`;
+      const imageUrl = await uploadFileToS3(uniqueFilename, req.file.buffer, dojang_code);
+      
       // students 테이블에 이미지 URL 업데이트
       const updateQuery = `UPDATE students SET profile_image = ? WHERE id = ? AND dojang_code = ?`;
       await db.query(updateQuery, [imageUrl, studentId, dojang_code]);
