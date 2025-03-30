@@ -594,36 +594,72 @@ router.post("/customer-create", verifyToken, async (req, res) => {
 });
 
 router.post('/card-save', verifyToken, async (req, res) => {
-  console.log("📦 cardToken (nonce):", cardToken);
-
+  // 요청 수신 시점 로깅
+  console.log("✨ API 요청 수신: /card-save");
+  console.log("✨ 요청 본문:", JSON.stringify(req.body));
+  console.log("✨ 요청 헤더:", JSON.stringify(req.headers));
+  
   const { nonce, customerId, ownerId, billingInfo, payment_policy_agreed } = req.body;
   const cardToken = nonce;
+  
+  // 사용자 정보 로깅
+  console.log("✨ 인증된 사용자:", JSON.stringify(req.user));
   const { dojang_code } = req.user; // 토큰에서 도장코드
-
+  
+  // 필수 필드 검증
   if (!ownerId) {
+    console.log("❌ 오류: Owner ID 누락");
     return res.status(400).json({ success: false, message: "Owner ID is required." });
   }
-
-  if (!cardToken || !customerId || !billingInfo) {
-    return res.status(400).json({ success: false, message: "Missing required fields." });
+  
+  if (!cardToken) {
+    console.log("❌ 오류: cardToken(nonce) 누락");
+    return res.status(400).json({ success: false, message: "Card token is required." });
   }
-
+  
+  if (!customerId) {
+    console.log("❌ 오류: customerId 누락");
+    return res.status(400).json({ success: false, message: "Customer ID is required." });
+  }
+  
+  if (!billingInfo) {
+    console.log("❌ 오류: billingInfo 누락");
+    return res.status(400).json({ success: false, message: "Billing info is required." });
+  }
+  
+  // 청구 정보 로깅 및 검증
+  console.log("✨ 청구 정보:", JSON.stringify(billingInfo));
   const { cardholderName, addressLine1, locality, administrativeDistrictLevel1, postalCode, country } = billingInfo;
-
+  
   if (!cardholderName || !addressLine1 || !locality || !administrativeDistrictLevel1 || !postalCode || !country) {
+    console.log("❌ 오류: 청구 정보 필드 누락");
+    console.log("✨ cardholderName:", cardholderName);
+    console.log("✨ addressLine1:", addressLine1);
+    console.log("✨ locality:", locality);
+    console.log("✨ administrativeDistrictLevel1:", administrativeDistrictLevel1);
+    console.log("✨ postalCode:", postalCode);
+    console.log("✨ country:", country);
     return res.status(400).json({ success: false, message: "Missing required billing info fields." });
   }
-
+  
   try {
+    console.log("✨ Square API 호출 준비");
     const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_SANDBOX;
-
     if (!ownerAccessToken) {
+      console.log("❌ 오류: Square Access Token 설정 누락");
       return res.status(500).json({ success: false, message: "Square Access Token is not configured." });
     }
-
-
+    
+    console.log("✨ 카드 생성 요청:", JSON.stringify({
+      idempotencyKey: "UUID 생성됨",
+      sourceId: cardToken,
+      cardholderName,
+      customerId
+    }));
+    
+    // Square API 호출
+    console.time("Square API 호출 시간");
     const { result: cardResult } = await cardsApi.createCard({
-      
       idempotencyKey: uuidv4(),
       sourceId: cardToken,
       card: {
@@ -638,27 +674,47 @@ router.post('/card-save', verifyToken, async (req, res) => {
         customerId,
       },
     });
-
-    if (!cardResult || cardResult.errors) {
-      console.error('Square error:', cardResult.errors); // 🔥 여기에 추가!!
+    console.timeEnd("Square API 호출 시간");
+    
+    // Square API 응답 확인
+    if (!cardResult) {
+      console.log("❌ 오류: Square API 응답 없음");
+      return res.status(400).json({
+        success: false,
+        message: "Failed to save card. No response from Square API."
+      });
+    }
+    
+    if (cardResult.errors) {
+      console.error('❌ Square API 오류:', JSON.stringify(cardResult.errors));
       return res.status(400).json({
         success: false,
         message: "Failed to save card. Square API Error",
         squareError: cardResult.errors
       });
     }
-
+    
+    // 카드 정보 로깅
+    console.log("✨ Square API 응답 성공:", JSON.stringify({
+      cardId: cardResult.card.id,
+      cardBrand: cardResult.card.cardBrand,
+      last4: cardResult.card.last4,
+      expMonth: cardResult.card.expMonth,
+      expYear: cardResult.card.expYear
+    }));
+    
     const savedCardId = cardResult.card.id;
     const expiration = `${cardResult.card.expMonth}/${cardResult.card.expYear}`;
     const lastFour = cardResult.card.last4;
     const cardBrand = cardResult.card.cardBrand;
-
-    // ✅ MySQL에 카드 + 결제 동의 정보 저장
+    
+    // DB 저장 준비
+    console.log("✨ DB 저장 준비");
     const query = `
       INSERT INTO saved_cards (owner_id, card_name, expiration, card_token, card_id, card_brand, last_four, dojang_code, customer_id, payment_policy_agreed, payment_policy_agreed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-
+    
     const queryParams = [
       ownerId, // 오너 ID
       cardholderName,
@@ -672,12 +728,37 @@ router.post('/card-save', verifyToken, async (req, res) => {
       payment_policy_agreed ? 1 : 0, // 동의 여부 저장
       payment_policy_agreed ? new Date() : null // 동의 시간
     ];
-
+    
+    // 쿼리 파라미터 로깅 (민감 정보 제외)
+    console.log("✨ DB 쿼리 파라미터:", JSON.stringify({
+      ownerId,
+      cardName: cardholderName,
+      expiration,
+      cardId: savedCardId,
+      cardBrand,
+      lastFour,
+      dojang_code: dojang_code || null,
+      customerId,
+      payment_policy_agreed: payment_policy_agreed ? 1 : 0,
+      payment_policy_agreed_at: payment_policy_agreed ? new Date() : null
+    }));
+    
+    // DB 저장
+    console.time("DB 저장 시간");
     await db.execute(query, queryParams);
-
+    console.timeEnd("DB 저장 시간");
+    
+    console.log("✅ 카드 저장 완료:", savedCardId);
+    
     res.status(200).json({ success: true, cardId: savedCardId });
   } catch (error) {
-    console.error("❌ ERROR saving card:", error);
+    console.error("❌ 카드 저장 오류:", error);
+    console.error("❌ 오류 세부 정보:", JSON.stringify({
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    }));
+    
     res.status(500).json({ success: false, message: "Failed to save card." });
   }
 });
