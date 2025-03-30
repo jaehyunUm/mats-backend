@@ -650,6 +650,10 @@ router.post('/card-save', verifyToken, async (req, res) => {
       return res.status(500).json({ success: false, message: "Square Access Token is not configured." });
     }
     
+    // Square API 환경 정보 로깅
+    console.log("✨ Square API 환경:", process.env.NODE_ENV);
+    console.log("✨ Square API 모드:", process.env.SQUARE_ENVIRONMENT || "설정 없음");
+    
     console.log("✨ 카드 생성 요청:", JSON.stringify({
       idempotencyKey: "UUID 생성됨",
       sourceId: cardToken,
@@ -657,26 +661,41 @@ router.post('/card-save', verifyToken, async (req, res) => {
       customerId
     }));
     
-    // Square API 호출
+    // Square API 호출 - 내부 try-catch로 감싸기
     console.time("Square API 호출 시간");
-    const { result: cardResult } = await cardsApi.createCard({
-      idempotencyKey: uuidv4(),
-      sourceId: cardToken,
-      card: {
-        cardholderName,
-        billingAddress: {
-          addressLine1,
-          locality,
-          administrativeDistrictLevel1,
-          postalCode,
-          country,
+    let cardResult;
+    try {
+      const response = await cardsApi.createCard({
+        idempotencyKey: uuidv4(),
+        sourceId: cardToken,
+        card: {
+          cardholderName,
+          billingAddress: {
+            addressLine1,
+            locality,
+            administrativeDistrictLevel1,
+            postalCode,
+            country,
+          },
+          customerId,
         },
-        customerId,
-      },
-    });
-    console.timeEnd("Square API 호출 시간");
+      });
+      cardResult = response.result;
+      console.timeEnd("Square API 호출 시간");
+    } catch (squareError) {
+      console.error("❌ Square API 호출 오류:", squareError);
+      console.error("❌ Square 오류 메시지:", squareError.message);
+      console.error("❌ Square 오류 상세:", squareError.errors || "상세 정보 없음");
+      console.error("❌ Square 응답 전체:", JSON.stringify(squareError.response || {}));
+      return res.status(400).json({
+        success: false,
+        message: "Failed to save card. Square API Error",
+        squareError: squareError.message,
+        details: squareError.errors || []
+      });
+    }
     
-    // Square API 응답 확인
+    // Square API 응답 확인 - cardResult가 유효한지 확인
     if (!cardResult) {
       console.log("❌ 오류: Square API 응답 없음");
       return res.status(400).json({
@@ -762,7 +781,6 @@ router.post('/card-save', verifyToken, async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to save card." });
   }
 });
-
 
 
 module.exports = router;
