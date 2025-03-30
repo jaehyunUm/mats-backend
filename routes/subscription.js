@@ -561,36 +561,83 @@ router.get("/customer/cards/:customerId", verifyToken, async (req, res) => {
 
 
 router.post("/customer-create", verifyToken, async (req, res) => {
+  const { email, cardholderName } = req.body;
+  
+  if (!email || !cardholderName) {
+    return res.status(400).json({ success: false, message: "Missing required fields" });
+  }
+  
+  try {
+    console.log("📢 DEBUG: Checking for existing customer with email:", email);
     
-    const { email, cardholderName } = req.body;
-
-    if (!email || !cardholderName) {
-        return res.status(400).json({ success: false, message: "Missing required fields" });
+    // 기존 고객 검색
+    const searchResponse = await customersApi.searchCustomers({
+      query: {
+        filter: {
+          email_address: {
+            exact: email
+          }
+        }
+      }
+    });
+    
+    // 검색 결과 확인
+    if (searchResponse.result.customers && searchResponse.result.customers.length > 0) {
+      // 이름도 확인
+      const existingCustomers = searchResponse.result.customers;
+      console.log(`📢 DEBUG: Found ${existingCustomers.length} customer(s) with email: ${email}`);
+      
+      for (const customer of existingCustomers) {
+        const existingFullName = `${customer.givenName || ''} ${customer.familyName || ''}`.trim();
+        console.log(`📢 DEBUG: Comparing names - Existing: "${existingFullName}", Requested: "${cardholderName}"`);
+        
+        // 이름 유사도 검사 (대소문자 무시, 공백 정규화)
+        const normalizedExistingName = existingFullName.toLowerCase().replace(/\s+/g, ' ');
+        const normalizedRequestedName = cardholderName.toLowerCase().replace(/\s+/g, ' ');
+        
+        if (normalizedExistingName === normalizedRequestedName ||
+            normalizedExistingName.includes(normalizedRequestedName) ||
+            normalizedRequestedName.includes(normalizedExistingName)) {
+          console.log("✅ Found matching existing customer:", customer.id);
+          return res.status(200).json({ 
+            success: true, 
+            customerId: customer.id, 
+            message: "Using existing customer" 
+          });
+        }
+      }
+      
+      console.log("📢 DEBUG: Email matches but name doesn't match, creating new customer");
+    } else {
+      console.log("📢 DEBUG: No existing customer found with this email");
     }
-
-    try {
-        console.log("📢 DEBUG: Creating customer for email:", email);
-
-        const [firstName, ...lastNameParts] = cardholderName.split(" ");
-        const lastName = lastNameParts.join(" ") || "Unknown";
-
-        console.log("📢 DEBUG: First Name:", firstName);
-        console.log("📢 DEBUG: Last Name:", lastName);
-
-        // ✅ Square API를 사용하여 고객 생성
-        const response = await customersApi.createCustomer({
-            givenName: firstName,
-            familyName: lastName,
-            emailAddress: email
-        });
-
-        console.log("📢 DEBUG: Raw Square API Response:", JSON.stringify(customersApi, null, 2));
-        console.log("✅ Customer created successfully:", response.result);
-        res.status(200).json({ success: true, customerId: response.result.customer.id });
-    } catch (error) {
-        console.error("❌ ERROR creating customer:", error);
-        res.status(500).json({ success: false, message: "Failed to create customer", error: error.message });
+    
+    // 새 고객 생성
+    console.log("📢 DEBUG: Creating new customer for email:", email);
+    const [firstName, ...lastNameParts] = cardholderName.split(" ");
+    const lastName = lastNameParts.join(" ") || "Unknown";
+    console.log("📢 DEBUG: First Name:", firstName);
+    console.log("📢 DEBUG: Last Name:", lastName);
+    
+    // Square API로 고객 생성
+    const response = await customersApi.createCustomer({
+      givenName: firstName,
+      familyName: lastName,
+      emailAddress: email
+    });
+    
+    console.log("✅ Customer created successfully:", response.result.customer.id);
+    res.status(200).json({ success: true, customerId: response.result.customer.id });
+  } catch (error) {
+    console.error("❌ ERROR:", error);
+    
+    // 오류 세부 정보 로깅
+    if (error.errors) {
+      console.error("❌ Square API Error Details:", JSON.stringify(error.errors));
     }
+    
+    res.status(500).json({ success: false, message: "Failed to create customer", error: error.message });
+  }
 });
 
 router.post('/card-save', verifyToken, async (req, res) => {
