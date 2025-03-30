@@ -594,6 +594,8 @@ router.post("/customer-create", verifyToken, async (req, res) => {
 });
 
 router.post('/card-save', verifyToken, async (req, res) => {
+  console.log("📦 cardToken (nonce):", cardToken);
+
   const { nonce, customerId, ownerId, billingInfo, payment_policy_agreed } = req.body;
   const cardToken = nonce;
   const { dojang_code } = req.user; // 토큰에서 도장코드
@@ -613,14 +615,12 @@ router.post('/card-save', verifyToken, async (req, res) => {
   }
 
   try {
-    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_SANDBOX;
+    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_PRODUCTION;
 
     if (!ownerAccessToken) {
       return res.status(500).json({ success: false, message: "Square Access Token is not configured." });
     }
 
-    // Square API 호출
-    cardsApi.configuration.accessToken = ownerAccessToken;
 
     const { result: cardResult } = await cardsApi.createCard({
       
