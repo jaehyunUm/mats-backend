@@ -594,6 +594,20 @@ router.post("/customer-create", verifyToken, async (req, res) => {
 });
 
 router.post('/card-save', verifyToken, async (req, res) => {
+  // JSON.stringify에 BigInt 처리 기능 추가 (전역 처리)
+  if (!JSON._stringify) {
+    JSON._stringify = JSON.stringify;
+    JSON.stringify = function(obj, replacer, space) {
+      return JSON._stringify(obj, function(key, value) {
+        if (typeof value === 'bigint') {
+          return value.toString();
+        }
+        return (replacer ? replacer(key, value) : value);
+      }, space);
+    };
+    console.log("✅ JSON.stringify가 BigInt를 처리하도록 수정됨");
+  }
+
   // 요청 수신 시점 로깅
   console.log("✨ API 요청 수신: /card-save");
   console.log("✨ 요청 본문:", JSON.stringify(req.body));
@@ -686,7 +700,11 @@ router.post('/card-save', verifyToken, async (req, res) => {
       console.error("❌ Square API 호출 오류:", squareError);
       console.error("❌ Square 오류 메시지:", squareError.message);
       console.error("❌ Square 오류 상세:", squareError.errors || "상세 정보 없음");
-      console.error("❌ Square 응답 전체:", JSON.stringify(squareError.response || {}));
+      try {
+        console.error("❌ Square 응답 전체:", JSON.stringify(squareError.response || {}));
+      } catch (jsonError) {
+        console.error("❌ Square 응답(직렬화 불가):", squareError.response);
+      }
       return res.status(400).json({
         success: false,
         message: "Failed to save card. Square API Error",
@@ -705,7 +723,11 @@ router.post('/card-save', verifyToken, async (req, res) => {
     }
     
     if (cardResult.errors) {
-      console.error('❌ Square API 오류:', JSON.stringify(cardResult.errors));
+      try {
+        console.error('❌ Square API 오류:', JSON.stringify(cardResult.errors));
+      } catch (jsonError) {
+        console.error('❌ Square API 오류(직렬화 불가):', cardResult.errors);
+      }
       return res.status(400).json({
         success: false,
         message: "Failed to save card. Square API Error",
@@ -714,13 +736,17 @@ router.post('/card-save', verifyToken, async (req, res) => {
     }
     
     // 카드 정보 로깅
-    console.log("✨ Square API 응답 성공:", JSON.stringify({
-      cardId: cardResult.card.id,
-      cardBrand: cardResult.card.cardBrand,
-      last4: cardResult.card.last4,
-      expMonth: cardResult.card.expMonth,
-      expYear: cardResult.card.expYear
-    }));
+    try {
+      console.log("✨ Square API 응답 성공:", JSON.stringify({
+        cardId: cardResult.card.id,
+        cardBrand: cardResult.card.cardBrand,
+        last4: cardResult.card.last4,
+        expMonth: cardResult.card.expMonth,
+        expYear: cardResult.card.expYear
+      }));
+    } catch (jsonError) {
+      console.log("✨ Square API 응답 성공(직렬화 불가)");
+    }
     
     const savedCardId = cardResult.card.id;
     const expiration = `${cardResult.card.expMonth}/${cardResult.card.expYear}`;
@@ -747,9 +773,26 @@ router.post('/card-save', verifyToken, async (req, res) => {
       payment_policy_agreed ? 1 : 0, // 동의 여부 저장
       payment_policy_agreed ? new Date() : null // 동의 시간
     ];
+
+    // 안전한 로깅을 위한 헬퍼 함수
+    const safeLog = (message, data) => {
+      try {
+        console.log(message, JSON.stringify(data));
+      } catch (error) {
+        console.log(message, "(직렬화 불가)");
+        // 개별 필드 로깅 시도
+        for (const [key, value] of Object.entries(data)) {
+          try {
+            console.log(`${message} - ${key}:`, JSON.stringify(value));
+          } catch (e) {
+            console.log(`${message} - ${key}: (직렬화 불가)`);
+          }
+        }
+      }
+    };
     
     // 쿼리 파라미터 로깅 (민감 정보 제외)
-    console.log("✨ DB 쿼리 파라미터:", JSON.stringify({
+    safeLog("✨ DB 쿼리 파라미터:", {
       ownerId,
       cardName: cardholderName,
       expiration,
@@ -760,23 +803,34 @@ router.post('/card-save', verifyToken, async (req, res) => {
       customerId,
       payment_policy_agreed: payment_policy_agreed ? 1 : 0,
       payment_policy_agreed_at: payment_policy_agreed ? new Date() : null
-    }));
+    });
     
     // DB 저장
     console.time("DB 저장 시간");
-    await db.execute(query, queryParams);
-    console.timeEnd("DB 저장 시간");
-    
-    console.log("✅ 카드 저장 완료:", savedCardId);
-    
-    res.status(200).json({ success: true, cardId: savedCardId });
+    try {
+      await db.execute(query, queryParams);
+      console.timeEnd("DB 저장 시간");
+      console.log("✅ 카드 저장 완료:", savedCardId);
+      res.status(200).json({ success: true, cardId: savedCardId });
+    } catch (dbError) {
+      console.error("❌ DB 저장 오류:", dbError);
+      res.status(500).json({ 
+        success: false, 
+        message: "Card was created in Square but failed to save in database.",
+        cardId: savedCardId
+      });
+    }
   } catch (error) {
-    console.error("❌ 카드 저장 오류:", error);
-    console.error("❌ 오류 세부 정보:", JSON.stringify({
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    }));
+    try {
+      console.error("❌ 카드 저장 오류:", error);
+      console.error("❌ 오류 세부 정보:", JSON.stringify({
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      }));
+    } catch (jsonError) {
+      console.error("❌ 카드 저장 오류(직렬화 불가):", error.message || "Unknown error");
+    }
     
     res.status(500).json({ success: false, message: "Failed to save card." });
   }
