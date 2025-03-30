@@ -615,7 +615,7 @@ router.post('/card-save', verifyToken, async (req, res) => {
   }
 
   try {
-    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_PRODUCTION;
+    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_SANDBOX;
 
     if (!ownerAccessToken) {
       return res.status(500).json({ success: false, message: "Square Access Token is not configured." });
