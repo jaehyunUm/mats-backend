@@ -644,7 +644,7 @@ router.post('/card-save', verifyToken, async (req, res) => {
   
   try {
     console.log("✨ Square API 호출 준비");
-    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_SANDBOX;
+    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_PRODUCTION;
     if (!ownerAccessToken) {
       console.log("❌ 오류: Square Access Token 설정 누락");
       return res.status(500).json({ success: false, message: "Square Access Token is not configured." });
