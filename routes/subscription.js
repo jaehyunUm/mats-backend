@@ -522,41 +522,37 @@ router.get("/customer/:ownerId" ,verifyToken,  async (req, res) => {
 
 
 router.get("/customer/cards/:customerId", verifyToken, async (req, res) => {
-    const { customerId } = req.params;
-
-    if (!customerId) {
-        return res.status(400).json({ success: false, message: "Missing customerId" });
-    }
-
-    try {
+  const { customerId } = req.params;
+  if (!customerId) {
+    return res.status(400).json({ success: false, message: "Missing customerId" });
+  }
+  
+  try {
+    // ✅ Square API에서 고객 카드 목록 가져오기
+    const squareApiResponse = await cardsApi.listCards(undefined, customerId);
     
-        // ✅ Square API에서 고객 카드 목록 가져오기
-        const squareApiResponse = await cardsApi.listCards(undefined, customerId);
-
-       
-        if (!squareApiResponse.result.cards || squareApiResponse.result.cards.length === 0) {
-            return res.status(404).json({ success: false, message: "No cards found for this customer." });
-        }
-
-        // ✅ `BigInt` 값을 문자열로 변환하여 JSON 직렬화 오류 방지
-        const sanitizedData = squareApiResponse.result.cards.map(card => {
-            return Object.fromEntries(
-                Object.entries(card).map(([key, value]) => {
-                    if (typeof value === "bigint") {
-                        return [key, value.toString()];
-                    }
-                    return [key, value];
-                })
-            );
-        });
-
-       
-        res.status(200).json({ success: true, cards: sanitizedData });
-
-    } catch (error) {
-        console.error("❌ ERROR fetching customer cards:", error);
-        res.status(500).json({ success: false, message: "Failed to retrieve customer cards", error: error.message });
+    // 카드가 없는 경우 빈 배열 반환 (오류 대신)
+    if (!squareApiResponse.result.cards || squareApiResponse.result.cards.length === 0) {
+      return res.status(200).json({ success: true, cards: [] });
     }
+    
+    // ✅ `BigInt` 값을 문자열로 변환하여 JSON 직렬화 오류 방지
+    const sanitizedData = squareApiResponse.result.cards.map(card => {
+      return Object.fromEntries(
+        Object.entries(card).map(([key, value]) => {
+          if (typeof value === "bigint") {
+            return [key, value.toString()];
+          }
+          return [key, value];
+        })
+      );
+    });
+    
+    res.status(200).json({ success: true, cards: sanitizedData });
+  } catch (error) {
+    console.error("❌ ERROR fetching customer cards:", error);
+    res.status(500).json({ success: false, message: "Failed to retrieve customer cards", error: error.message });
+  }
 });
 
 
