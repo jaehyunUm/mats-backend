@@ -33,19 +33,20 @@ const generateCodeChallenge = (codeVerifier) => {
 };
 
 // ✅ OAuth 인증 URL 생성 함수 (PKCE 적용)
-const generateOAuthLink = (redirectUri) => {
-    const clientId = process.env.SQUARE_APPLICATION_ID_PRODUCTION;
-    const scope = "BANK_ACCOUNTS_READ BANK_ACCOUNTS_WRITE CUSTOMERS_READ CUSTOMERS_WRITE PAYMENTS_READ PAYMENTS_WRITE";
-    
-    const codeVerifier = generateCodeVerifier();
-    const codeChallenge = generateCodeChallenge(codeVerifier);
-  
-    // 🔐 dojang_code와 code_verifier를 state에 담기
-    const state = encodeURIComponent(`${dojangCode}::${codeVerifier}`);
-  
-    return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=${redirectUri}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-  };
+const generateOAuthLink = (redirectUri, dojangCode) => {
+  const clientId = process.env.SQUARE_APPLICATION_ID_PRODUCTION;
+  const scope = "BANK_ACCOUNTS_READ BANK_ACCOUNTS_WRITE CUSTOMERS_READ CUSTOMERS_WRITE PAYMENTS_READ PAYMENTS_WRITE";
 
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = generateCodeChallenge(codeVerifier);
+
+  process.env.SQUARE_CODE_VERIFIER = codeVerifier;
+
+  // ✅ 추가 로그 (선택)
+  console.log("💡 Generating OAuth Link for Dojang:", dojangCode);
+
+  return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=${redirectUri}&state=${dojangCode}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+};
 
 
 
