@@ -71,7 +71,7 @@ router.get('/bank-account/callback', async (req, res) => {
 
     console.log("✅ Square OAuth Data Successfully Stored in Database");
 
-    res.redirect("mymats://oauth-callback");
+    res.redirect("matsapp://oauth-callback");
 
   } catch (error) {
     console.error('❌ OAuth Error:', error);
