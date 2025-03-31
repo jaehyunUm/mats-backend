@@ -11,7 +11,7 @@ require('dotenv').config();
 
 router.get('/bank-account/connect', verifyToken, (req, res) => {
   const { dojang_code } = req.user; // token에서 추출
-  const redirectUri = 'https://mats-backend.onrender.com/api/bank-account/callback';
+  const redirectUri = "mymats://oauth-callback"; // ✅ 여기 수정
   const authLink = generateOAuthLink(redirectUri, dojang_code);
   res.json({ success: true, url: authLink });
 });
@@ -71,7 +71,7 @@ router.get('/bank-account/callback', async (req, res) => {
 
     console.log("✅ Square OAuth Data Successfully Stored in Database");
 
-    res.json({ success: true, redirectTo: "https://squareup.com/dashboard" });
+    res.redirect("mymats://oauth-callback");
 
   } catch (error) {
     console.error('❌ OAuth Error:', error);
