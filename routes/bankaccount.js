@@ -10,7 +10,7 @@ require('dotenv').config();
 
 
 router.get('/bank-account/connect', (req, res) => {
-    const redirectUri = 'http://localhost:3000/api/bank-account/callback'; // 콜백 URI 설정
+    const redirectUri = 'https://mats-backend.onrender.com/api/bank-account/callback'; // 콜백 URI 설정
     const authLink = generateOAuthLink(redirectUri);
     res.json({ success: true, url: authLink });
   });
