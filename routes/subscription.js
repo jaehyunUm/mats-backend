@@ -5,7 +5,7 @@ const verifySubscription = require('../middleware/verifySubscription');
 const verifyToken = require('../middleware/verifyToken');
 const { cardsApi, customersApi, subscriptionsApi, locationId , squareClient} = require('../modules/squareClient'); // ✅ Square API 가져오기
 const { v4: uuidv4 } = require("uuid");
-const { createOrderTemplate } = require('./createOrderTemplate'); // ② 방금 만든 함수
+const { createOrderTemplate } = require('./createOrderTemplate'); 
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { subscriptionId } = req.body;
@@ -226,6 +226,13 @@ router.get("/subscription-status", verifyToken, async (req, res) => {
   
 
 router.post("/subscription",verifyToken, async (req, res) => {
+
+
+  
+  if (!userId || !customerId || !planVariationId || !card_id || !start_date || !location_id || !dojang_code) {
+    console.error("❌ ERROR: Missing required fields in subscription request.");
+    return res.status(400).json({ success: false, message: "Missing required fields" });
+  }
     try {
       const {
         quantity = "1",
