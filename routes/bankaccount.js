@@ -17,22 +17,26 @@ router.get('/bank-account/connect', verifyToken, (req, res) => {
 });
 
 
+// ✅ Step 2: OAuth 콜백
 router.get('/bank-account/callback', async (req, res) => {
   const { code, state } = req.query;
 
-  console.log("🔹 Authorization Code:", code);
-  console.log("🔹 State:", state);
-
   if (!code || !state) {
-    return res.status(400).json({ success: false, message: "Missing authorization code or state" });
+    return res.status(400).json({ success: false, message: 'Missing code or state' });
   }
 
-  // state는 dojang_code로 사용
-const dojang_code = state;
+  let dojang_code, codeVerifier;
+  try {
+    const decoded = JSON.parse(Buffer.from(state, 'base64').toString());
+    dojang_code = decoded.dojang_code;
+    codeVerifier = decoded.code_verifier;
 
-// 여기서 dojang_code 로그 찍어보기
-console.log("✅ Callback received with dojang_code (state):", dojang_code);
-
+    console.log("✅ Callback received with dojang_code (state):", dojang_code);
+    console.log("✅ Callback received with codeVerifier:", codeVerifier);
+  } catch (err) {
+    console.error("❌ Invalid state format:", err);
+    return res.status(400).json({ success: false, message: 'Invalid state format' });
+  }
 
   try {
     const response = await client.oAuthApi.obtainToken({
@@ -40,14 +44,18 @@ console.log("✅ Callback received with dojang_code (state):", dojang_code);
       code,
       grantType: 'authorization_code',
       redirectUri: process.env.SQUARE_REDIRECT_URI,
-      codeVerifier,
+      codeVerifier: codeVerifier
     });
 
-    console.log('✅ Square API Response:', response.result);
-
     const { accessToken, merchantId, refreshToken } = response.result;
+
+    if (!accessToken || !merchantId) {
+      return res.status(500).json({ success: false, message: 'Square API response missing required fields' });
+    }
+
     const scope = "BANK_ACCOUNTS_READ, BANK_ACCOUNTS_WRITE, CUSTOMERS_READ, CUSTOMERS_WRITE, PAYMENTS_READ, PAYMENTS_WRITE";
 
+    // ✅ DB 저장
     const query = `
       INSERT INTO owner_bank_accounts (dojang_code, square_access_token, merchant_id, scope, refresh_token)
       VALUES (?, ?, ?, ?, ?)
@@ -60,12 +68,13 @@ console.log("✅ Callback received with dojang_code (state):", dojang_code);
 
     await db.query(query, [dojang_code, accessToken, merchantId, scope, refreshToken]);
 
-    console.log("✅ OAuth data stored successfully");
+    console.log("✅ Square OAuth Data Successfully Stored in Database");
 
-    res.send("✅ Your Square account has been connected. You can close this page.");
+    res.json({ success: true, redirectTo: "https://squareup.com/dashboard" });
+
   } catch (error) {
-    console.error("❌ OAuth error:", error);
-    res.status(500).json({ success: false, message: "Failed to connect Square account" });
+    console.error('❌ OAuth Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to connect Square account' });
   }
 });
 
