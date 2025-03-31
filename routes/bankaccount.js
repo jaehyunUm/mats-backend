@@ -16,23 +16,24 @@ router.get('/bank-account/connect', verifyToken, (req, res) => {
   res.json({ success: true, url: authLink });
 });
 
+const base64urlDecode = (str) => {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return JSON.parse(Buffer.from(str, 'base64').toString());
+};
 
 // ✅ Step 2: OAuth 콜백
 router.get('/bank-account/callback', async (req, res) => {
   const { code, state } = req.query;
-
-  if (!code || !state) {
-    return res.status(400).json({ success: false, message: 'Missing code or state' });
-  }
+  console.log("🔹 Authorization Code:", code);
+  console.log("🔹 State:", state);
 
   let dojang_code, codeVerifier;
   try {
-    const decoded = JSON.parse(Buffer.from(state, 'base64').toString());
+    const decoded = base64urlDecode(state);
     dojang_code = decoded.dojang_code;
     codeVerifier = decoded.code_verifier;
-
-    console.log("✅ Callback received with dojang_code (state):", dojang_code);
-    console.log("✅ Callback received with codeVerifier:", codeVerifier);
+    console.log("✅ Callback received with dojang_code:", dojang_code);
   } catch (err) {
     console.error("❌ Invalid state format:", err);
     return res.status(400).json({ success: false, message: 'Invalid state format' });
