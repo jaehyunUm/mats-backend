@@ -50,7 +50,7 @@ const testScopeCheck = async () => {
   console.log("🔹 Final Square Scope Check:", scopes);
 };
 
-router.get('/bank-account/callback', verifyToken, async (req, res) => {
+router.get('/bank-account/callback', async (req, res) => {
     const { code } = req.query;
     const { dojang_code } = req.user;
     console.log("🔹 Authorization Code from Square:", code);
