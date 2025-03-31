@@ -227,8 +227,7 @@ router.get("/subscription-status", verifyToken, async (req, res) => {
 
 router.post("/subscription", verifyToken, async (req, res) => {
   const { v4: uuidv4 } = require('uuid');
-  console.log("📢 DEBUG: Plan Variation ID:", planVariationId);
-  
+
   try {
     // 1. 먼저 req.body에서 값 추출
     const {
