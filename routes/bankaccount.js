@@ -27,12 +27,12 @@ router.get('/bank-account/callback', async (req, res) => {
     return res.status(400).json({ success: false, message: "Missing authorization code or state" });
   }
 
-  // 🔓 state에서 dojang_code 와 code_verifier 분리
-  const [dojang_code, codeVerifier] = decodeURIComponent(state).split("::");
+  // state는 dojang_code로 사용
+const dojang_code = state;
 
-  if (!codeVerifier || !dojang_code) {
-    return res.status(400).json({ success: false, message: "Invalid state format" });
-  }
+// 여기서 dojang_code 로그 찍어보기
+console.log("✅ Callback received with dojang_code (state):", dojang_code);
+
 
   try {
     const response = await client.oAuthApi.obtainToken({

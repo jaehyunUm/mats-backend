@@ -45,7 +45,7 @@ const generateOAuthLink = (redirectUri, dojangCode) => {
   // ✅ 추가 로그 (선택)
   console.log("💡 Generating OAuth Link for Dojang:", dojangCode);
 
-  return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=${redirectUri}&state=${dojangCode}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+  return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=${redirectUri}&state=${encodeURIComponent(dojangCode)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
 };
 
 
