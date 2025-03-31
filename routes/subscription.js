@@ -225,37 +225,48 @@ router.get("/subscription-status", verifyToken, async (req, res) => {
 });
   
 
-router.post("/subscription",verifyToken, async (req, res) => {
-
-
+router.post("/subscription", verifyToken, async (req, res) => {
+  const { v4: uuidv4 } = require('uuid');
   
-  if (!userId || !customerId || !planVariationId || !card_id || !start_date || !location_id || !dojang_code) {
-    console.error("❌ ERROR: Missing required fields in subscription request.");
-    return res.status(400).json({ success: false, message: "Missing required fields" });
-  }
-    try {
-      const {
-        quantity = "1",
-        name = "Dojang Subscription Item",
-        price,          
-        currency = "USD",
-        userId, 
-        customerId,
-        planVariationId,
-        card_id,
-        start_date,
-        location_id
-      } = req.body;
-      
-          // ✅ 도장 코드 가져오기 (토큰에서 추출)
-    const { dojang_code } = req.user;
-
-       // 2️⃣ 필수 필드 검증
+  try {
+    // 1. 먼저 req.body에서 값 추출
+    const {
+      quantity = "1",
+      name = "Dojang Subscription Item",
+      price,
+      currency = "USD",
+      user_id,  // 클라이언트에서 보낸 user_id
+      customerId,
+      planVariationId,
+      card_id,
+      start_date,
+      location_id
+    } = req.body;
+    
+    // 2. req.user에서 인증된 사용자 정보 가져오기
+    const { id: tokenUserId, dojang_code } = req.user;
+    
+    // 3. 클라이언트에서 보낸 user_id 또는 토큰의 id 사용
+    const userId = user_id || tokenUserId;
+    
+    // 4. 필수 필드 검증
     if (!userId || !customerId || !planVariationId || !card_id || !start_date || !location_id || !dojang_code) {
-      console.error("❌ ERROR: Missing required fields in subscription request.");
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+      // 누락된 필드 상세 정보 로깅
+      const requiredFields = {
+        userId, customerId, planVariationId, card_id, start_date, location_id, dojang_code
+      };
+      
+      const missingFields = Object.entries(requiredFields)
+        .filter(([key, value]) => !value)
+        .map(([key]) => key);
+      
+      console.error(`❌ ERROR: Missing required fields: ${missingFields.join(', ')}`);
+      return res.status(400).json({ 
+        success: false, 
+        message: "Missing required fields", 
+        missingFields 
+      });
     }
-  
       // 3️⃣ 먼저 'Order Template'(DRAFT 주문) 생성
       console.log("📢 DEBUG: Creating DRAFT Order (template)...");
       const orderTemplateResult = await createOrderTemplate(quantity, name, price, currency);
