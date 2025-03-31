@@ -37,19 +37,14 @@ const generateOAuthLink = (redirectUri) => {
     const clientId = process.env.SQUARE_APPLICATION_ID_PRODUCTION;
     const scope = "BANK_ACCOUNTS_READ BANK_ACCOUNTS_WRITE CUSTOMERS_READ CUSTOMERS_WRITE PAYMENTS_READ PAYMENTS_WRITE";
     
-    // ✅ `code_verifier` 생성 (임의의 문자열)
     const codeVerifier = generateCodeVerifier();
-    
-    // ✅ `code_challenge` 생성 (SHA-256 해싱)
     const codeChallenge = generateCodeChallenge(codeVerifier);
-
-    // ✅ `code_verifier`를 환경 변수에 저장 (토큰 교환 시 필요)
-    process.env.SQUARE_CODE_VERIFIER = codeVerifier;
-
-    // ✅ OAuth URL 생성 (`code_challenge` 추가)
-    return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=${redirectUri}&state=randomstate&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-};
-
+  
+    // 🔐 dojang_code와 code_verifier를 state에 담기
+    const state = encodeURIComponent(`${dojangCode}::${codeVerifier}`);
+  
+    return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=${redirectUri}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+  };
 
 
 
