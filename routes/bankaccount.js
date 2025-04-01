@@ -11,7 +11,7 @@ require('dotenv').config();
 
 router.get('/bank-account/connect', verifyToken, (req, res) => {
   const { dojang_code } = req.user; // token에서 추출
-  const redirectUri = "mymats://oauth-callback"; // ✅ 여기 수정
+  const redirectUri = "matsapp://oauth-callback"; // ✅ 여기 수정
   const authLink = generateOAuthLink(redirectUri, dojang_code);
   res.json({ success: true, url: authLink });
 });
