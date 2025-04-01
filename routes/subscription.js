@@ -6,6 +6,7 @@ const verifyToken = require('../middleware/verifyToken');
 const { cardsApi, customersApi, subscriptionsApi, locationId , squareClient} = require('../modules/squareClient'); // ✅ Square API 가져오기
 const { v4: uuidv4 } = require("uuid");
 const { createOrderTemplate } = require('./createOrderTemplate'); 
+const { Client } = require('square'); // ✅ Square SDK Client 가져오기
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { subscriptionId } = req.body;
