@@ -223,6 +223,58 @@ router.get("/subscription-status", verifyToken, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
+// 📌 Square 계정 상태 체크 API
+router.get("/square/status", verifyToken, async (req, res) => {
+  try {
+    const { dojang_code } = req.user;
+
+    if (!dojang_code) {
+      return res.status(400).json({ success: false, message: "Missing dojang_code" });
+    }
+
+    // ✅ 1. 해당 도장의 access_token 조회
+    const [rows] = await db.query(
+      "SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
+      [dojang_code]
+    );
+
+    if (rows.length === 0 || !rows[0].square_access_token) {
+      return res.status(404).json({ success: false, message: "No Square access token found" });
+    }
+
+    const accessToken = rows[0].square_access_token;
+
+    // ✅ 2. Square API Client 설정
+    const squareClient = new Client({
+      accessToken,
+      environment: "production", // 또는 'sandbox'
+    });
+
+    // ✅ 3. /v2/locations 호출
+    const { result } = await squareClient.locationsApi.listLocations();
+    const location = result.locations?.[0];
+
+    if (!location) {
+      return res.status(400).json({ success: false, message: "No Square location found" });
+    }
+
+    const isBusinessAccount = !!location.businessName;
+    const hasBankLinked = location.capabilities.includes("BANK_ACCOUNT") || location.capabilities.includes("DEPOSIT");
+    const hasCardProcessing = location.capabilities.includes("CREDIT_CARD_PROCESSING");
+
+    res.json({
+      success: true,
+      isBusinessAccount,
+      hasBankLinked,
+      hasCardProcessing,
+    });
+
+  } catch (error) {
+    console.error("❌ Error checking Square account status:", error);
+    res.status(500).json({ success: false, message: "Failed to check Square status" });
+  }
+});
   
 
 router.post("/subscription", verifyToken, async (req, res) => {
