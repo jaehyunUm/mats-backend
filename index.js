@@ -217,7 +217,7 @@ app.post('/webhook', (req, res) => {
         const token = jwt.sign({ email: user.email }, secretKey, { expiresIn: '1h' });
 
         // 비밀번호 재설정 링크
-        const resetLink = `http://d1qc8qjqtwevg.cloudfront.net/?token=${token}`;
+        const resetLink = `matsapp://reset-password?token=${token}`;
         console.log("📢 DEBUG: Generated Reset Link:", resetLink); // 디버깅용
 
         // 이메일 전송 설정
