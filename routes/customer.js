@@ -256,25 +256,28 @@ router.get("/card/details/:cardId", verifyToken, async (req, res) => {
       }
       const squareAccessToken = ownerRow[0].square_access_token;
   
-      // ✅ Square 카드 삭제 요청
-      const deleteResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${squareAccessToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-  
-      const responseData = await deleteResponse.json();
-      console.log("🔹 Square API Response:", responseData);
-  
-      if (!deleteResponse.ok) {
-        return res.status(400).json({
-          success: false,
-          message: "Failed to delete card from Square",
-          squareError: responseData,
-        });
-      }
+
+     // ✅ Square 카드 삭제 요청
+const deleteResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}`, {
+  method: "DELETE",
+  headers: {
+    "Authorization": `Bearer ${squareAccessToken}`,
+    "Content-Type": "application/json",
+  },
+});
+
+const responseData = await deleteResponse.json();
+console.log("🔹 Square API Response:", responseData);
+
+// 🔁 카드가 이미 없어도 DB에서는 삭제 진행
+if (!deleteResponse.ok && deleteResponse.status !== 404) {
+  return res.status(400).json({
+    success: false,
+    message: "Failed to delete card from Square",
+    squareError: responseData,
+  });
+}
+
   
       // ✅ 데이터베이스에서도 삭제
       const deleteQuery = "DELETE FROM saved_cards WHERE card_id = ? AND parent_id = ?";
