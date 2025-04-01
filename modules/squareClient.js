@@ -40,6 +40,7 @@ const base64urlEncode = (obj) => {
     .replace(/=+$/, '');
 };
 
+// ✅ generateOAuthLink.js
 const generateOAuthLink = (redirectUri, dojangCode) => {
   const clientId = process.env.SQUARE_APPLICATION_ID_PRODUCTION;
   const scope = "BANK_ACCOUNTS_READ BANK_ACCOUNTS_WRITE CUSTOMERS_READ CUSTOMERS_WRITE PAYMENTS_READ PAYMENTS_WRITE";
@@ -47,15 +48,15 @@ const generateOAuthLink = (redirectUri, dojangCode) => {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
 
-  // ✅ state에 dojang_code와 code_verifier 함께 담기
-  const state = base64urlEncode({
-    dojang_code: dojangCode,
-    code_verifier: codeVerifier,
-  });
+  // ✅ state에 dojang_code와 code_verifier 함께 담기 (base64url 인코딩)
+  const state = Buffer.from(
+    JSON.stringify({ dojang_code: dojangCode, code_verifier: codeVerifier })
+  ).toString("base64url");
 
   console.log("💡 Generating OAuth Link for Dojang:", dojangCode);
+  console.log("🔐 Encoded state:", state);
 
-  return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=${redirectUri}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+  return `https://connect.squareup.com/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scope)}&session=false&redirect_uri=https://mats-backend.onrender.com/api/bank-account/callback&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
 };
 
 
