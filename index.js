@@ -217,7 +217,7 @@ app.post('/webhook', (req, res) => {
         const token = jwt.sign({ email: user.email }, secretKey, { expiresIn: '1h' });
 
         // 비밀번호 재설정 링크
-        const resetLink = `matsapp://reset-password?token=${token}`;
+        const resetLink = `https://mats-backend.onrender.com/api/reset-password?token=${token}`; // 👈 너가 소유한 도메인
         console.log("📢 DEBUG: Generated Reset Link:", resetLink); // 디버깅용
 
         // 이메일 전송 설정
@@ -254,6 +254,13 @@ app.post('/webhook', (req, res) => {
     }
 });
 
+app.get('/api/reset-password', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.send('Invalid or missing token');
+
+  // ✅ 앱으로 리디렉트
+  res.redirect(`matsapp://reset-password?token=${token}`);
+});
 
 // 패스워드 재설정
 app.post("/api/reset-password", async (req, res) => {
