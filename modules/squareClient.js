@@ -43,7 +43,7 @@ const base64urlEncode = (obj) => {
 // ✅ generateOAuthLink.js
 const generateOAuthLink = (redirectUri, dojangCode) => {
   const clientId = process.env.SQUARE_APPLICATION_ID_PRODUCTION;
-  const scope = "BANK_ACCOUNTS_READ BANK_ACCOUNTS_WRITE CUSTOMERS_READ CUSTOMERS_WRITE PAYMENTS_READ PAYMENTS_WRITE";
+  const scope = "MERCHANT_PROFILE_READ BANK_ACCOUNTS_READ BANK_ACCOUNTS_WRITE CUSTOMERS_READ CUSTOMERS_WRITE PAYMENTS_READ PAYMENTS_WRITE";
 
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
