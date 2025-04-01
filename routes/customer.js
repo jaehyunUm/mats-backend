@@ -141,60 +141,76 @@ const normalizeBrandName = (brand) => {
 
   
   
-router.get('/card/list',verifyToken, async (req, res) => {
+  router.get('/card/list', verifyToken, async (req, res) => {
     try {
-      const parentId = req.query.parent_id || req.parentId; // 부모 ID
-      const ownerId = req.query.owner_id || req.user.id;
-
+      const user = req.user;
+      const parentId = req.query.parent_id || (user.role === 'parent' ? user.id : null);
+      const ownerId = req.query.owner_id || (user.role === 'owner' ? user.id : null);
+  
       if (!parentId && !ownerId) {
         return res.status(400).json({ success: false, message: 'Parent ID or Owner ID is required.' });
       }
   
-      let cardsQuery = '';
-      let queryParams = [];
+      let query = '';
+      let params = [];
   
-      // ✅ 부모 ID와 오너 ID 둘 중 하나라도 존재하면 카드 조회
+      const dojang_code = user.dojang_code;
+
+
       if (parentId && ownerId) {
-        cardsQuery = 'SELECT card_name, expiration, card_token, card_id FROM saved_cards WHERE parent_id = ? OR owner_id = ?';
-        queryParams = [parentId, ownerId];
+        query = 'SELECT * FROM saved_cards WHERE (parent_id = ? OR owner_id = ?) AND dojang_code = ?';
+        params = [parentId, ownerId, dojang_code];
       } else if (parentId) {
-        cardsQuery = 'SELECT card_name, expiration, card_token, card_id FROM saved_cards WHERE parent_id = ?';
-        queryParams = [parentId];
-      } else if (ownerId) {
-        cardsQuery = 'SELECT card_name, expiration, card_token, card_id FROM saved_cards WHERE owner_id = ?';
-        queryParams = [ownerId];
+        query = 'SELECT * FROM saved_cards WHERE parent_id = ? AND dojang_code = ?';
+        params = [parentId, dojang_code];
+      } else {
+        query = 'SELECT * FROM saved_cards WHERE owner_id = ? AND dojang_code = ?';
+        params = [ownerId, dojang_code];
       }
   
-      const [cards] = await db.execute(cardsQuery, queryParams);
+      const [cards] = await db.execute(query, params);
   
-      if (!cards || cards.length === 0) {
-        return res.status(200).json({ success: true, cards: [] });
+      if (!cards.length) {
+        return res.json({ success: true, cards: [] });
       }
   
-      // ✅ Square API에서 카드 정보를 가져오기
-      const cardDetails = await Promise.all(
-        cards.map(async (card) => {
-          try {
-            const { result } = await client.cardsApi.retrieveCard(card.card_id);
-  
-            return {
-              ...card,
-              brand: normalizeBrandName(result.card.cardBrand),
-              last4: result.card.last4,
-            };
-          } catch (error) {
-            console.error(`Error fetching card details for ID ${card.card_id}:`, error);
-            return { ...card, brand: "Unknown", last4: "****" };
+      const cardDetails = await Promise.all(cards.map(async (card) => {
+        try {
+          // 도장 오너의 Square Access Token 가져오기
+          const [ownerRow] = await db.query(
+            'SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?',
+            [card.dojang_code]
+          );
+          if (!ownerRow.length) throw new Error('No token found for this dojang');
+      
+          // 해당 오너 토큰으로 Square client 생성
+          const squareClient = createSquareClientWithToken(ownerRow[0].square_access_token);
+      
+          // 그 client로 카드 정보 요청
+          const { result } = await squareClient.cardsApi.retrieveCard(card.card_id);
+      
+          return {
+            ...card,
+            brand: normalizeBrandName(result.card.cardBrand),
+            last4: result.card.last4,
+          };
+        } catch (error) {
+          if (error.statusCode === 404) {
+            console.warn(`🔸 Card not found in Square: ${card.card_id}`);
+          } else {
+            console.error(`❌ Error retrieving card ${card.card_id}:`, error);
           }
-        })
-      );
+          return { ...card, brand: "Unknown", last4: "****" };
+        }
+      }));
   
-      res.status(200).json({ success: true, cards: cardDetails });
-    } catch (error) {
-      console.error('❌ ERROR fetching cards:', error);
-      res.status(500).json({ success: false, message: 'Failed to fetch cards.' });
+      return res.json({ success: true, cards: cardDetails });
+    } catch (err) {
+      console.error('❌ ERROR fetching cards:', err);
+      return res.status(500).json({ success: false, message: 'Failed to fetch cards' });
     }
   });
+  
   
   
   
