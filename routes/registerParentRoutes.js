@@ -22,7 +22,7 @@ router.post('/register-parent', async (req, res) => {
 
         // ✅ 개인정보처리방침 동의 정보 포함하여 INSERT
         const query = `
-            INSERT INTO Parents 
+            INSERT INTO parents 
             (first_name, last_name, birth_date, gender, dojang_code, email, password, phone, role, privacy_policy_agreed, privacy_policy_agreed_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'parent', ?, ?)
         `;
