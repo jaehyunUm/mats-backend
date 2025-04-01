@@ -246,22 +246,27 @@ router.get("/card/details/:cardId", verifyToken, async (req, res) => {
   // ✅ 카드 삭제 API
   router.delete("/cards/:card_id", verifyToken, async (req, res) => {
     const { card_id } = req.params;
-    const { parent_id } = req.user.id; // 부모 ID 가져오기
+    const { id: parentId, dojang_code } = req.user;
   
     try {
-      console.log("🛠 Deleting card with ID:", card_id); // ✅ 카드 ID 확인
+      // ✅ Square OAuth Access Token 가져오기
+      const [ownerRow] = await db.query("SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?", [dojang_code]);
+      if (!ownerRow.length || !ownerRow[0].square_access_token) {
+        return res.status(400).json({ success: false, message: "Dojang owner has not connected Square OAuth" });
+      }
+      const squareAccessToken = ownerRow[0].square_access_token;
   
-      // 1. Square에서 카드 삭제 요청
+      // ✅ Square 카드 삭제 요청
       const deleteResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}`, {
         method: "DELETE",
         headers: {
-          "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`,
+          "Authorization": `Bearer ${squareAccessToken}`,
           "Content-Type": "application/json",
         },
       });
   
-      const responseData = await deleteResponse.json(); // ✅ 응답 데이터 확인
-      console.log("🔹 Square API Response:", responseData); // ✅ Square 응답 로그
+      const responseData = await deleteResponse.json();
+      console.log("🔹 Square API Response:", responseData);
   
       if (!deleteResponse.ok) {
         return res.status(400).json({
@@ -271,9 +276,9 @@ router.get("/card/details/:cardId", verifyToken, async (req, res) => {
         });
       }
   
-      // 2. MySQL에서 카드 삭제
+      // ✅ 데이터베이스에서도 삭제
       const deleteQuery = "DELETE FROM saved_cards WHERE card_id = ? AND parent_id = ?";
-      const [result] = await db.query(deleteQuery, [card_id, parent_id]);
+      const [result] = await db.query(deleteQuery, [card_id, parentId]);
   
       if (result.affectedRows === 0) {
         return res.status(404).json({ success: false, message: "Card not found in database" });
@@ -285,6 +290,7 @@ router.get("/card/details/:cardId", verifyToken, async (req, res) => {
       res.status(500).json({ success: false, message: "Internal server error" });
     }
   });
+  
   
   router.delete("/owner-cards/:card_id", verifyToken, async (req, res) => {
     const { card_id } = req.params;
