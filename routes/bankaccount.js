@@ -44,7 +44,7 @@ router.get('/bank-account/callback', async (req, res) => {
       clientId: process.env.SQUARE_APPLICATION_ID_PRODUCTION,
       code,
       grantType: 'authorization_code',
-      redirectUri: process.env.SQUARE_REDIRECT_URI,
+      redirectUri: "https://mats-backend.onrender.com/api/bank-account/callback",
       codeVerifier: codeVerifier
     });
 
