@@ -222,10 +222,15 @@ app.post('/webhook', (req, res) => {
 
         // 이메일 전송 설정
         const mailOptions = {
-            from: process.env.EMAIL_FROM || 'noreply@example.com',
-            to: user.email,
-            subject: 'Password Reset',
-            text: `Click the following link to reset your password: ${resetLink}`,
+          from: process.env.EMAIL_FROM || 'noreply@example.com',
+          to: user.email,
+          subject: 'Password Reset',
+          text: `Click the following link to reset your password: ${resetLink}`, // plain text
+          html: `
+            <p>Click the link below to reset your password:</p>
+            <a href="${resetLink}">${resetLink}</a>
+            <p>If the link doesn't work, copy and paste it into your browser or app manually.</p>
+          `
         };
 
         console.log("📢 DEBUG: Sending email to:", user.email);
