@@ -128,6 +128,22 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     return res.status(400).json({ message: "Dojang code is missing from the request" });
   }
 
+  // ✅ 도장 오너의 Square Access Token 및 Location ID 불러오기
+const [ownerInfo] = await db.query(
+  "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+  [dojang_code]
+);
+
+if (!ownerInfo.length) {
+  return res.status(400).json({ success: false, message: "No Square account connected for this dojang." });
+}
+
+const ownerAccessToken = ownerInfo[0].square_access_token;
+const locationId = ownerInfo[0].location_id;
+
+const squareClient = createSquareClientWithToken(ownerAccessToken);
+const paymentsApi = squareClient.paymentsApi;
+
   const connection = await db.getConnection();
   await connection.beginTransaction();
 
