@@ -261,8 +261,12 @@ router.get("/square/status", verifyToken, async (req, res) => {
     }
 
     const isBusinessAccount = !!location.businessName;
-    const hasBankLinked = location.capabilities.includes("BANK_ACCOUNT") || location.capabilities.includes("DEPOSIT");
     const hasCardProcessing = location.capabilities.includes("CREDIT_CARD_PROCESSING");
+
+ // ✅ 4. 은행 연결 여부 확인 (중요!)
+ const { result: bankResult } = await squareClient.bankAccountsApi.listBankAccounts();
+ const bankAccounts = bankResult.bankAccounts || [];
+ const hasBankLinked = bankAccounts.length > 0;
 
     res.json({
       success: true,
