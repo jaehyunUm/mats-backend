@@ -4,9 +4,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
-const { generateOAuthLink, client } = require('../modules/squareClient');
+const { generateOAuthLink, client, createSquareClientWithToken } = require('../modules/squareClient');
 require('dotenv').config();
-const { createSquareClientWithToken } = require('../utils/squareClient');
 
 
 // ✅ router: /bank-account/connect
