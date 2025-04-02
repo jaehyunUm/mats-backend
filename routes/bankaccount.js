@@ -6,7 +6,7 @@ const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
 const { generateOAuthLink, client } = require('../modules/squareClient');
 require('dotenv').config();
-
+const { createSquareClientWithToken } = require('../utils/squareClient');
 
 
 // ✅ router: /bank-account/connect
