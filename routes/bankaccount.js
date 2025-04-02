@@ -53,15 +53,33 @@ router.get('/bank-account/callback', async (req, res) => {
     const { accessToken, merchantId, refreshToken } = response.result;
     const scope = "BANK_ACCOUNTS_READ, BANK_ACCOUNTS_WRITE, CUSTOMERS_READ, CUSTOMERS_WRITE, PAYMENTS_READ, PAYMENTS_WRITE";
 
+
+     // ✅ Square API 클라이언트 생성
+     const squareClient = createSquareClientWithToken(accessToken);
+
+     // ✅ Location 정보 가져오기
+     const { result: locationResult } = await squareClient.locationsApi.listLocations();
+     const locations = locationResult.locations || [];
+ 
+     if (!locations.length) {
+       return res.status(400).json({ success: false, message: "No Square locations found for this account." });
+     }
+ 
+     const defaultLocation = locations.find(loc => loc.status === "ACTIVE" && loc.capabilities.includes("CREDIT_CARD_PROCESSING")) || locations[0];
+     const locationId = defaultLocation.id;
+ 
+
+    // ✅ DB에 저장
     await db.query(`
-      INSERT INTO owner_bank_accounts (dojang_code, square_access_token, merchant_id, scope, refresh_token)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO owner_bank_accounts (dojang_code, square_access_token, merchant_id, scope, refresh_token, location_id)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE 
         square_access_token = VALUES(square_access_token),
         merchant_id = VALUES(merchant_id),
         scope = VALUES(scope),
-        refresh_token = VALUES(refresh_token);
-    `, [dojang_code, accessToken, merchantId, scope, refreshToken]);
+        refresh_token = VALUES(refresh_token),
+        location_id = VALUES(location_id);
+    `, [dojang_code, accessToken, merchantId, scope, refreshToken, locationId]);
 
     console.log("✅ Square OAuth Data Successfully Stored in Database");
 
