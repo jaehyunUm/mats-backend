@@ -3,97 +3,46 @@ const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const db = require('../db'); // DB 모듈 확인
 
-// 조건 추가 API
+// ✅ 백엔드 수정 - Add Testing Condition
 router.post('/add-testing-condition', verifyToken, async (req, res) => {
-    const { Belt, attendanceRequired, testType } = req.body;
-    const { dojang_code } = req.user;
-  
-    // undefined를 null로 처리
-    const minBeltValue = Belt !== undefined ? Belt : null;
-    const attendanceRequiredValue = attendanceRequired !== undefined ? attendanceRequired : null;
-    const testTypeValue = testType !== undefined ? testType : null;
-  
-    // 데이터 확인용 로그
-    console.log("Received data for adding condition:", { Belt, attendanceRequired, testType });
-  
-    try {
-      // 삽입 전 디버깅 메시지 출력
-      console.log("Inserting with values:", {
-        Belt: minBeltValue,
-        attendanceRequired: attendanceRequiredValue,
-        testType: testTypeValue,
-        dojang_code,
-      });
-  
-      await db.execute(
-        'INSERT INTO testcondition (belt_rank, attendance_required, dojang_code, test_type) VALUES (?, ?, ?, ?)',
-        [minBeltValue, attendanceRequiredValue, dojang_code, testTypeValue]
-      );
-  
-      res.status(201).json({ message: 'Condition added successfully!' });
-    } catch (error) {
-      console.error('Error adding condition:', error);
-      res.status(500).json({ message: 'Failed to add condition' });
-    }
-  });
+  const { minBelt, maxBelt, attendanceRequired, testType } = req.body;
+  const { dojang_code } = req.user;
 
+  try {
+    await db.execute(
+      'INSERT INTO testcondition (belt_min_rank, belt_max_rank, attendance_required, dojang_code, test_type) VALUES (?, ?, ?, ?, ?)',
+      [minBelt || null, maxBelt || null, attendanceRequired || null, dojang_code, testType || null]
+    );
 
-// 2. 조건 추가 API
-router.post('/add-testing-condition', verifyToken, async (req, res) => {
-    const { Belt, attendanceRequired, testType } = req.body;
-    const { dojang_code } = req.user;
-  
-    try {
-      await db.execute(
-        'INSERT INTO testcondition (belt_rank, attendance_required, dojang_code, test_type) VALUES (?, ?, ?, ?)',
-        [Belt, attendanceRequired, dojang_code, testType]
-      );
-      res.status(201).json({ message: 'Condition added successfully!' });
-    } catch (error) {
-      console.error('Error adding condition:', error);
-      res.status(500).json({ message: 'Failed to add condition' });
-    }
-  });
+    res.status(201).json({ message: 'Condition added successfully!' });
+  } catch (error) {
+    console.error('Error adding condition:', error);
+    res.status(500).json({ message: 'Failed to add condition' });
+  }
+});
 
-  // 조건 업데이트 API
+// ✅ 백엔드 수정 - Edit Testing Condition
 router.put('/edit-testing-condition/:id', verifyToken, async (req, res) => {
-    const { id } = req.params;
-    const { Belt, attendanceRequired, testType } = req.body;
-    const { dojang_code } = req.user;
-  
-    // undefined를 null로 처리
-    const minBeltValue = Belt !== undefined ? Belt : null;
-    const attendanceRequiredValue = attendanceRequired !== undefined ? attendanceRequired : null;
-    const testTypeValue = testType !== undefined ? testType : null;
-  
-    console.log("Received data for adding condition:", { Belt, attendanceRequired, testType }); // 데이터 확인용 로그
+  const { id } = req.params;
+  const { minBelt, maxBelt, attendanceRequired, testType } = req.body;
+  const { dojang_code } = req.user;
 
+  try {
+    const [result] = await db.execute(
+      'UPDATE testcondition SET belt_min_rank = ?, belt_max_rank = ?, attendance_required = ?, test_type = ? WHERE id = ? AND dojang_code = ?',
+      [minBelt || null, maxBelt || null, attendanceRequired || null, testType || null, id, dojang_code]
+    );
 
-    try {
-      // 업데이트 전 디버깅 메시지 출력
-      console.log("Updating with values:", {
-        Belt: minBeltValue,
-        attendanceRequired: attendanceRequiredValue,
-        testType: testTypeValue,
-        id,
-        dojang_code,
-      });
-  
-      const [result] = await db.execute(
-        'UPDATE testcondition SET belt_rank = ?, attendance_required = ?, test_type = ? WHERE id = ? AND dojang_code = ?',
-        [minBeltValue, attendanceRequiredValue, testTypeValue, id, dojang_code]
-      );
-  
-      if (result.affectedRows > 0) {
-        res.json({ message: 'Condition updated successfully!' });
-      } else {
-        res.status(404).json({ message: 'Condition not found' });
-      }
-    } catch (error) {
-      console.error('Error updating condition:', error);
-      res.status(500).json({ message: 'Failed to update condition' });
+    if (result.affectedRows > 0) {
+      res.json({ message: 'Condition updated successfully!' });
+    } else {
+      res.status(404).json({ message: 'Condition not found' });
     }
-  });
+  } catch (error) {
+    console.error('Error updating condition:', error);
+    res.status(500).json({ message: 'Failed to update condition' });
+  }
+});
   
 // 4. 조건 삭제 API
 router.delete('/delete-testing-condition/:id', verifyToken, async (req, res) => {
