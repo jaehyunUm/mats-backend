@@ -228,7 +228,7 @@ router.delete('/beltsystem/:id', verifyToken, async (req, res) => {
 // 벨트 이름 목록을 가져오는 엔드포인트
 router.get('/get-belt-names', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
-  const query = 'SELECT belt_rank, belt_color FROM beltsystem WHERE dojang_code = ?';
+  const query = 'SELECT belt_rank, stripe_color ,belt_color FROM beltsystem WHERE dojang_code = ?';
 
   try {
       const [results] = await db.query(query, [dojang_code]);
