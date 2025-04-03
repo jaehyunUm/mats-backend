@@ -75,9 +75,9 @@ router.post("/register-student", verifyToken, async (req, res) => {
 
 // 결제 및 등록 처리 API
 router.post('/process-payment', verifyToken, async (req, res) => {
-  console.log("Process-payment route called"); // 라우트 호출 확인
+  console.log("Process-payment route called");
   console.log("받은 결제 요청 데이터:", req.body);
-    
+
   const {
     student,
     program,
@@ -87,88 +87,73 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     idempotencyKey,
     parent_id,
     customer_id,
-    cardId, // 저장된 카드 ID
+    cardId,
     student_id
   } = req.body;
 
-  const paymentType = program.paymentType;  // ✅ program 객체 내부에서 가져오기
-  const program_fee = program.program_fee;  // ✅ program 객체 내부에서 가져오기
- 
+  const paymentType = program.paymentType;
+  const program_fee = program.program_fee;
 
-   // ✅ `paymentType` 및 `program_fee` 값이 `undefined`인지 확인 (디버깅 코드 추가)
-   console.log("🚀 DEBUG: Checking paymentType:", paymentType);
-   if (typeof paymentType === "undefined") {
-     console.error("❌ ERROR: `paymentType` is missing in request body");
-   }
- 
-   console.log("🚀 DEBUG: Checking program_fee:", program_fee);
-   if (typeof program_fee === "undefined" || program_fee === null) {
-     console.error("❌ ERROR: `program_fee` is missing in request body");
-   }
+  // ✅ amount 정수화 및 유효성 검사
+  const amountValue = parseFloat(amount);
+
+  console.log("🚀 DEBUG: Checking program_fee:", program_fee);
+  if (typeof program_fee === "undefined" || program_fee === null) {
+    console.error("❌ ERROR: `program_fee` is missing in request body");
+  }
 
   if (
-    !student_id || 
-    !student || 
-    !program || 
-    !classes || 
-    !amount || 
-    amount <= 0 || // ✅ 금액이 0 이하일 경우 예외 처리
-    !currency || 
-    !parent_id || 
-    !cardId || 
-    typeof program.paymentType === 'undefined' // ✅ `paymentType`이 `undefined`일 경우 체크
+    !student_id ||
+    !student ||
+    !program ||
+    !classes ||
+    isNaN(amountValue) ||
+    amountValue <= 0 ||
+    !currency ||
+    !parent_id ||
+    !cardId ||
+    typeof program.paymentType === 'undefined'
   ) {
     console.error("❌ ERROR: Missing required fields in request body", req.body);
-    return res.status(400).json({ message: "Missing required fields in request body" });
+    return res.status(400).json({ message: "Missing or invalid fields in request body" });
   }
-  
 
   const { dojang_code } = req.user;
   if (!dojang_code) {
     return res.status(400).json({ message: "Dojang code is missing from the request" });
   }
 
-  // ✅ 도장 오너의 Square Access Token 및 Location ID 불러오기
-const [ownerInfo] = await db.query(
-  "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
-  [dojang_code]
-);
+  const [ownerInfo] = await db.query(
+    "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+    [dojang_code]
+  );
 
-if (!ownerInfo.length) {
-  return res.status(400).json({ success: false, message: "No Square account connected for this dojang." });
-}
+  if (!ownerInfo.length) {
+    return res.status(400).json({ success: false, message: "No Square account connected for this dojang." });
+  }
 
-const ownerAccessToken = ownerInfo[0].square_access_token;
-const locationId = ownerInfo[0].location_id;
+  const ownerAccessToken = ownerInfo[0].square_access_token;
+  const locationId = ownerInfo[0].location_id;
 
-const squareClient = createSquareClientWithToken(ownerAccessToken);
-const paymentsApi = squareClient.paymentsApi;
+  const squareClient = createSquareClientWithToken(ownerAccessToken);
+  const paymentsApi = squareClient.paymentsApi;
 
   const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
-    // Step 1: 기존 학생 정보 확인
     let studentId;
-    const studentCheckQuery = `
-    SELECT id FROM students WHERE first_name = ? AND last_name = ? AND DATE(birth_date) = ? AND dojang_code = ?
-  `;
-  
-    const [existingStudent] = await connection.query(studentCheckQuery, [
-      student.firstName,
-      student.lastName,
-      student.dateOfBirth,
-      dojang_code,
-    ]);
+    const [existingStudent] = await connection.query(`
+      SELECT id FROM students WHERE first_name = ? AND last_name = ? AND DATE(birth_date) = ? AND dojang_code = ?
+    `, [student.firstName, student.lastName, student.dateOfBirth, dojang_code]);
 
     if (existingStudent.length > 0) {
       studentId = existingStudent[0].id;
-      const studentUpdateQuery = `
+      await connection.query(`
         UPDATE students 
         SET program_id = ?, belt_rank = ?, gender = ?, belt_size = ?, parent_id = ? 
         WHERE id = ?
-      `;
-      await connection.query(studentUpdateQuery, [
+      `, [
         program.id,
         student.belt_rank,
         student.gender,
@@ -182,97 +167,81 @@ const paymentsApi = squareClient.paymentsApi;
 
     console.log("✅ Student ID found:", studentId);
 
-    // Step 2: student_classes 테이블 업데이트
-    const existingClassesQuery = `
+    const [existingClasses] = await connection.query(`
       SELECT class_id FROM student_classes WHERE student_id = ? AND dojang_code  = ?
-    `;
-    const [existingClasses] = await connection.query(existingClassesQuery, [studentId, dojang_code]);
+    `, [studentId, dojang_code]);
+
     const existingClassIds = new Set(existingClasses.map(row => row.class_id));
 
     for (const class_id of classes) {
       if (!existingClassIds.has(class_id)) {
-        const studentClassInsertQuery = `
+        await connection.query(`
           INSERT INTO student_classes (student_id, class_id, dojang_code )
           VALUES (?, ?, ?)
-        `;
-        await connection.query(studentClassInsertQuery, [studentId, class_id, dojang_code]);
+        `, [studentId, class_id, dojang_code]);
       }
     }
 
-    // Step 3: program_payments 테이블에 결제 정보 저장
     const paymentId = uuidv4();
-    const idempotencyKey = req.body.idempotencyKey || uuidv4(); // ✅ `undefined`이면 새로운 UUID 생성
+    const finalIdempotencyKey = idempotencyKey || uuidv4();
 
     console.log("🛠️ DEBUG: Payment Data to be inserted into program_payments:", {
       paymentId,
       program_id: program.id,
-      amount: parseFloat(amount).toFixed(2),
+      amount: amountValue.toFixed(2),
       dojang_code,
-      idempotencyKey,
+      idempotencyKey: finalIdempotencyKey,
       cardId,
-      parent_id,
-      student
+      parent_id
     });
 
-  
-    const paymentInsertQuery = `
-  INSERT INTO program_payments (payment_id, student_id, program_id, amount, status, dojang_code , idempotency_key, source_id, parent_id) 
-  VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-`;
+    await connection.query(`
+      INSERT INTO program_payments (payment_id, student_id, program_id, amount, status, dojang_code , idempotency_key, source_id, parent_id) 
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+    `, [
+      paymentId,
+      studentId,
+      program.id,
+      amountValue.toFixed(2),
+      dojang_code,
+      finalIdempotencyKey,
+      cardId,
+      parent_id
+    ]);
 
-    
-await connection.query(paymentInsertQuery, [
-  paymentId,
-  student_id,  // ✅ 추가된 부분
-  program.id,
-  parseFloat(amount).toFixed(2),
-  dojang_code,
-  idempotencyKey,
-  cardId,
-  parent_id,
-]);
-
-
-
-    // ✅ 정기 결제 프로그램 처리
-    if (program.paymentType === "monthly_pay") {
-      const paymentDate = new Date().toISOString().split('T')[0]; 
+    // ✅ 정기 결제 처리
+    if (paymentType === "monthly_pay") {
+      const paymentDate = new Date().toISOString().split('T')[0];
       const nextPaymentDate = new Date();
       nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
       const nextPaymentDateString = nextPaymentDate.toISOString().split('T')[0];
-      const idempotencyKey = uuidv4(); 
-      const paymentId = uuidv4(); 
+      const monthlyIdempotencyKey = uuidv4();
+      const monthlyPaymentId = uuidv4();
 
-      // ✅ 기존 등록 내역이 있는지 확인
-      const existingPaymentQuery = `
+      const [existingPayment] = await connection.query(`
         SELECT id FROM monthly_payments 
         WHERE student_id = ? AND parent_id = ? AND dojang_code  = ?
-      `;
-      const [existingPayment] = await connection.query(existingPaymentQuery, [
-        studentId, parent_id, dojang_code
-      ]);
+      `, [studentId, parent_id, dojang_code]);
 
       if (existingPayment.length > 0) {
         console.log("🟡 Existing subscription found. Updating instead of inserting.");
 
-        const updateQuery = `
+        await connection.query(`
           UPDATE monthly_payments 
           SET program_id = ?, payment_date = ?, next_payment_date = ?, program_fee = ?, 
               status = 'pending', source_id = ?, customer_id = ?, idempotency_key = ?, payment_id = ?
           WHERE student_id = ? AND parent_id = ? AND dojang_code  = ?
-        `;
-
-        await connection.query(updateQuery, [
-          program.id, 
-          paymentDate, 
-          nextPaymentDateString, 
-          parseFloat(program.price), 
-          cardId, 
-          customer_id || null, 
-          idempotencyKey, 
-          paymentId,
-          student, 
-          parent_id, 
+        `, [
+          program.id,
+          paymentDate,
+          nextPaymentDateString,
+          parseFloat(program_fee),
+          cardId,
+          customer_id || null,
+          monthlyIdempotencyKey,
+          monthlyPaymentId,
+          studentId,
+          parent_id,
           dojang_code
         ]);
 
@@ -280,38 +249,36 @@ await connection.query(paymentInsertQuery, [
       } else {
         console.log("🟢 No existing subscription. Inserting new record.");
 
-        const insertQuery = `
+        await connection.query(`
           INSERT INTO monthly_payments 
           (parent_id, student_id, program_id, payment_date, next_payment_date, last_payment_date, program_fee, status, dojang_code , source_id, customer_id, idempotency_key, payment_id)
           VALUES (?, ?, ?, ?, ?, NULL, ?, 'pending', ?, ?, ?, ?, ?)
-        `;
-
-        await connection.query(insertQuery, [
-          parent_id, 
-          student,  
-          program.id, 
-          paymentDate, 
-          nextPaymentDateString, 
-          parseFloat(program.price), 
-          dojang_code, 
-          cardId, 
+        `, [
+          parent_id,
+          studentId,
+          program.id,
+          paymentDate,
+          nextPaymentDateString,
+          parseFloat(program_fee),
+          dojang_code,
+          cardId,
           customer_id || null,
-          idempotencyKey, 
-          paymentId
+          monthlyIdempotencyKey,
+          monthlyPaymentId
         ]);
 
         console.log("✅ New monthly payment record inserted.");
       }
     }
 
-    // Step 5: Square Payment Processing
+    // ✅ Square 결제 처리
     const paymentBody = {
       sourceId: cardId,
       amountMoney: {
-        amount: Math.round(parseFloat(amount) * 100),
+        amount: Math.round(amountValue * 100),
         currency,
       },
-      idempotencyKey,
+      idempotencyKey: finalIdempotencyKey,
       locationId: locationId,
       customerId: customer_id,
     };
@@ -322,28 +289,27 @@ await connection.query(paymentInsertQuery, [
 
     if (result && result.payment && result.payment.status === "COMPLETED") {
       console.log("✅ Payment completed successfully.");
-      const paymentUpdateQuery = `
+
+      await connection.query(`
         UPDATE program_payments SET status = 'completed' WHERE payment_id = ?
-      `;
-      await connection.query(paymentUpdateQuery, [paymentId]);
+      `, [paymentId]);
 
       await connection.commit();
 
-      console.log("✅ Student registered and payment processed successfully.");
       return res.status(200).json({ success: true, message: "Student registered and payment processed successfully" });
     } else {
       throw new Error("Payment not completed");
     }
+
   } catch (error) {
     await connection.rollback();
     console.error("❌ Error processing payment:", error);
-    console.log("🛠️ DEBUG: Payment insert failed. Rolling back transaction.");
-
     return res.status(500).json({ success: false, message: "Error processing payment", error: error.message });
   } finally {
     connection.release();
   }
 });
+
 
 
 router.get('/belt-sizes', verifyToken, async (req, res) => {
