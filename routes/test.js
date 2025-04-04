@@ -302,37 +302,67 @@ router.delete('/delete-student/:studentId/:testType', verifyToken, async (req, r
 });
 
 router.post('/save-evaluation', verifyToken, async (req, res) => {
-  const { student_id, evaluationData } = req.body;
+  const { student_id, evaluationData, test_type } = req.body;
   const { dojang_code } = req.user;
-
-  // ✅ 요청 데이터 로그 추가
+  
+  // 요청 데이터 로그 추가
   console.log("📢 Received student_id:", student_id);
   console.log("📢 Received evaluationData:", evaluationData);
-
-  if (!student_id || !evaluationData || !Array.isArray(evaluationData)) {
+  console.log("📢 Received test_type:", test_type);
+  
+  if (!student_id || !evaluationData || !Array.isArray(evaluationData) || evaluationData.length === 0) {
     console.error("🚨 Invalid evaluation data received:", req.body);
     return res.status(400).json({ message: 'Invalid evaluation data' });
   }
-
+  
   try {
+    // 트랜잭션 시작
+    await db.query('START TRANSACTION');
+    
+    // 기존 데이터가 있는지 확인하고 삭제
+    const [existingResults] = await db.query(
+      `SELECT * FROM testresult WHERE student_id = ?`,
+      [student_id]
+    );
+    
+    if (existingResults.length > 0) {
+      console.log(`✅ Deleting ${existingResults.length} existing test results for student_id: ${student_id}`);
+      await db.query(
+        `DELETE FROM testresult WHERE student_id = ?`,
+        [student_id]
+      );
+    }
+    
+    // 새 데이터 삽입
     const values = evaluationData.map(({ test_template_id, result_value }) => {
-      if (!test_template_id || result_value === undefined) {
-        console.error("🚨 Missing test_template_id or result_value:", { test_template_id, result_value });
+      // 타입 검증 및 변환
+      const templateId = Number(test_template_id);
+      const resultValue = String(result_value).trim(); // 문자열로 통일
+      
+      if (isNaN(templateId) || !resultValue) {
+        console.error("🚨 Invalid data format:", { test_template_id, result_value });
         throw new Error("Invalid evaluation data format");
       }
-      return [student_id, test_template_id, result_value, dojang_code];
+      
+      return [student_id, templateId, resultValue, dojang_code, test_type];
     });
-
+    
     console.log("✅ Processed values for INSERT:", values);
-
-    // ✅ 평가 데이터 저장
+    
+    // 평가 데이터 저장
     await db.query(
-      `INSERT INTO testresult (student_id, test_template_id, result_value, dojang_code) VALUES ?`,
+      `INSERT INTO testresult (student_id, test_template_id, result_value, dojang_code, test_type) 
+       VALUES ?`,
       [values]
     );
-
-    res.json({ message: 'Evaluation saved successfully' });
+    
+    // 트랜잭션 커밋
+    await db.query('COMMIT');
+    
+    res.status(200).json({ message: 'Evaluation saved successfully' });
   } catch (error) {
+    // 트랜잭션 롤백
+    await db.query('ROLLBACK');
     console.error('❌ Error saving evaluation:', error);
     res.status(500).json({ message: 'Failed to save evaluation', error: error.message });
   }
