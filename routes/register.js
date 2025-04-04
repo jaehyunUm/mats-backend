@@ -87,8 +87,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     uniforms // 유니폼 정보 추가
   } = req.body;
 
-  // 로그 추가: 결제 유형 및 프로그램 요금 확인
-  const paymentType = program.paymentType;
+  const paymentType = program.paymentType || program.payment_type;
   const program_fee = program.program_fee;
   
   console.log("🔍 Payment Type:", paymentType);
@@ -255,8 +254,10 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.log("✅ Uniform purchase processed");
     }
 
+  
     // 월간 결제 처리
     if (paymentType === "monthly_pay") {
+      
       console.log("🔄 Starting monthly payment processing...");
       try {
         const paymentDate = new Date().toISOString().split('T')[0];
@@ -305,7 +306,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         } else {
           console.log("🟢 No existing subscription. Inserting new record.");
 
-          // 새 레코드 삽입 쿼리 수정: payment_status도 명시적으로 포함
+
           await connection.query(`
             INSERT INTO monthly_payments 
             (parent_id, student_id, program_id, payment_date, next_payment_date, last_payment_date, 
@@ -331,8 +332,10 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         console.error("❌ Error in monthly payment processing:", monthlyError);
         throw monthlyError; // 상위 try-catch로 전달
       }
+    } else if (paymentType === "pay_in_full") {
+      console.log("✅ This is a pay_in_full program. Skipping monthly payment processing.");
     } else {
-      console.log("ℹ️ Not a monthly payment, skipping monthly payment processing");
+      console.warn("⚠️ Unknown payment type detected:", paymentType);
     }
 
     // Square 결제 처리
