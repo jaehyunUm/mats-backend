@@ -180,23 +180,27 @@ router.get('/badges-with-results/:childId', verifyToken, async (req, res) => {
 
 
 
-
 router.get('/badge-condition-types', verifyToken, async (req, res) => {
   try {
     const query = `
-      SELECT id, test_name
+      SELECT id, test_name, evaluation_type, 
+        CASE 
+          WHEN evaluation_type = 'time' THEN target_count 
+          WHEN evaluation_type = 'count' THEN duration
+          ELSE NULL 
+        END AS value
       FROM test_template
       WHERE evaluation_type IN ('count', 'time')
       ORDER BY test_name ASC;
     `;
-
+    
     const [results] = await db.query(query);
-
+    
     if (results.length === 0) {
       console.warn("⚠ No condition types found in test_template.");
       return res.status(404).json({ message: 'No condition types found.' });
     }
-
+    
     console.log("🔍 Fetched Badge Condition Types:", results);
     res.status(200).json(results);
   } catch (error) {
@@ -204,7 +208,6 @@ router.get('/badge-condition-types', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Database error', error });
   }
 });
-
 
 
 module.exports = router;
