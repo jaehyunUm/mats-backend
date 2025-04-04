@@ -44,7 +44,7 @@ router.get('/test-results/:studentId', verifyToken, async (req, res) => {
         r.test_template_id,
         t.test_name,
         r.result_value,
-        r.test_type,  // 새로 추가한 test_type 컬럼
+        r.test_type,
         DATE_FORMAT(r.created_at, '%Y-%m-%d') AS date,
         LAG(r.result_value) OVER (PARTITION BY r.student_id, t.test_name ORDER BY r.created_at) AS previous_result
       FROM testresult r
