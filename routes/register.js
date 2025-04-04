@@ -1,12 +1,9 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const db = require('../db'); // 데이터베이스 연결 파일
 const router = express.Router();
 const uuidv4 = require('uuid').v4;
-const {client, createSquareClientWithToken} = require('../modules/squareClient');
-const paymentsApi = client.paymentsApi;
+const {createSquareClientWithToken} = require('../modules/squareClient');
 const verifyToken = require('../middleware/verifyToken');
-const locationId = process.env.SQUARE_LOCATION_ID_PRODUCTION; // Location ID
 
   
 router.post("/register-student", verifyToken, async (req, res) => {

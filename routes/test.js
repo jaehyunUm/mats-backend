@@ -4,6 +4,7 @@ const db = require('../db'); // 데이터베이스 연결 파일
 const verifyToken = require('../middleware/verifyToken');
 const client = require('../modules/squareClient'); // Square 클라이언트 가져오기
 const paymentsApi = client.paymentsApi; // paymentsApi 사용
+const { createSquareClientWithToken } = require('../modules/squareClient'); // ✅ 오너별 Square 클라이언트 생성 함수
 
 // 벨트별 테스트 조건을 가져오는 엔드포인트
 router.get('/get-test-condition/:belt_rank', verifyToken, async (req, res) => {
@@ -102,6 +103,7 @@ router.get('/get-test-schedule/:testType', verifyToken, async (req, res) => {
   }
 });
 
+
 router.post('/submit-test-payment', verifyToken, async (req, res) => {
   const {
     card_id,
@@ -119,16 +121,36 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
   }
 
   try {
-    // Square 결제 요청
+    // ✅ 도장 오너의 Square access_token과 location_id 가져오기
+    const [ownerInfo] = await db.query(
+      "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+      [dojang_code]
+    );
+
+    if (!ownerInfo.length) {
+      return res.status(400).json({ message: "No Square account connected for this dojang." });
+    }
+
+    const ownerAccessToken = ownerInfo[0].square_access_token;
+    const locationId = ownerInfo[0].location_id;
+
+    // ✅ 오너의 Access Token으로 Square Client 생성
+    const squareClient = createSquareClientWithToken(ownerAccessToken);
+    const paymentsApi = squareClient.paymentsApi;
+
+    // ✅ Square 결제 요청
     const paymentRequest = {
-      sourceId: card_id, // 저장된 카드 ID 사용
+      sourceId: card_id,
       amountMoney: {
-        amount: Math.round(amount), // 금액을 센트 단위로 전달
+        amount: Math.round(amount), // 센트 단위
         currency: currency || 'USD',
       },
       idempotencyKey,
-      customerId: customer_id, // 고객 ID
+      customerId: customer_id,
+      locationId: locationId, // ✅ 위치 정보도 포함!
     };
+
+    console.log("🔁 Square Payment Request:", paymentRequest);
 
     const paymentResponse = await paymentsApi.createPayment(paymentRequest);
 
@@ -136,14 +158,14 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'Square payment failed', details: paymentResponse.result });
     }
 
-    console.log('Square Payment Response:', paymentResponse.result);
+    console.log('✅ Square Payment Response:', paymentResponse.result);
 
-    // 데이터베이스에 결제 정보 저장
+    // ✅ DB에 결제 정보 저장
     const [result] = await db.execute(
       'INSERT INTO test_payments (student_id, amount, idempotency_key, currency, status, dojang_code, parent_id, card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [
         student_id,
-        amount / 100, // 금액을 달러 단위로 저장
+        amount / 100, // 달러 단위로 저장
         idempotencyKey,
         currency || 'USD',
         'completed',
@@ -155,10 +177,11 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
     res.status(201).json({ message: 'Payment successful and data saved' });
   } catch (error) {
-    console.error('Error processing payment:', error);
+    console.error('❌ Error processing test payment:', error);
     res.status(500).json({ message: 'Payment processing failed', error: error.message });
   }
 });
+
 
 
 
