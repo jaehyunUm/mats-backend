@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결
 const verifyToken = require('../middleware/verifyToken');
-const client = require('../modules/squareClient');
-const paymentsApi = client.paymentsApi;
+const { createSquareClientWithToken } = require('../modules/squareClient'); // ✅ 바뀐 부분
 
 router.post('/payment', verifyToken, async (req, res) => {
   const { student_id, amount, idempotencyKey, card_id, itemId, size, quantity, customer_id, parent_id } = req.body;
@@ -13,19 +12,36 @@ router.post('/payment', verifyToken, async (req, res) => {
     return res.status(400).json({ message: 'Missing required fields: itemId, size, amount, card_id, or customer_id.' });
   }
 
+  // ✅ 오너의 Square access token과 location_id 가져오기
+  const [ownerInfo] = await db.query(
+    "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+    [dojang_code]
+  );
+
+  if (!ownerInfo.length) {
+    return res.status(400).json({ message: "No Square account connected for this dojang." });
+  }
+
+  const ownerAccessToken = ownerInfo[0].square_access_token;
+  const locationId = ownerInfo[0].location_id;
+
+  // ✅ 오너 accessToken으로 클라이언트 생성
+  const squareClient = createSquareClientWithToken(ownerAccessToken);
+  const paymentsApi = squareClient.paymentsApi;
+
   const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
-    // Square 결제 요청 데이터
     const paymentRequest = {
       sourceId: card_id,
       amountMoney: {
-        amount: Math.round(amount * 100), // 금액을 센트 단위로 변환
+        amount: Math.round(amount * 100),
         currency: 'USD',
       },
       idempotencyKey,
-      customerId: customer_id, // Square 결제에서 필요한 customer_id
+      customerId: customer_id,
+      locationId, // ✅ Square location ID도 추가
     };
 
     const paymentResponse = await paymentsApi.createPayment(paymentRequest);
@@ -34,21 +50,10 @@ router.post('/payment', verifyToken, async (req, res) => {
       throw new Error('Square payment failed');
     }
 
-    // 결제 정보 데이터베이스 저장
     await connection.execute(
       `INSERT INTO item_payments (
-        student_id, 
-        amount, 
-        idempotency_key, 
-        payment_method, 
-        currency, 
-        status, 
-        dojang_code, 
-        parent_id, 
-        card_id, 
-        item_id, 
-        size, 
-        quantity
+        student_id, amount, idempotency_key, payment_method, currency, status,
+        dojang_code, parent_id, card_id, item_id, size, quantity
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         student_id,
@@ -61,12 +66,11 @@ router.post('/payment', verifyToken, async (req, res) => {
         parent_id,
         card_id,
         itemId,
-        size, // 추가된 size
+        size,
         quantity,
       ]
     );
 
-    // 재고 업데이트
     const updateItemQuery = `
       UPDATE item_sizes
       SET quantity = quantity - ?
@@ -85,13 +89,12 @@ router.post('/payment', verifyToken, async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
-    console.error('Error processing payment:', error);
+    console.error('❌ Error processing payment:', error);
     res.status(500).json({ success: false, message: 'Payment processing failed', error: error.message });
   } finally {
     connection.release();
   }
 });
-
 
 
 
