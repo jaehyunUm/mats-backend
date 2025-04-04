@@ -14,7 +14,7 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
   try {
     // 선택한 testId가 실제 test_template에 존재하는지 확인
     const [testTemplate] = await db.execute(
-      `SELECT id, test_name, test_type FROM test_template WHERE id = ? LIMIT 1`,
+      `SELECT id, test_name, evaluation_type FROM test_template WHERE id = ? LIMIT 1`,
       [testId] // 이제 testId = 숫자 id
     );
 
@@ -22,10 +22,10 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'Invalid test id' });
     }
 
-    const { id: testTemplateId, test_type } = testTemplate[0];
+    const { id: testTemplateId, evaluation_type } = testTemplate[0];
 
-    // `test_type` 체크
-    if (test_type !== 'count' && test_type !== 'time') {
+    // `evaluation_type` 체크
+    if (evaluation_type !== 'count' && evaluation_type !== 'time') {
       return res.status(400).json({ message: 'Invalid test type' });
     }
 
@@ -90,14 +90,14 @@ router.get('/objective-tests', verifyToken, async (req, res) => {
           id,
           dojang_code,
           CASE 
-              WHEN test_type = 'count' AND duration IS NOT NULL 
+              WHEN evaluation_type = 'count' AND duration IS NOT NULL 
                   THEN CONCAT(test_name, ' for ', duration, ' Seconds')
-              WHEN test_type = 'time' AND target_count IS NOT NULL 
+              WHEN evaluation_type = 'time' AND target_count IS NOT NULL 
                   THEN CONCAT(test_name, ' ', target_count, ' times')
               ELSE test_name
           END AS standardized_test_name
       FROM test_template
-      WHERE test_type IN ('count', 'time');
+      WHERE evaluation_type IN ('count', 'time');
     `;
 
     const [result] = await db.execute(query);

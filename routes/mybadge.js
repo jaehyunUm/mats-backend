@@ -186,7 +186,7 @@ router.get('/badge-condition-types', verifyToken, async (req, res) => {
     const query = `
       SELECT id, test_name
       FROM test_template
-      WHERE test_type IN ('count', 'time')
+      WHERE evaluation_type IN ('count', 'time')
       ORDER BY test_name ASC;
     `;
 
