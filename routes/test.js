@@ -75,7 +75,7 @@ router.get('/get-attendance/:childId/:beltRank', verifyToken, async (req, res) =
 });
 
 
- // 테스트 유형에 따른 요일 및 시간 조회 API
+
 router.get('/get-test-schedule/:testType', verifyToken, async (req, res) => {
   const { testType } = req.params;
   const { dojang_code } = req.user;

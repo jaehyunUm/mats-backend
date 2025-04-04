@@ -5,19 +5,22 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db'); // DB 모듈 확인
 const verifyToken = require('../middleware/verifyToken');
 const normalizeBrandName = (brand) => {
-    switch (brand.toUpperCase()) {
-      case "VISA":
-        return "Visa";
-      case "MASTERCARD":
-        return "Mastercard";
-      case "DISCOVER":
-        return "Discover";
-      case "AMERICAN_EXPRESS":
-        return "AmericanExpress";
-      default:
-        return "Unknown";
-    }
-  };
+  // brand가 undefined 또는 null인 경우 처리
+  if (!brand) return "Unknown";
+  
+  switch (brand.toUpperCase()) {
+    case "VISA":
+      return "Visa";
+    case "MASTERCARD":
+      return "Mastercard";
+    case "DISCOVER":
+      return "Discover";
+    case "AMERICAN_EXPRESS":
+      return "AmericanExpress";
+    default:
+      return "Unknown";
+  }
+};
   
 
 
