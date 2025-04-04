@@ -8,17 +8,19 @@ const paymentsApi = client.paymentsApi; // paymentsApi 사용
 // 벨트별 테스트 조건을 가져오는 엔드포인트
 router.get('/get-test-condition/:belt_rank', verifyToken, async (req, res) => {
   const { belt_rank } = req.params;
+  const belt_rank_num = parseInt(belt_rank, 10); // 문자열을 숫자로 변환
   const { dojang_code } = req.user; // 토큰에서 도장 코드 추출
+  
   try {
-    // belt_rank와 dojangCode에 해당하는 attendance_required 및 test_type 값을 조회
+    // belt_rank가 belt_min_rank와 belt_max_rank 사이에 있는지 확인
     const [result] = await db.execute(
-      'SELECT attendance_required, test_type FROM testcondition WHERE belt_rank = ? AND dojang_code = ?',
-      [belt_rank, dojang_code]
+      'SELECT attendance_required, test_type FROM testcondition WHERE ? BETWEEN belt_min_rank AND belt_max_rank AND dojang_code = ?',
+      [belt_rank_num, dojang_code]
     );
+    
     if (result.length > 0) {
       // 디버깅을 위한 로그 추가
       console.log('테스트 조건 DB 결과:', result[0]);
-      
       // 출석 일수와 테스트 타입을 함께 반환 (test_type이 null이면 'standard'를 기본값으로)
       res.json({
         attendance_required: result[0].attendance_required,
