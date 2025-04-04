@@ -2,8 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결 파일
 const verifyToken = require('../middleware/verifyToken');
-const client = require('../modules/squareClient'); // Square 클라이언트 가져오기
-const paymentsApi = client.paymentsApi; // paymentsApi 사용
 const { createSquareClientWithToken } = require('../modules/squareClient'); // ✅ 오너별 Square 클라이언트 생성 함수
 
 // 벨트별 테스트 조건을 가져오는 엔드포인트
@@ -485,7 +483,7 @@ router.post('/test-template', verifyToken, async (req, res) => {
 router.get('/test-templates', verifyToken, async (req, res) => {
   const { dojang_code } = req.user; // 토큰에서 추출된 도장 코드
   const { test_type } = req.query; // URL에서 test_type 가져오기
-  
+
   try {
     let query = `
       SELECT
@@ -514,7 +512,15 @@ router.get('/test-templates', verifyToken, async (req, res) => {
     query += ` ORDER BY id ASC`;
     
     const [testTemplates] = await db.query(query, queryParams);
-    res.json(testTemplates);
+    
+    // 결과가 없을 경우 빈 배열 반환
+    if (testTemplates.length === 0) {
+      return res.status(200).json([]);
+    }
+    
+    // 성공적으로 데이터를 가져온 경우
+    res.status(200).json(testTemplates);
+    
   } catch (error) {
     console.error('❌ Error fetching test templates:', error);
     res.status(500).json({ message: 'Failed to fetch test templates' });
