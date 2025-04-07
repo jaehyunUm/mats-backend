@@ -161,26 +161,26 @@ router.get('/schedule', verifyToken, async (req, res) => {
     let dayColumn = '';
 
     switch (dayOfWeek) {
-      case 1:
+      case 6:  // 일요일
+        dayColumn = 'Sun';
+        break;
+      case 0:  // 월요일
         dayColumn = 'Mon';
         break;
-      case 2:
+      case 1:  // 화요일
         dayColumn = 'Tue';
         break;
-      case 3:
+      case 2:  // 수요일
         dayColumn = 'Wed';
         break;
-      case 4:
+      case 3:  // 목요일
         dayColumn = 'Thur';
         break;
-      case 5:
+      case 4:  // 금요일
         dayColumn = 'Fri';
         break;
-      case 6:
+      case 5:  // 토요일
         dayColumn = 'Sat';
-        break;
-      case 0:
-        dayColumn = 'Sun';
         break;
     }
     
