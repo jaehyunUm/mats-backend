@@ -252,14 +252,14 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
           SELECT 1 FROM attendance a 
           WHERE a.student_id = sc.student_id 
             AND a.class_id = sc.class_id 
-            AND a.attendance_date = ?
+            AND DATE(a.attendance_date) = DATE(?)
             AND a.dojang_code = ?
         )
         AND NOT EXISTS (
           SELECT 1 FROM absences ab 
           WHERE ab.student_id = sc.student_id 
             AND ab.class_id = sc.class_id 
-            AND ab.absence_date = ?
+            AND DATE(ab.absence_date) = DATE(?)
             AND ab.dojang_code = ?
         )
       `,
