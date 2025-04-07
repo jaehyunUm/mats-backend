@@ -232,7 +232,7 @@ router.post('/get-class-id', verifyToken, async (req, res) => {
 });
 
 router.get('/get-students-by-class', verifyToken, async (req, res) => {
-  const { classId, date } = req.query; // date 파라미터 추가
+  const { classId, date } = req.query;
   const { dojang_code } = req.user;
   const attendanceDate = date || new Date().toISOString().split('T')[0];
   
@@ -249,13 +249,11 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
       LEFT JOIN attendance a ON sc.student_id = a.student_id
         AND a.class_id = sc.class_id
         AND a.attendance_date = ?
-      LEFT JOIN absences ab ON sc.student_id = ab.student_id
-        AND ab.class_id = sc.class_id
-        AND ab.absence_date = ?
-      WHERE sc.class_id = ? AND sc.dojang_code = ?
+        AND a.dojang_code = ?
+      WHERE sc.class_id = ? 
+        AND sc.dojang_code = ?
         AND a.student_id IS NULL
-        AND ab.student_id IS NULL
-      `, [attendanceDate, attendanceDate, classId, dojang_code]
+      `, [attendanceDate, dojang_code, classId, dojang_code]
     );
     
     res.status(200).json(students);
