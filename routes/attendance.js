@@ -234,13 +234,12 @@ router.post('/get-class-id', verifyToken, async (req, res) => {
 router.get('/get-students-by-class', verifyToken, async (req, res) => {
   const { classId, date } = req.query;
   const { dojang_code } = req.user;
-
   const attendanceDate = date || new Date().toISOString().split('T')[0];
-
+  
   if (!classId) {
     return res.status(400).json({ message: 'classId is required' });
   }
-
+  
   try {
     const [students] = await db.query(
       `
@@ -254,17 +253,19 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
           WHERE a.student_id = sc.student_id 
             AND a.class_id = sc.class_id 
             AND a.attendance_date = ?
+            AND a.dojang_code = ?
         )
         AND NOT EXISTS (
           SELECT 1 FROM absences ab 
           WHERE ab.student_id = sc.student_id 
             AND ab.class_id = sc.class_id 
             AND ab.absence_date = ?
+            AND ab.dojang_code = ?
         )
       `,
-      [classId, dojang_code, attendanceDate, attendanceDate]
+      [classId, dojang_code, attendanceDate, dojang_code, attendanceDate, dojang_code]
     );
-
+    
     res.status(200).json(students);
   } catch (error) {
     console.error('❌ Error fetching students:', error);
