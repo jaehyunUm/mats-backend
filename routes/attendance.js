@@ -7,6 +7,13 @@ const verifyToken = require('../middleware/verifyToken');
 router.post('/mark-attendance', verifyToken, async (req, res) => {
   const { classId, students, attendance_date } = req.body;
   const { dojang_code } = req.user;
+  
+  console.log('Received attendance request:');
+  console.log('Class ID:', classId);
+  console.log('Students:', students);
+  console.log('Attendance Date:', attendance_date);
+  console.log('Date type:', typeof attendance_date);
+  
   try {
     for (const student of students) {
       // 학생의 현재 벨트 랭크 가져오기
