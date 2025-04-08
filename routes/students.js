@@ -40,21 +40,21 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   try {
-    // ✅ 학생 정보 조회 (belt_color와 stripe_color 추가)
+    // ✅ 학생 정보 조회 (belt_size 추가)
     const studentQuery = `
       SELECT 
         s.first_name AS firstName,
         s.last_name AS lastName,
         s.birth_date AS dateOfBirth,
         s.gender,
-        s.belt_color,
-        s.stripe_color,
-        s.belt_size,
+        COALESCE(b.belt_color, 'Unknown') AS beltColor,
+        s.belt_size,  -- ✅ belt_size 추가
         COALESCE(p.name, 'None') AS programName,
         s.profile_image AS imageUrl,
         s.parent_id AS parentId
       FROM students s
       LEFT JOIN programs p ON s.program_id = p.id
+      LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
       WHERE s.id = ? AND s.dojang_code = ?;
     `;
     const [studentResult] = await db.query(studentQuery, [studentId, dojang_code]);
@@ -63,11 +63,8 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       console.error(`Student not found for ID: ${studentId} and Dojang Code: ${dojang_code}`);
       return res.status(404).json({ message: 'Student not found' });
     }
-
     const student = studentResult[0];
-    // 벨트 색상과 stripe 색상을 합쳐서 beltColor로 설정
-    student.beltColor = student.belt_color + (student.stripe_color ? ` (${student.stripe_color})` : '');
-    console.log('Student Data:', student);
+    console.log('Student Data:', student); // 디버깅 로그
 
     // ✅ 학부모 정보 조회
     let parent = null;
@@ -84,6 +81,7 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       `;
       const [parentResult] = await db.query(parentQuery, [student.parentId, dojang_code]);
       parent = parentResult.length > 0 ? parentResult[0] : null;
+      console.log('Parent Data:', parent); // 디버깅 로그
     }
 
     // ✅ 학생의 클래스 정보 조회
@@ -97,25 +95,27 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       WHERE sc.student_id = ? AND sc.dojang_code = ?;
     `;
     const [classResults] = await db.query(classQuery, [studentId, dojang_code]);
+    console.log('Class Data:', classResults); // 디버깅 로그
 
-    // ✅ 결제 정보 조회
+    // ✅ 결제 정보 조회 (students_id 기반 조회)
     const paymentQuery = `
       SELECT 
         next_payment_date
       FROM monthly_payments
       WHERE student_id = ? AND dojang_code = ? 
-      ORDER BY next_payment_date ASC LIMIT 1;
+      ORDER BY next_payment_date ASC LIMIT 1;  -- ✅ 가장 빠른 결제 날짜 1개만 조회
     `;
     const [paymentResult] = await db.query(paymentQuery, [studentId, dojang_code]);
     const nextPaymentDate = paymentResult.length > 0 ? paymentResult[0].next_payment_date : null;
+    console.log('Payment Data:', nextPaymentDate); // 디버깅 로그
 
     // ✅ 최종 데이터 반환
     res.json({
       student,
       parent,
-      classes: classResults,
+      classes: classResults, // 클래스 정보 포함
       payment: {
-        nextPaymentDate,
+        nextPaymentDate, // ✅ 다음 결제 날짜 포함
       },
     });
   } catch (error) {
