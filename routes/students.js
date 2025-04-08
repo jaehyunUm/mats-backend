@@ -181,35 +181,31 @@ router.put('/students/:id', verifyToken, async (req, res) => {
 
     // 3. students 테이블 업데이트
     const updateQuery = `
-      UPDATE students 
-      SET 
-        first_name = ?, 
-        last_name = ?, 
-        birth_date = ?, 
-        gender = ?, 
-        belt_rank = ?,
-        belt_color = ?,
-        stripe_color = ?,
-        belt_size = ?,
-        program_id = ?,
-        profile_image = ?
-      WHERE id = ? AND dojang_code = ?
-    `;
-
-    const updateParams = [
-      student.firstName || null,
-      student.lastName || null,
-      student.birthDate || null,
-      student.gender || null,
-      beltRank,
-      cleanBeltColor,
-      cleanStripeColor,
-      student.beltSize || null,
-      programId,
-      student.profileImage || null,
-      studentId,
-      dojang_code,
-    ];
+    UPDATE students
+    SET
+    first_name = ?,
+    last_name = ?,
+    birth_date = ?,
+    gender = ?,
+    belt_rank = ?,
+    belt_size = ?,
+    program_id = ?,
+    profile_image = ?
+    WHERE id = ? AND dojang_code = ?
+   `;
+   
+   const updateParams = [
+     student.firstName || null,
+     student.lastName || null,
+     student.birthDate || null,
+     student.gender || null,
+     beltRank,
+     student.beltSize || null,
+     programId,
+     student.profileImage || null,
+     studentId,
+     dojang_code,
+   ];
 
     console.log('Update params:', updateParams); // 디버깅 로그 추가
 
