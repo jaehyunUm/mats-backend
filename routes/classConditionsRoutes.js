@@ -55,15 +55,15 @@ router.post('/edit-condition', verifyToken, async (req, res) => {
 
 // 조건을 추가하는 엔드포인트
 router.post('/add-condition', verifyToken, async (req, res) => {
-    const { className, beltMin, beltMax, ageMin, ageMax, maxCapacity } = req.body;
+    const { className, beltMin, beltMax, ageMin, ageMax } = req.body;
     const { dojang_code } = req.user;
 
     const query = `
-        INSERT INTO classconditions (class_name, belt_min_rank, belt_max_rank, age_min, age_max, class_max_capacity, dojang_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO classconditions (class_name, belt_min_rank, belt_max_rank, age_min, age_max, dojang_code)
+        VALUES (?, ?, ?, ?, ?, ?)
     `;
 
-    const values = [className, beltMin, beltMax, ageMin, ageMax, maxCapacity, dojang_code];
+    const values = [className, beltMin, beltMax, ageMin, ageMax, dojang_code];
 
     try {
         const [result] = await db.query(query, values);
