@@ -48,8 +48,8 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       s.birth_date AS dateOfBirth,
       s.gender,
       COALESCE(b.belt_color, 'Unknown') AS beltColor,
-      COALESCE(b.stripe_color, NULL) AS stripeColor, // ✅ stripe_color 추가
-      s.belt_size, // ✅ belt_size 추가
+      COALESCE(b.stripe_color, NULL) AS stripeColor, -- stripe_color 추가
+      s.belt_size, -- belt_size 추가
       COALESCE(p.name, 'None') AS programName,
       s.profile_image AS imageUrl,
       s.parent_id AS parentId
@@ -58,8 +58,8 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
     LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
     WHERE s.id = ? AND s.dojang_code = ?;
   `;
-  const [studentResult] = await db.query(studentQuery, [studentId, dojang_code]);
-  
+    const [studentResult] = await db.query(studentQuery, [studentId, dojang_code]);
+    
     if (studentResult.length === 0) {
       console.error(`Student not found for ID: ${studentId} and Dojang Code: ${dojang_code}`);
       return res.status(404).json({ message: 'Student not found' });
