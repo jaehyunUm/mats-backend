@@ -164,42 +164,12 @@ router.get('/schedule', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
   
   try {
-    // getDay()는 0(일요일)부터 6(토요일)까지의 값을 반환합니다
+    // 간단하게 요일 매핑
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'];
     const dayOfWeek = new Date(date).getDay();
-    let dayColumn = '';
+    const dayColumn = days[dayOfWeek];
     
-    switch (dayOfWeek) {
-      case 0: // 일요일 - Sun (이 값이 스케줄 테이블에 없으면 클라이언트에 빈 배열 반환)
-        dayColumn = 'Sun';
-        break;
-      case 1: // 월요일
-        dayColumn = 'Mon';
-        break;
-      case 2: // 화요일
-        dayColumn = 'Tue';
-        break;
-      case 3: // 수요일
-        dayColumn = 'Wed';
-        break;
-      case 4: // 목요일
-        dayColumn = 'Thur';
-        break;
-      case 5: // 금요일
-        dayColumn = 'Fri';
-        break;
-      case 6: // 토요일
-        dayColumn = 'Sat';
-        break;
-    }
-    
-    console.log('Date received:', date);
-    console.log('Day of week:', dayOfWeek);
-    console.log('Day column:', dayColumn);
-    
-    // 테이블에 해당 요일 컬럼이 있는지 확인
-    if (!dayColumn || !['Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat', 'Sun'].includes(dayColumn)) {
-      return res.json([]); // 유효하지 않은 요일은 빈 배열 반환
-    }
+    console.log('Selected day:', dayColumn);
     
     // 도장 코드에 맞는 스케줄에서 요일에 맞는 클래스 불러오기
     const [rows] = await db.query(
@@ -212,7 +182,7 @@ router.get('/schedule', verifyToken, async (req, res) => {
     res.json(rows);
   } catch (error) {
     console.error('Error fetching schedule:', error);
-    res.status(500).json({ error: 'Failed to fetch schedule', details: error.message });
+    res.status(500).json({ error: 'Failed to fetch schedule' });
   }
 });
 
