@@ -135,10 +135,14 @@ router.put('/students/:id', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   try {
+    console.log('Received beltColor:', student.beltColor); // 디버깅 로그 추가
+
     // 벨트 색상과 stripe 색상을 분리
     const [beltColor, stripeColor] = student.beltColor.split(' (');
     const cleanBeltColor = beltColor.trim();
     const cleanStripeColor = stripeColor ? stripeColor.replace(')', '').trim() : null;
+
+    console.log('Parsed belt info:', { cleanBeltColor, cleanStripeColor }); // 디버깅 로그 추가
 
     // 1. beltsystem에서 belt_color와 stripe_color로 belt_rank 조회
     const [beltResult] = await db.query(
@@ -149,12 +153,16 @@ router.put('/students/:id', verifyToken, async (req, res) => {
       [cleanBeltColor, cleanStripeColor, cleanStripeColor, dojang_code]
     );
 
+    console.log('Belt query result:', beltResult); // 디버깅 로그 추가
+
     // belt_rank 조회 실패 시 에러 처리
     if (beltResult.length === 0) {
+      console.log('No matching belt found'); // 디버깅 로그 추가
       return res.status(404).json({ message: "Invalid belt color or stripe combination" });
     }
 
     const beltRank = beltResult[0].belt_rank;
+    console.log('Selected belt rank:', beltRank); // 디버깅 로그 추가
 
     // 2. programs 테이블에서 name과 dojang_code로 program_id 조회
     let programId = null;
@@ -188,7 +196,7 @@ router.put('/students/:id', verifyToken, async (req, res) => {
       WHERE id = ? AND dojang_code = ?
     `;
 
-    await db.execute(updateQuery, [
+    const updateParams = [
       student.firstName || null,
       student.lastName || null,
       student.birthDate || null,
@@ -201,7 +209,11 @@ router.put('/students/:id', verifyToken, async (req, res) => {
       student.profileImage || null,
       studentId,
       dojang_code,
-    ]);
+    ];
+
+    console.log('Update params:', updateParams); // 디버깅 로그 추가
+
+    await db.execute(updateQuery, updateParams);
 
     res.status(200).json({ success: true, message: 'Student information updated successfully' });
   } catch (error) {
