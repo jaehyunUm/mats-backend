@@ -132,18 +132,26 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
 router.put('/students/:id', verifyToken, async (req, res) => {
   const studentId = req.params.id;
   const { student } = req.body;
-  const { dojang_code } = req.user; // 미들웨어에서 추출된 도장 코드
+  const { dojang_code } = req.user;
 
   try {
-    // 1. beltsystem에서 belt_color로 belt_rank 조회
+    // 벨트 색상과 stripe 색상을 분리
+    const [beltColor, stripeColor] = student.beltColor.split(' (');
+    const cleanBeltColor = beltColor.trim();
+    const cleanStripeColor = stripeColor ? stripeColor.replace(')', '').trim() : null;
+
+    // 1. beltsystem에서 belt_color와 stripe_color로 belt_rank 조회
     const [beltResult] = await db.query(
-      `SELECT belt_rank FROM beltsystem WHERE belt_color = ? AND dojang_code = ?`,
-      [student.beltColor, dojang_code]
+      `SELECT belt_rank FROM beltsystem 
+       WHERE belt_color = ? 
+       AND (stripe_color = ? OR (? IS NULL AND stripe_color IS NULL))
+       AND dojang_code = ?`,
+      [cleanBeltColor, cleanStripeColor, cleanStripeColor, dojang_code]
     );
 
     // belt_rank 조회 실패 시 에러 처리
     if (beltResult.length === 0) {
-      return res.status(404).json({ message: "Invalid belt color" });
+      return res.status(404).json({ message: "Invalid belt color or stripe combination" });
     }
 
     const beltRank = beltResult[0].belt_rank;
@@ -160,10 +168,10 @@ router.put('/students/:id', verifyToken, async (req, res) => {
         return res.status(404).json({ message: "Invalid program name" });
       }
 
-      programId = programResult[0].id; // 조회된 program_id
+      programId = programResult[0].id;
     }
 
-    // 3. students 테이블에 belt_rank, belt_size, program_id, 나머지 정보 업데이트
+    // 3. students 테이블 업데이트
     const updateQuery = `
       UPDATE students 
       SET 
@@ -171,9 +179,11 @@ router.put('/students/:id', verifyToken, async (req, res) => {
         last_name = ?, 
         birth_date = ?, 
         gender = ?, 
-        belt_rank = ?,   -- 조회한 belt_rank 사용
-        belt_size = ?,   -- 벨트 사이즈 추가
-        program_id = ?,  -- 조회한 program_id 사용
+        belt_rank = ?,
+        belt_color = ?,
+        stripe_color = ?,
+        belt_size = ?,
+        program_id = ?,
         profile_image = ?
       WHERE id = ? AND dojang_code = ?
     `;
@@ -183,15 +193,17 @@ router.put('/students/:id', verifyToken, async (req, res) => {
       student.lastName || null,
       student.birthDate || null,
       student.gender || null,
-      beltRank, // 조회된 belt_rank 값
-      student.beltSize || null, // 벨트 사이즈 추가
-      programId, // 조회된 program_id 값
+      beltRank,
+      cleanBeltColor,
+      cleanStripeColor,
+      student.beltSize || null,
+      programId,
       student.profileImage || null,
       studentId,
       dojang_code,
     ]);
 
-    res.status(200).json({ success: true, message: 'Student information updated successfully' }); // ✅ 수정됨
+    res.status(200).json({ success: true, message: 'Student information updated successfully' });
   } catch (error) {
     console.error("Error updating student information:", error);
     res.status(500).json({ message: 'Error updating student information' });
