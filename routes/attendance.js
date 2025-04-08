@@ -217,45 +217,43 @@ router.post('/get-class-id', verifyToken, async (req, res) => {
   }
 });
 
+// 클래스에 등록된 학생 목록 가져오기 (출석/결석 처리되지 않은 학생만)
 router.get('/get-students-by-class', verifyToken, async (req, res) => {
   const { classId, date } = req.query;
   const { dojang_code } = req.user;
-  const attendanceDate = date || new Date().toISOString().split('T')[0];
-  
-  if (!classId) {
-    return res.status(400).json({ message: 'classId is required' });
-  }
-  
+
   try {
-    const [students] = await db.query(
-      `
-      SELECT s.id, s.first_name, s.last_name, s.belt_rank, s.birth_date
-      FROM student_classes sc
-      JOIN students s ON sc.student_id = s.id
-      WHERE sc.class_id = ? 
-        AND sc.dojang_code = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM attendance a 
-          WHERE a.student_id = sc.student_id 
-            AND a.class_id = sc.class_id 
-            AND DATE(a.attendance_date) = DATE(?)
-            AND a.dojang_code = ?
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM absences ab 
-          WHERE ab.student_id = sc.student_id 
-            AND ab.class_id = sc.class_id 
-            AND DATE(ab.absence_date) = DATE(?)
-            AND ab.dojang_code = ?
-        )
-      `,
-      [classId, dojang_code, attendanceDate, dojang_code, attendanceDate, dojang_code]
-    );
+    // 해당 날짜에 이미 출석 또는 결석 처리된 학생 ID 가져오기
+    const [processedStudents] = await db.query(`
+      SELECT DISTINCT student_id 
+      FROM (
+        SELECT student_id FROM attendance 
+        WHERE class_id = ? AND dojang_code = ? AND attendance_date = ?
+        UNION
+        SELECT student_id FROM absences 
+        WHERE class_id = ? AND dojang_code = ? AND absence_date = ?
+      ) as processed_students
+    `, [classId, dojang_code, date, classId, dojang_code, date]);
+
+    const processedIds = processedStudents.map(s => s.student_id);
     
-    res.status(200).json(students);
+    // 클래스에 등록된 학생 중 아직 처리되지 않은 학생만 가져오기
+    const [students] = await db.query(`
+      SELECT DISTINCT s.id, s.first_name, s.last_name, s.belt_rank
+      FROM students s
+      JOIN student_classes sc ON s.id = sc.student_id
+      WHERE sc.class_id = ? 
+      AND sc.dojang_code = ?
+      AND s.id NOT IN (${processedIds.length > 0 ? processedIds.join(',') : '0'})
+      ORDER BY s.first_name
+    `, [classId, dojang_code]);
+
+    console.log(`Found ${students.length} unprocessed students for class ${classId} on ${date}`);
+    res.json(students);
+
   } catch (error) {
-    console.error('❌ Error fetching students:', error);
-    res.status(500).json({ message: 'Server error while fetching students' });
+    console.error('Error fetching students:', error);
+    res.status(500).json({ error: 'Failed to fetch students' });
   }
 });
 
