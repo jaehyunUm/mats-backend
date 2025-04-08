@@ -12,16 +12,17 @@ router.get('/owner/payment-history/program', verifyToken, async (req, res) => {
 
         const query = `
             SELECT 
-                p.name AS program_name, 
+                pp.id,
                 pp.amount, 
                 pp.payment_date, 
-                pp.status, 
-                s.first_name AS first_name, 
-                s.last_name AS last_name,
+                pp.status,
                 pp.program_id,
-                pp.student_id
+                pp.student_id,
+                p.name AS program_name,
+                s.first_name,
+                s.last_name
             FROM program_payments pp
-            LEFT JOIN programs p ON pp.program_id = p.id
+            LEFT JOIN programs p ON pp.program_id = p.id AND p.dojang_code = pp.dojang_code
             LEFT JOIN students s ON pp.student_id = s.id
             WHERE pp.dojang_code = ? 
               AND pp.status = 'completed'
