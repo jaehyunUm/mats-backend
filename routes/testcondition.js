@@ -24,13 +24,18 @@ router.post('/add-testing-condition', verifyToken, async (req, res) => {
 // ✅ 백엔드 수정 - Edit Testing Condition
 router.put('/edit-testing-condition/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
-  const { minBelt, maxBelt, attendanceRequired, testType } = req.body;
+  const { testType, minBelt, maxBelt, attendanceRequired } = req.body;
   const { dojang_code } = req.user;
+
+  // 필수 필드 검증
+  if (!testType || !minBelt || !maxBelt || !attendanceRequired) {
+    return res.status(400).json({ message: 'All fields are required' });
+  }
 
   try {
     const [result] = await db.execute(
-      'UPDATE testcondition SET belt_min_rank = ?, belt_max_rank = ?, attendance_required = ?, test_type = ? WHERE id = ? AND dojang_code = ?',
-      [minBelt || null, maxBelt || null, attendanceRequired || null, testType || null, id, dojang_code]
+      'UPDATE testcondition SET test_type = ?, belt_min_rank = ?, belt_max_rank = ?, attendance_required = ? WHERE id = ? AND dojang_code = ?',
+      [testType, minBelt, maxBelt, attendanceRequired, id, dojang_code]
     );
 
     if (result.affectedRows > 0) {
