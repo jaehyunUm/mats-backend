@@ -16,8 +16,10 @@ router.get('/owner/payment-history/program', verifyToken, async (req, res) => {
                 pp.amount, 
                 pp.payment_date, 
                 pp.status, 
-                s.first_name, 
-                s.last_name 
+                s.first_name AS first_name, 
+                s.last_name AS last_name,
+                pp.program_id,
+                pp.student_id
             FROM program_payments pp
             LEFT JOIN programs p ON pp.program_id = p.id
             LEFT JOIN students s ON pp.student_id = s.id
@@ -27,7 +29,17 @@ router.get('/owner/payment-history/program', verifyToken, async (req, res) => {
 
         const [rows] = await db.query(query, [dojang_code]);
 
-        console.log("✅ [PROGRAM] Query Result:", rows);
+        // 디버깅을 위한 로그 추가
+        console.log("✅ [PROGRAM] Query Result:", JSON.stringify(rows, null, 2));
+        
+        if (rows.length === 0) {
+            console.log("⚠️ [PROGRAM] No payment records found");
+        } else {
+            console.log(`✅ [PROGRAM] Found ${rows.length} payment records`);
+            // 첫 번째 레코드의 구조를 확인
+            console.log("Sample record structure:", Object.keys(rows[0]));
+        }
+
         res.json(rows);
     } catch (error) {
         console.error('❌ [PROGRAM] Error fetching payment history:', error);
