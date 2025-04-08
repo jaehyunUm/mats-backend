@@ -6,7 +6,7 @@ const verifyToken = require('../middleware/verifyToken');
 // ✅ 프로그램 결제 내역 조회 (도장 오너)
 router.get('/owner/payment-history/program', verifyToken, async (req, res) => {
     try {
-        const { dojang_code } = req.user; // ✅ `verifyToken`에서 설정된 값 사용
+        const { dojang_code } = req.user;
 
         console.log("🔹 [PROGRAM] Request Received - Dojang Code:", dojang_code);
 
@@ -19,13 +19,13 @@ router.get('/owner/payment-history/program', verifyToken, async (req, res) => {
                 s.first_name, 
                 s.last_name 
             FROM program_payments pp
-            JOIN programs p ON pp.program_id = p.id
-            JOIN students s ON pp.student_id = s.id
+            LEFT JOIN programs p ON pp.program_id = p.id
+            LEFT JOIN students s ON pp.student_id = s.id
             WHERE pp.dojang_code = ? 
-              AND s.dojang_code = ?
-              AND pp.status = 'completed'`;
+              AND pp.status = 'completed'
+            ORDER BY pp.payment_date DESC`;
 
-        const [rows] = await db.query(query, [dojang_code, dojang_code]);
+        const [rows] = await db.query(query, [dojang_code]);
 
         console.log("✅ [PROGRAM] Query Result:", rows);
         res.json(rows);
