@@ -43,6 +43,27 @@ router.post('/add-test-fee', verifyToken, async (req, res) => {
     }
   });
   
+// 테스트 비용 업데이트 API
+router.put('/update-test-fee/:id', verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const { beltMin, beltMax, fee } = req.body;
+  const { dojang_code } = req.user;
+
+  try {
+    const query = `
+      UPDATE testing_fees
+      SET belt_min_rank = ?, belt_max_rank = ?, fee = ?
+      WHERE id = ? AND dojang_code = ?
+    `;
+    
+    await db.query(query, [beltMin, beltMax, fee, id, dojang_code]);
+    res.status(200).json({ message: 'Test fee updated successfully' });
+  } catch (err) {
+    console.error('Error updating test fee:', err);
+    res.status(500).json({ message: 'Database error' });
+  }
+});
+
   // Test Fee 삭제 API
   router.delete('/delete-test-fee/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
