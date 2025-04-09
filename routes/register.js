@@ -255,94 +255,86 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     }
 
     if (paymentType === "pay_in_full") {
-      // 시작 날짜 안전하게 설정
-      const startDate = new Date().toISOString().split('T')[0];
+      // 프로그램 정보 조회 - 실제 데이터베이스에서 가져오도록
+      const [programDetails] = await connection.query(`
+        SELECT id, payment_type, operation_type, total_classes, classes_per_week, duration_months
+        FROM programs 
+        WHERE id = ?
+      `, [program.id]);
       
-      // 종료 날짜 계산 - 안전한 방식으로
-      let endDateStr;
-      try {
-        const endDate = new Date();
-        // program.durationMonths가 존재하고 유효한 숫자인지 확인
-        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 12; // 기본값 12개월
-        
-        if (!isNaN(durationMonths)) {
-          endDate.setMonth(endDate.getMonth() + durationMonths);
-          endDateStr = endDate.toISOString().split('T')[0];
-        } else {
-          // 유효하지 않은 경우 기본값 설정 (12개월)
-          endDate.setMonth(endDate.getMonth() + 12);
-          endDateStr = endDate.toISOString().split('T')[0];
-          console.log("⚠️ 경고: 유효하지 않은 durationMonths 값, 기본값 12개월 사용");
-        }
-      } catch (error) {
-        console.error("날짜 계산 오류:", error);
-        // 오류 발생 시 기본값 설정 (12개월)
-        const defaultEndDate = new Date();
-        defaultEndDate.setMonth(defaultEndDate.getMonth() + 12);
-        endDateStr = defaultEndDate.toISOString().split('T')[0];
+      if (!programDetails.length) {
+        throw new Error(`Program with id ${program.id} not found`);
       }
       
-      // 프로그램 정보 로깅
-      console.log("프로그램 상세 정보:", {
-        operationType: program.operationType,
-        durationMonths: program.durationMonths,
-        classesPerWeek: program.classesPerWeek,
-        totalClasses: program.totalClasses
-      });
+      const programInfo = programDetails[0];
+      console.log("DB에서 가져온 프로그램 정보:", programInfo);
       
-      // 총 수업 횟수 계산
+      // 총 수업 횟수 계산 (DB 값 기준)
       let totalClasses = 0;
       
-      if (program.operationType === 'duration_based') {
-        // 주당 수업 수 × 월 수 × 4주
-        const classesPerWeek = program.classesPerWeek ? parseInt(program.classesPerWeek, 10) : 1;
-        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 12;
+      if (programInfo.operation_type === 'class_based') {
+        // class_based는 total_classes 값을 그대로 사용
+        totalClasses = programInfo.total_classes;
+        console.log(`Class-based 계산: 총 ${totalClasses}회`);
         
-        if (!isNaN(classesPerWeek) && !isNaN(durationMonths)) {
-          totalClasses = classesPerWeek * durationMonths * 4;
-          console.log(`Duration-based 계산: ${classesPerWeek}회/주 × ${durationMonths}개월 × 4주 = ${totalClasses}회`);
-        } else {
-          totalClasses = 48; // 기본값 (주 1회 × 12개월 × 4주)
-          console.log("⚠️ 경고: 유효하지 않은 값, 기본값 48회 사용");
+        // 시작 날짜만 기록
+        const startDate = new Date().toISOString().split('T')[0];
+        
+        // DB에 저장 (class_based용 쿼리)
+        await connection.query(`
+          INSERT INTO payinfull_payment
+          (student_id, payment_id, total_classes, remaining_classes, 
+           start_date, end_date, dojang_code)
+          VALUES (?, ?, ?, ?, ?, NULL, ?)
+        `, [
+          studentId,
+          paymentId,
+          totalClasses,
+          totalClasses,
+          startDate,
+          dojang_code
+        ]);
+        
+      } else if (programInfo.operation_type === 'duration_based') {
+        // 시작 날짜 설정
+        const startDate = new Date().toISOString().split('T')[0];
+        
+        // 종료 날짜 계산
+        let endDate = new Date();
+        try {
+          endDate.setMonth(endDate.getMonth() + programInfo.duration_months);
+        } catch (error) {
+          console.error("날짜 계산 오류:", error);
         }
-      } else if (program.operationType === 'class_based') {
-        // program.totalClasses 값 사용
-        if (program.totalClasses && !isNaN(parseInt(program.totalClasses, 10))) {
-          totalClasses = parseInt(program.totalClasses, 10);
-          console.log(`Class-based 계산: 고정 ${totalClasses}회`);
-        } else {
-          // totalClasses가 없거나 유효하지 않은 경우
-          totalClasses = 5; // 제공된 예시에서는 5회
-          console.log("⚠️ 경고: 유효하지 않은 totalClasses 값, 기본값 5회 사용");
-        }
+        const endDateStr = endDate.toISOString().split('T')[0];
+        
+        // duration_based일 경우 클래스 수 계산
+        totalClasses = programInfo.classes_per_week * programInfo.duration_months * 4;
+        console.log(`Duration-based 계산: ${programInfo.classes_per_week}회/주 × ${programInfo.duration_months}개월 × 4주 = ${totalClasses}회`);
+        
+        // DB에 저장 (duration_based용 쿼리)
+        await connection.query(`
+          INSERT INTO payinfull_payment
+          (student_id, payment_id, total_classes, remaining_classes, 
+           start_date, end_date, dojang_code)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [
+          studentId,
+          paymentId,
+          totalClasses,
+          totalClasses,
+          startDate,
+          endDateStr,
+          dojang_code
+        ]);
       } else {
-        // operationType이 지정되지 않은 경우
-        totalClasses = 48; // 기본값 (주 1회 × 12개월 × 4주)
-        console.log("⚠️ 경고: 알 수 없는 operationType, 기본값 48회 사용");
+        // 알 수 없는 operation_type의 경우 로그만 남기고 예외 처리
+        throw new Error(`Unknown operation_type: ${programInfo.operation_type}`);
       }
-      
-      // 최종 계산된 값 로깅
-      console.log("최종 total_classes 값:", totalClasses);
-      
-      // DB에 저장
-      await connection.query(`
-        INSERT INTO payinfull_payment
-        (student_id, payment_id, total_classes, remaining_classes,
-         start_date, end_date, dojang_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [
-        studentId,
-        paymentId,
-        totalClasses,
-        totalClasses,
-        startDate,
-        endDateStr,
-        dojang_code
-      ]);
       
       console.log("✅ Pay in full 등록 완료:", totalClasses, "회");
     }
-    
+
     // 월간 결제 처리
     if (paymentType === "monthly_pay") {
       
