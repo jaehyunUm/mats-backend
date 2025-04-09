@@ -263,50 +263,66 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       try {
         const endDate = new Date();
         // program.durationMonths가 존재하고 유효한 숫자인지 확인
-        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 3; // 기본값 3개월
+        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 12; // 기본값 12개월
         
         if (!isNaN(durationMonths)) {
           endDate.setMonth(endDate.getMonth() + durationMonths);
           endDateStr = endDate.toISOString().split('T')[0];
         } else {
-          // 유효하지 않은 경우 기본값 설정 (3개월)
-          endDate.setMonth(endDate.getMonth() + 3);
+          // 유효하지 않은 경우 기본값 설정 (12개월)
+          endDate.setMonth(endDate.getMonth() + 12);
           endDateStr = endDate.toISOString().split('T')[0];
-          console.log("⚠️ 경고: 유효하지 않은 durationMonths 값, 기본값 3개월 사용");
+          console.log("⚠️ 경고: 유효하지 않은 durationMonths 값, 기본값 12개월 사용");
         }
       } catch (error) {
         console.error("날짜 계산 오류:", error);
-        // 오류 발생 시 기본값 설정 (3개월)
+        // 오류 발생 시 기본값 설정 (12개월)
         const defaultEndDate = new Date();
-        defaultEndDate.setMonth(defaultEndDate.getMonth() + 3);
+        defaultEndDate.setMonth(defaultEndDate.getMonth() + 12);
         endDateStr = defaultEndDate.toISOString().split('T')[0];
       }
       
-      // 총 수업 횟수 계산 - 안전한 방식으로
+      // 프로그램 정보 로깅
+      console.log("프로그램 상세 정보:", {
+        operationType: program.operationType,
+        durationMonths: program.durationMonths,
+        classesPerWeek: program.classesPerWeek,
+        totalClasses: program.totalClasses
+      });
+      
+      // 총 수업 횟수 계산
       let totalClasses = 0;
       
       if (program.operationType === 'duration_based') {
-        // classesPerWeek와 durationMonths 유효성 검사
+        // 주당 수업 수 × 월 수 × 4주
         const classesPerWeek = program.classesPerWeek ? parseInt(program.classesPerWeek, 10) : 1;
-        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 3;
+        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 12;
         
         if (!isNaN(classesPerWeek) && !isNaN(durationMonths)) {
-          totalClasses = classesPerWeek * durationMonths * 4; // 한 달 4주 기준
+          totalClasses = classesPerWeek * durationMonths * 4;
+          console.log(`Duration-based 계산: ${classesPerWeek}회/주 × ${durationMonths}개월 × 4주 = ${totalClasses}회`);
         } else {
-          totalClasses = 12; // 기본값 설정 (주 1회 3개월 = 12회)
-          console.log("⚠️ 경고: 유효하지 않은 classesPerWeek 또는 durationMonths 값, 기본값 12회 사용");
+          totalClasses = 48; // 기본값 (주 1회 × 12개월 × 4주)
+          console.log("⚠️ 경고: 유효하지 않은 값, 기본값 48회 사용");
         }
       } else if (program.operationType === 'class_based') {
-        totalClasses = program.totalClasses ? parseInt(program.totalClasses, 10) : 12;
-        if (isNaN(totalClasses)) {
-          totalClasses = 12; // 기본값 설정
-          console.log("⚠️ 경고: 유효하지 않은 totalClasses 값, 기본값 12회 사용");
+        // program.totalClasses 값 사용
+        if (program.totalClasses && !isNaN(parseInt(program.totalClasses, 10))) {
+          totalClasses = parseInt(program.totalClasses, 10);
+          console.log(`Class-based 계산: 고정 ${totalClasses}회`);
+        } else {
+          // totalClasses가 없거나 유효하지 않은 경우
+          totalClasses = 5; // 제공된 예시에서는 5회
+          console.log("⚠️ 경고: 유효하지 않은 totalClasses 값, 기본값 5회 사용");
         }
       } else {
-        // operationType이 없거나 알 수 없는 경우 기본값 설정
-        totalClasses = 12;
-        console.log("⚠️ 경고: 알 수 없는 operationType, 기본값 12회 사용");
+        // operationType이 지정되지 않은 경우
+        totalClasses = 48; // 기본값 (주 1회 × 12개월 × 4주)
+        console.log("⚠️ 경고: 알 수 없는 operationType, 기본값 48회 사용");
       }
+      
+      // 최종 계산된 값 로깅
+      console.log("최종 total_classes 값:", totalClasses);
       
       // DB에 저장
       await connection.query(`
@@ -326,6 +342,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       
       console.log("✅ Pay in full 등록 완료:", totalClasses, "회");
     }
+    
     // 월간 결제 처리
     if (paymentType === "monthly_pay") {
       
