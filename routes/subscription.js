@@ -74,23 +74,30 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
 
   
 
-  router.get('/subscription/list', verifyToken , async (req, res) => {
-    console.log('🔑 Token payload:', req.user); // 토큰 정보 확인
-     // ✅ 쿼리스트링에서 받거나, 토큰에서 받거나
-  const userId = req.query.userId || req.user.id;
-
-    // ✅ 유효성 검사
-    if (!userId) {
-      return res.status(400).json({ success: false, message: 'User ID is required' });
-    }
-  
-    try {
-      // ✅ 해당 사용자의 구독 목록을 데이터베이스에서 가져오기
-      const [subscriptions] = await db.query(
+router.get('/subscription/list', verifyToken, (req, res) => 
+  Promise.resolve()
+    .then(() => {
+      console.log('🔑 Token payload:', req.user); // 토큰 정보 확인
+      // ✅ 쿼리스트링에서 받거나, 토큰에서 받거나
+      const userId = req.query.userId || req.user.id;
+      
+      // ✅ 유효성 검사
+      if (!userId) {
+        throw { 
+          status: 400, 
+          message: 'User ID is required' 
+        };
+      }
+      
+      return userId;
+    })
+    .then(userId => 
+      db.query(
         'SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE user_id = ?',
         [userId]
-      );
-  
+      )
+    )
+    .then(([subscriptions]) => {
       // ✅ 구독 정보가 없는 경우 (200 응답 코드로 처리)
       if (!subscriptions || subscriptions.length === 0) {
         return res.status(200).json({
@@ -99,21 +106,25 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
           message: 'No subscriptions found for this user',
         });
       }
-  
+      
       // ✅ 구독 목록 반환
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         subscriptions,
       });
-    } catch (error) {
+    })
+    .catch(error => {
       console.error('❌ Error fetching subscriptions:', error);
-      res.status(500).json({
+      const status = error.status || 500;
+      const message = error.message || 'Error fetching subscriptions';
+      
+      return res.status(status).json({
         success: false,
-        message: 'Error fetching subscriptions',
+        message,
         error: error.message,
       });
-    }
-  });
+    })
+);
   
   
 router.post("/subscription", verifyToken, async (req, res) => {
