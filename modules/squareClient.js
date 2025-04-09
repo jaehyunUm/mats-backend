@@ -14,7 +14,7 @@ const client = new Client({
 
 const createSquareClientWithToken = (accessToken) => {
   return new Client({
-    accessToken: accessToken, // ✅ 동적으로 `accessToken` 적용
+    accessToken: accessToken, 
     environment:
       process.env.NODE_ENV === 'production'
         ? Environment.Production

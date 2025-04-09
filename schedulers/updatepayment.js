@@ -2,10 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // DB 연결
 
-/**
- * POST /api/update-payment-status
- * 결제 상태 업데이트 API
- */
+
 router.post('/update-payment-status', async (req, res) => {
   const { paymentId, status, nextPaymentDate } = req.body;
 

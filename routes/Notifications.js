@@ -89,10 +89,10 @@ router.put('/notifications/:id/mark-read', async (req, res) => {
         }
 
         const query = `
-        SELECT COUNT(*) AS unread_count 
-        FROM notifications 
-        WHERE dojang_code = ? AND is_read = 0`;
-    const [rows] = await db.query(query, [req.user.dojang_code]);
+        SELECT COUNT(*) AS unread_count
+        FROM notifications
+        WHERE dojang_code = ? AND user_id = ? AND is_read = 0`;
+      const [rows] = await db.query(query, [req.user.dojang_code, userId]);
 
         res.status(200).json({ count: rows[0].unread_count });
 

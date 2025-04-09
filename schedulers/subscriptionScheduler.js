@@ -59,12 +59,12 @@ async function processSubscriptions() {
   }
 })();
 
-// ✅ 매일 정오 (12:00)에 실행 - 올바른 cron 표현식 사용
-cron.schedule('0 12 * * *', async () => {
+cron.schedule('0 12 * * *', () => {
   console.log(`[${new Date().toISOString()}] Running scheduled subscription job...`);
   try {
-    await processSubscriptions();
-    console.log("✅ Scheduled subscription job completed successfully.");
+    processSubscriptions()
+      .then(() => console.log("✅ Scheduled subscription job completed successfully."))
+      .catch(error => console.error("❌ Error running scheduled subscription job:", error));
   } catch (error) {
     console.error("❌ Error running scheduled subscription job:", error);
   }
