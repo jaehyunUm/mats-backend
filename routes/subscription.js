@@ -108,19 +108,16 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
   const { dojang_code } = req.user; // 도장코드를 req.user에서 가져오기
   console.log('🔑 도장 코드:', dojang_code); // 도장 코드 확인
   
-  // ✅ 쿼리스트링에서 받거나, 토큰에서 받거나
-  const userId = req.query.userId || req.user.id;
-  
-  // ✅ 유효성 검사
-  if (!userId) {
-    return res.status(400).json({ success: false, message: 'User ID is required' });
+  // ✅ 도장 코드 유효성 검사
+  if (!dojang_code) {
+    return res.status(400).json({ success: false, message: 'Dojang code is required' });
   }
   
   try {
-    // ✅ 해당 사용자의 구독 목록을 데이터베이스에서 가져오기
+    // ✅ 해당 도장의 구독 목록을 데이터베이스에서 가져오기 (user_id 조건 없이)
     const [subscriptions] = await db.query(
-      'SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE user_id = ? AND dojang_code = ?',
-      [userId, dojang_code]
+      'SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE dojang_code = ?',
+      [dojang_code]
     );
     
     // ✅ 구독 정보가 없는 경우 (200 응답 코드로 처리)
@@ -128,7 +125,7 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
       return res.status(200).json({
         success: true,
         subscriptions: [],
-        message: 'No subscriptions found for this user',
+        message: 'No subscriptions found for this dojang',
       });
     }
     
@@ -146,7 +143,6 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
     });
   }
 });
-  
   
 router.post("/subscription", verifyToken, async (req, res) => {
   const { v4: uuidv4 } = require('uuid');
