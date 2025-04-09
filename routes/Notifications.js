@@ -81,26 +81,19 @@ router.put('/notifications/:id/mark-read', async (req, res) => {
   
   router.get('/notifications/unread-count', verifyToken, async (req, res) => {
     try {
-      const userId = req.user.id; // ✅ 객체에서 id를 꺼내야 함
-
-
-        if (!userId) {
-            return res.status(400).json({ message: "User ID is missing in the token" });
-        }
-
-        const query = `
+      // user_id 필드가 없으므로 제거하고 dojang_code만 사용
+      const query = `
         SELECT COUNT(*) AS unread_count
         FROM notifications
-        WHERE dojang_code = ? AND user_id = ? AND is_read = 0`;
-      const [rows] = await db.query(query, [req.user.dojang_code, userId]);
-
-        res.status(200).json({ count: rows[0].unread_count });
-
+        WHERE dojang_code = ? AND is_read = 0`;
+      
+      const [rows] = await db.query(query, [req.user.dojang_code]);
+      res.status(200).json({ count: rows[0].unread_count });
     } catch (error) {
-        console.error("❌ Error fetching unread notifications:", error);
-        res.status(500).json({ message: "Failed to fetch unread notifications", error: error.message });
+      console.error("❌ Error fetching unread notifications:", error);
+      res.status(500).json({ message: "Failed to fetch unread notifications", error: error.message });
     }
-});
+  });
 
 
 module.exports = router;
