@@ -255,22 +255,63 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     }
 
     if (paymentType === "pay_in_full") {
+      // 시작 날짜 안전하게 설정
       const startDate = new Date().toISOString().split('T')[0];
-      const endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + Number(program.durationMonths));
-      const endDateStr = endDate.toISOString().split('T')[0];
-    
-      let totalClasses = 0;
-    
-      if (program.operationType === 'duration_based') {
-        totalClasses = program.classesPerWeek * program.durationMonths * 4; // 한 달 4주 기준
-      } else if (program.operationType === 'class_based') {
-        totalClasses = program.totalClasses;
+      
+      // 종료 날짜 계산 - 안전한 방식으로
+      let endDateStr;
+      try {
+        const endDate = new Date();
+        // program.durationMonths가 존재하고 유효한 숫자인지 확인
+        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 3; // 기본값 3개월
+        
+        if (!isNaN(durationMonths)) {
+          endDate.setMonth(endDate.getMonth() + durationMonths);
+          endDateStr = endDate.toISOString().split('T')[0];
+        } else {
+          // 유효하지 않은 경우 기본값 설정 (3개월)
+          endDate.setMonth(endDate.getMonth() + 3);
+          endDateStr = endDate.toISOString().split('T')[0];
+          console.log("⚠️ 경고: 유효하지 않은 durationMonths 값, 기본값 3개월 사용");
+        }
+      } catch (error) {
+        console.error("날짜 계산 오류:", error);
+        // 오류 발생 시 기본값 설정 (3개월)
+        const defaultEndDate = new Date();
+        defaultEndDate.setMonth(defaultEndDate.getMonth() + 3);
+        endDateStr = defaultEndDate.toISOString().split('T')[0];
       }
-    
+      
+      // 총 수업 횟수 계산 - 안전한 방식으로
+      let totalClasses = 0;
+      
+      if (program.operationType === 'duration_based') {
+        // classesPerWeek와 durationMonths 유효성 검사
+        const classesPerWeek = program.classesPerWeek ? parseInt(program.classesPerWeek, 10) : 1;
+        const durationMonths = program.durationMonths ? parseInt(program.durationMonths, 10) : 3;
+        
+        if (!isNaN(classesPerWeek) && !isNaN(durationMonths)) {
+          totalClasses = classesPerWeek * durationMonths * 4; // 한 달 4주 기준
+        } else {
+          totalClasses = 12; // 기본값 설정 (주 1회 3개월 = 12회)
+          console.log("⚠️ 경고: 유효하지 않은 classesPerWeek 또는 durationMonths 값, 기본값 12회 사용");
+        }
+      } else if (program.operationType === 'class_based') {
+        totalClasses = program.totalClasses ? parseInt(program.totalClasses, 10) : 12;
+        if (isNaN(totalClasses)) {
+          totalClasses = 12; // 기본값 설정
+          console.log("⚠️ 경고: 유효하지 않은 totalClasses 값, 기본값 12회 사용");
+        }
+      } else {
+        // operationType이 없거나 알 수 없는 경우 기본값 설정
+        totalClasses = 12;
+        console.log("⚠️ 경고: 알 수 없는 operationType, 기본값 12회 사용");
+      }
+      
+      // DB에 저장
       await connection.query(`
-        INSERT INTO payinfull_payment 
-        (student_id, payment_id, total_classes, remaining_classes, 
+        INSERT INTO payinfull_payment
+        (student_id, payment_id, total_classes, remaining_classes,
          start_date, end_date, dojang_code)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `, [
@@ -282,7 +323,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         endDateStr,
         dojang_code
       ]);
-    
+      
       console.log("✅ Pay in full 등록 완료:", totalClasses, "회");
     }
     // 월간 결제 처리
