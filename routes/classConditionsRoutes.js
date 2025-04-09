@@ -27,7 +27,7 @@ router.post('/check-class-name', verifyToken, async (req, res) => {
 
 // 클래스 조건 수정 API
 router.post('/edit-condition', verifyToken, async (req, res) => {
-    const { id, className, beltMin, beltMax, ageMin, ageMax, maxCapacity } = req.body;
+    const { id, className, beltMin, beltMax, ageMin, ageMax } = req.body;
     const { dojang_code } = req.user;
 
     try {
@@ -40,11 +40,11 @@ router.post('/edit-condition', verifyToken, async (req, res) => {
 
         const query = `
             UPDATE classconditions
-            SET class_name = ?, belt_min_rank = ?, belt_max_rank = ?, age_min = ?, age_max = ?, class_max_capacity = ?
+            SET class_name = ?, belt_min_rank = ?, belt_max_rank = ?, age_min = ?, age_max = ?
             WHERE id = ? AND dojang_code = ?
         `;
 
-        const values = [className, beltMin, beltMax, ageMin, ageMax, maxCapacity, id, dojang_code];
+        const values = [className, beltMin, beltMax, ageMin, ageMax, id, dojang_code];
         await db.query(query, values);
         res.status(200).json({ message: 'Condition updated successfully' });
     } catch (err) {
