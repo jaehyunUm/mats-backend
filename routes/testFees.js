@@ -48,10 +48,10 @@ router.put('/update-test-fee/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   const { beltMin, beltMax, fee } = req.body;
   const { dojang_code } = req.user;
-
+  
   try {
     const query = `
-      UPDATE testing_fees
+      UPDATE test_fee
       SET belt_min_rank = ?, belt_max_rank = ?, fee = ?
       WHERE id = ? AND dojang_code = ?
     `;
