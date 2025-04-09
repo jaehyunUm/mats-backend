@@ -254,7 +254,37 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.log("✅ Uniform purchase processed");
     }
 
-  
+    if (paymentType === "pay_in_full") {
+      const startDate = new Date().toISOString().split('T')[0];
+      const endDate = new Date();
+      endDate.setMonth(endDate.getMonth() + Number(program.durationMonths));
+      const endDateStr = endDate.toISOString().split('T')[0];
+    
+      let totalClasses = 0;
+    
+      if (program.operationType === 'duration_based') {
+        totalClasses = program.classesPerWeek * program.durationMonths * 4; // 한 달 4주 기준
+      } else if (program.operationType === 'class_based') {
+        totalClasses = program.totalClasses;
+      }
+    
+      await connection.query(`
+        INSERT INTO payinfull_payment 
+        (student_id, payment_id, total_classes, remaining_classes, 
+         start_date, end_date, dojang_code)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, [
+        studentId,
+        paymentId,
+        totalClasses,
+        totalClasses,
+        startDate,
+        endDateStr,
+        dojang_code
+      ]);
+    
+      console.log("✅ Pay in full 등록 완료:", totalClasses, "회");
+    }
     // 월간 결제 처리
     if (paymentType === "monthly_pay") {
       

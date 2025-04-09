@@ -14,46 +14,75 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
   console.log('Attendance Date:', attendance_date);
   console.log('Date type:', typeof attendance_date);
   
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+
   try {
     for (const student of students) {
-      // 학생의 현재 벨트 랭크 가져오기
-      const [studentData] = await db.query(
+      const studentId = student.id;
+
+      // 벨트 정보 가져오기
+      const [studentData] = await connection.query(
         `SELECT belt_rank FROM students WHERE id = ?`,
-        [student.id]
+        [studentId]
       );
 
       if (!studentData || studentData.length === 0) {
-        console.warn(`Student ${student.id} not found.`);
-        continue; // 학생이 존재하지 않으면 건너뜀
+        console.warn(`Student ${studentId} not found.`);
+        continue;
       }
 
-      const belt_rank = studentData[0].belt_rank; // 현재 벨트 랭크
+      const belt_rank = studentData[0].belt_rank;
 
-      // 학생이 해당 클래스에 등록되어 있는지 확인
-      const [registeredClasses] = await db.query(
-        `SELECT * FROM student_classes WHERE student_id = ? AND class_id = ? AND dojang_code = ?`, 
-        [student.id, classId, dojang_code]
+      // 수업 등록 여부 확인
+      const [registeredClasses] = await connection.query(
+        `SELECT * FROM student_classes WHERE student_id = ? AND class_id = ? AND dojang_code = ?`,
+        [studentId, classId, dojang_code]
       );
 
-      if (registeredClasses.length > 0) {
-        // 등록된 경우에만 출석 처리 (belt_rank 포함)
-        const query = `
-          INSERT INTO attendance (student_id, class_id, dojang_code, attendance_date, belt_rank)
-          VALUES (?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), belt_rank = VALUES(belt_rank);
-        `;
-        await db.query(query, [student.id, classId, dojang_code, attendance_date, belt_rank]);
-        console.log(`Attendance recorded for student_id: ${student.id}, class_id: ${classId}, belt_rank: ${belt_rank}`);
-      } else {
-        console.warn(`Student ${student.id} is not registered for class ${classId}. Attendance not recorded.`);
+      if (registeredClasses.length === 0) {
+        console.warn(`Student ${studentId} is not registered for class ${classId}.`);
+        continue;
+      }
+
+      // 출석 저장
+      const attendanceQuery = `
+        INSERT INTO attendance (student_id, class_id, dojang_code, attendance_date, belt_rank)
+        VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), belt_rank = VALUES(belt_rank);
+      `;
+      await connection.query(attendanceQuery, [studentId, classId, dojang_code, attendance_date, belt_rank]);
+      console.log(`✅ Attendance recorded for student ${studentId}`);
+
+      // 🟡 Pay In Full 프로그램인지 확인 후 수업 차감
+      const [payInFull] = await connection.query(
+        `SELECT id, remaining_classes FROM payinfull_payment 
+         WHERE student_id = ? AND dojang_code = ?`,
+        [studentId, dojang_code]
+      );
+
+      if (payInFull.length > 0 && payInFull[0].remaining_classes > 0) {
+        await connection.query(
+          `UPDATE payinfull_payment 
+           SET remaining_classes = remaining_classes - 1 
+           WHERE student_id = ? AND dojang_code = ? AND remaining_classes > 0`,
+          [studentId, dojang_code]
+        );
+        console.log(`➖ Remaining classes decreased for student ${studentId}`);
       }
     }
+
+    await connection.commit();
     res.status(200).json({ success: true });
   } catch (error) {
-    console.error('Error saving attendance:', error);
+    await connection.rollback();
+    console.error('❌ Error saving attendance:', error);
     res.status(500).json({ success: false, message: 'Server error while saving attendance', error: error.message });
+  } finally {
+    connection.release();
   }
 });
+
 
   
 // 결석 상태를 저장하는 API
