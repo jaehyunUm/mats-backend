@@ -244,15 +244,15 @@ router.post("/subscription", verifyToken, async (req, res) => {
 
   router.get("/update-subscription", verifyToken, async (req, res) => {
     try {
-      const { id: userId, dojang_code } = req.user;
-      if (!userId) {
-        return res.status(400).json({ success: false, message: "User ID is missing in token" });
+      const { dojang_code } = req.user;
+      if (!dojang_code) {
+        return res.status(400).json({ success: false, message: "Dojang code is missing in token" });
       }
       
-      // ✅ DB에서 해당 사용자의 구독 ID 조회
+      // ✅ DB에서 도장 코드에 해당하는 구독 ID 조회
       const [subscriptions] = await db.query(
-        "SELECT subscription_id FROM subscriptions WHERE user_id = ? AND dojang_code = ?", 
-        [userId, dojang_code]
+        "SELECT subscription_id FROM subscriptions WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
+        [dojang_code]
       );
       
       if (subscriptions.length === 0) {
@@ -280,10 +280,10 @@ router.post("/subscription", verifyToken, async (req, res) => {
       
       const nextBillingDate = data.subscription.charged_through_date;
       
-      // ✅ DB 업데이트
+      // ✅ DB 업데이트 - 도장 코드로만 조건 지정
       await db.query(
-        "UPDATE subscriptions SET next_billing_date = ? WHERE user_id = ? AND dojang_code = ?", 
-        [nextBillingDate, userId, dojang_code]
+        "UPDATE subscriptions SET next_billing_date = ? WHERE dojang_code = ? AND subscription_id = ?",
+        [nextBillingDate, dojang_code, subscriptionId]
       );
       
       res.json({ success: true, nextBillingDate });
