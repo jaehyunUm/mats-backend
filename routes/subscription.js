@@ -116,179 +116,6 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
   });
   
   
-
-  router.get("/update-subscription", verifyToken, async (req, res) => {
-    try {
-      const { id: userId, dojang_code } = req.user;
-      if (!userId) {
-        return res.status(400).json({ success: false, message: "User ID is missing in token" });
-      }
-      
-      // ✅ DB에서 해당 사용자의 구독 ID 조회
-      const [subscriptions] = await db.query(
-        "SELECT subscription_id FROM subscriptions WHERE user_id = ? AND dojang_code = ?", 
-        [userId, dojang_code]
-      );
-      
-      if (subscriptions.length === 0) {
-        return res.status(404).json({ success: false, message: "No subscription found" });
-      }
-      
-      const subscriptionId = subscriptions[0].subscription_id;
-      
-      // ✅ Square에서 최신 구독 정보 가져오기
-      const response = await fetch(`https://connect.squareup.com/v2/subscriptions/${subscriptionId}`, {
-        method: "GET",
-        headers: {
-          "Square-Version": "2024-01-18",
-          "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`,
-          "Content-Type": "application/json",
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok || !data.subscription) {
-        console.error("❌ Square API error:", data);
-        return res.status(400).json({ success: false, message: "Failed to fetch subscription data", details: data });
-      }
-      
-      const nextBillingDate = data.subscription.charged_through_date;
-      
-      // ✅ DB 업데이트
-      await db.query(
-        "UPDATE subscriptions SET next_billing_date = ? WHERE user_id = ? AND dojang_code = ?", 
-        [nextBillingDate, userId, dojang_code]
-      );
-      
-      res.json({ success: true, nextBillingDate });
-    } catch (error) {
-      console.error("❌ ERROR updating subscription:", error);
-      res.status(500).json({ success: false, message: "Error updating subscription", error: error.message });
-    }
-  });
-  
-
-// ✅ 구독 상태 조회 API
-router.get('/subscription/status', verifyToken, async (req, res) => {
-    const { dojang_code } = req.user;
-  
-    if (!dojang_code) {
-      return res.status(400).json({ success: false, message: 'Dojang code is required.' });
-    }
-  
-    try {
-      const [subscriptions] = await db.query(
-        'SELECT status, next_billing_date FROM subscriptions WHERE dojang_code = ? ORDER BY next_billing_date DESC LIMIT 1',
-        [dojang_code]
-      );
-  
-      if (!subscriptions || subscriptions.length === 0) {
-        return res.status(404).json({ success: false, message: 'No subscription found.' });
-      }
-  
-      const subscription = subscriptions[0];
-      res.status(200).json({
-        success: true,
-        status: subscription.status,
-        next_billing_date: subscription.next_billing_date,
-      });
-    } catch (error) {
-      console.error('❌ Error fetching subscription status:', error);
-      res.status(500).json({ success: false, message: 'Error fetching subscription status.' });
-    }
-  });
-
-
-// 📌 ✅ 구독 상태 조회 API
-router.get("/subscription-status", verifyToken, async (req, res) => {
-  try {
-    const { id: userId, dojang_code } = req.user;
-
-    if (!userId) {
-      return res.status(400).json({ success: false, message: "Missing userId" });
-    }
-
-    const [rows] = await db.query(
-      "SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE user_id = ? AND dojang_code = ?",
-      [userId, dojang_code]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "No active subscription found" });
-    }
-
-    const { subscription_id, status, next_billing_date } = rows[0];
-
-    res.json({
-      success: true,
-      subscriptionId: subscription_id,
-      status,
-      nextBillingDate: next_billing_date,
-    });
-  } catch (error) {
-    console.error("❌ Error fetching subscription status:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-// 📌 Square 계정 상태 체크 API
-router.get("/square/status", verifyToken, async (req, res) => {
-  try {
-    const { dojang_code } = req.user;
-
-    if (!dojang_code) {
-      return res.status(400).json({ success: false, message: "Missing dojang_code" });
-    }
-
-    // ✅ 1. 해당 도장의 access_token 조회
-    const [rows] = await db.query(
-      "SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
-      [dojang_code]
-    );
-
-    if (rows.length === 0 || !rows[0].square_access_token) {
-      return res.status(404).json({ success: false, message: "No Square access token found" });
-    }
-
-    const accessToken = rows[0].square_access_token;
-
-    // ✅ 2. Square API Client 설정
-    const squareClient = new Client({
-      accessToken,
-      environment: "production", // 또는 'sandbox'
-    });
-
-    // ✅ 3. /v2/locations 호출
-    const { result } = await squareClient.locationsApi.listLocations();
-    const location = result.locations?.[0];
-
-    if (!location) {
-      return res.status(400).json({ success: false, message: "No Square location found" });
-    }
-
-    const isBusinessAccount = !!location.businessName;
-    const hasCardProcessing = location.capabilities.includes("CREDIT_CARD_PROCESSING");
-
- // ✅ 4. 은행 연결 여부 확인 (중요!)
- const { result: bankResult } = await squareClient.bankAccountsApi.listBankAccounts();
- const bankAccounts = bankResult.bankAccounts || [];
- const hasBankLinked = bankAccounts.length > 0;
-
-    res.json({
-      success: true,
-      isBusinessAccount,
-      hasBankLinked,
-      hasCardProcessing,
-    });
-
-  } catch (error) {
-    console.error("❌ Error checking Square account status:", error);
-    res.status(500).json({ success: false, message: "Failed to check Square status" });
-  }
-});
-  
-
 router.post("/subscription", verifyToken, async (req, res) => {
   const { v4: uuidv4 } = require('uuid');
 
@@ -414,6 +241,180 @@ router.post("/subscription", verifyToken, async (req, res) => {
       res.status(500).json({ success: false, message: "Error creating Subscription", error });
     }
   });
+
+  router.get("/update-subscription", verifyToken, async (req, res) => {
+    try {
+      const { id: userId, dojang_code } = req.user;
+      if (!userId) {
+        return res.status(400).json({ success: false, message: "User ID is missing in token" });
+      }
+      
+      // ✅ DB에서 해당 사용자의 구독 ID 조회
+      const [subscriptions] = await db.query(
+        "SELECT subscription_id FROM subscriptions WHERE user_id = ? AND dojang_code = ?", 
+        [userId, dojang_code]
+      );
+      
+      if (subscriptions.length === 0) {
+        return res.status(404).json({ success: false, message: "No subscription found" });
+      }
+      
+      const subscriptionId = subscriptions[0].subscription_id;
+      
+      // ✅ Square에서 최신 구독 정보 가져오기
+      const response = await fetch(`https://connect.squareup.com/v2/subscriptions/${subscriptionId}`, {
+        method: "GET",
+        headers: {
+          "Square-Version": "2024-01-18",
+          "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`,
+          "Content-Type": "application/json",
+        },
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.subscription) {
+        console.error("❌ Square API error:", data);
+        return res.status(400).json({ success: false, message: "Failed to fetch subscription data", details: data });
+      }
+      
+      const nextBillingDate = data.subscription.charged_through_date;
+      
+      // ✅ DB 업데이트
+      await db.query(
+        "UPDATE subscriptions SET next_billing_date = ? WHERE user_id = ? AND dojang_code = ?", 
+        [nextBillingDate, userId, dojang_code]
+      );
+      
+      res.json({ success: true, nextBillingDate });
+    } catch (error) {
+      console.error("❌ ERROR updating subscription:", error);
+      res.status(500).json({ success: false, message: "Error updating subscription", error: error.message });
+    }
+  });
+  
+
+// ✅ 구독 상태 조회 API
+router.get('/subscription/status', verifyToken, async (req, res) => {
+    const { dojang_code } = req.user;
+  
+    if (!dojang_code) {
+      return res.status(400).json({ success: false, message: 'Dojang code is required.' });
+    }
+  
+    try {
+      const [subscriptions] = await db.query(
+        'SELECT status, next_billing_date FROM subscriptions WHERE dojang_code = ? ORDER BY next_billing_date DESC LIMIT 1',
+        [dojang_code]
+      );
+  
+      if (!subscriptions || subscriptions.length === 0) {
+        return res.status(404).json({ success: false, message: 'No subscription found.' });
+      }
+  
+      const subscription = subscriptions[0];
+      res.status(200).json({
+        success: true,
+        status: subscription.status,
+        next_billing_date: subscription.next_billing_date,
+      });
+    } catch (error) {
+      console.error('❌ Error fetching subscription status:', error);
+      res.status(500).json({ success: false, message: 'Error fetching subscription status.' });
+    }
+  });
+
+
+// 📌 ✅ 구독 상태 조회 API
+router.get("/subscription-status", verifyToken, async (req, res) => {
+  try {
+    const { dojang_code } = req.user;
+    
+    // user_id 조건 제거, 도장 코드만으로 조회
+    const [rows] = await db.query(
+      "SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
+      [dojang_code]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        status: "Inactive", 
+        subscriptionId: null,
+        nextBillingDate: null 
+      });
+    }
+    
+    const { subscription_id, status, next_billing_date } = rows[0];
+    res.json({
+      success: true,
+      subscriptionId: subscription_id,
+      status,
+      nextBillingDate: next_billing_date,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching subscription status:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// 📌 Square 계정 상태 체크 API
+router.get("/square/status", verifyToken, async (req, res) => {
+  try {
+    const { dojang_code } = req.user;
+
+    if (!dojang_code) {
+      return res.status(400).json({ success: false, message: "Missing dojang_code" });
+    }
+
+    // ✅ 1. 해당 도장의 access_token 조회
+    const [rows] = await db.query(
+      "SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
+      [dojang_code]
+    );
+
+    if (rows.length === 0 || !rows[0].square_access_token) {
+      return res.status(404).json({ success: false, message: "No Square access token found" });
+    }
+
+    const accessToken = rows[0].square_access_token;
+
+    // ✅ 2. Square API Client 설정
+    const squareClient = new Client({
+      accessToken,
+      environment: "production", // 또는 'sandbox'
+    });
+
+    // ✅ 3. /v2/locations 호출
+    const { result } = await squareClient.locationsApi.listLocations();
+    const location = result.locations?.[0];
+
+    if (!location) {
+      return res.status(400).json({ success: false, message: "No Square location found" });
+    }
+
+    const isBusinessAccount = !!location.businessName;
+    const hasCardProcessing = location.capabilities.includes("CREDIT_CARD_PROCESSING");
+
+ // ✅ 4. 은행 연결 여부 확인 (중요!)
+ const { result: bankResult } = await squareClient.bankAccountsApi.listBankAccounts();
+ const bankAccounts = bankResult.bankAccounts || [];
+ const hasBankLinked = bankAccounts.length > 0;
+
+    res.json({
+      success: true,
+      isBusinessAccount,
+      hasBankLinked,
+      hasCardProcessing,
+    });
+
+  } catch (error) {
+    console.error("❌ Error checking Square account status:", error);
+    res.status(500).json({ success: false, message: "Failed to check Square status" });
+  }
+});
+  
+
   
   
 
