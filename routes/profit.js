@@ -11,22 +11,22 @@ router.get('/owner/payment-history/program', verifyToken, async (req, res) => {
         console.log("🔹 [PROGRAM] Request Received - Dojang Code:", dojang_code);
 
         const query = `
-            SELECT 
-                pp.id,
-                pp.amount, 
-                pp.payment_date, 
-                pp.status,
-                pp.program_id,
-                pp.student_id,
-                p.name AS program_name,
-                s.first_name,
-                s.last_name
-            FROM program_payments pp
-            LEFT JOIN programs p ON p.dojang_code = pp.dojang_code
-            LEFT JOIN students s ON pp.student_id = s.id
-            WHERE pp.dojang_code = ? 
-              AND pp.status = 'completed'
-            ORDER BY pp.payment_date DESC`;
+        SELECT
+        pp.id,
+        pp.amount,
+        pp.payment_date,
+        pp.status,
+        pp.program_id,
+        pp.student_id,
+        p.name AS program_name,
+        s.first_name,
+        s.last_name
+        FROM program_payments pp
+        LEFT JOIN programs p ON p.id = pp.program_id AND p.dojang_code = pp.dojang_code
+        LEFT JOIN students s ON pp.student_id = s.id AND s.dojang_code = pp.dojang_code
+        WHERE pp.dojang_code = ?
+        AND pp.status = 'completed'
+        ORDER BY pp.payment_date DESC`;
 
         const [rows] = await db.query(query, [dojang_code]);
 
