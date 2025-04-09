@@ -117,22 +117,25 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
   
   
 
-router.get("/update-subscription", verifyToken , async (req, res) => {
+  router.get("/update-subscription", verifyToken, async (req, res) => {
     try {
-      const { userId } = req.query;
+      const { id: userId, dojang_code } = req.user;
       if (!userId) {
-        return res.status(400).json({ success: false, message: "User ID is required" });
+        return res.status(400).json({ success: false, message: "User ID is missing in token" });
       }
-  
+      
       // ✅ DB에서 해당 사용자의 구독 ID 조회
-      const [subscriptions] = await db.query("SELECT subscription_id FROM subscriptions WHERE user_id = ?", [userId]);
-  
+      const [subscriptions] = await db.query(
+        "SELECT subscription_id FROM subscriptions WHERE user_id = ? AND dojang_code = ?", 
+        [userId, dojang_code]
+      );
+      
       if (subscriptions.length === 0) {
         return res.status(404).json({ success: false, message: "No subscription found" });
       }
-  
+      
       const subscriptionId = subscriptions[0].subscription_id;
-  
+      
       // ✅ Square에서 최신 구독 정보 가져오기
       const response = await fetch(`https://connect.squareup.com/v2/subscriptions/${subscriptionId}`, {
         method: "GET",
@@ -142,22 +145,26 @@ router.get("/update-subscription", verifyToken , async (req, res) => {
           "Content-Type": "application/json",
         },
       });
-  
+      
       const data = await response.json();
-  
+      
       if (!response.ok || !data.subscription) {
-        return res.status(400).json({ success: false, message: "Failed to fetch subscription data" });
+        console.error("❌ Square API error:", data);
+        return res.status(400).json({ success: false, message: "Failed to fetch subscription data", details: data });
       }
-  
+      
       const nextBillingDate = data.subscription.charged_through_date;
-  
+      
       // ✅ DB 업데이트
-      await db.query("UPDATE subscriptions SET next_billing_date = ? WHERE user_id = ?", [nextBillingDate, userId]);
-  
+      await db.query(
+        "UPDATE subscriptions SET next_billing_date = ? WHERE user_id = ? AND dojang_code = ?", 
+        [nextBillingDate, userId, dojang_code]
+      );
+      
       res.json({ success: true, nextBillingDate });
     } catch (error) {
       console.error("❌ ERROR updating subscription:", error);
-      res.status(500).json({ success: false, message: "Error updating subscription" });
+      res.status(500).json({ success: false, message: "Error updating subscription", error: error.message });
     }
   });
   
