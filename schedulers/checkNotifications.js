@@ -17,6 +17,8 @@ async function checkPayInFullNotifications() {
         (p.remaining_classes = 1 AND p.class_notification_1 = FALSE)
     `);
 
+    console.log("📌 Class Alerts Found:", classAlerts); // ✅ 여기!
+
     for (const student of classAlerts) {
       const message = `[${student.first_name}] has ${student.remaining_classes} classes remaining.`;
       await createNotification(connection, student.dojang_code, message);
