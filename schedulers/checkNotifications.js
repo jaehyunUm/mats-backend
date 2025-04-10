@@ -8,19 +8,23 @@ async function checkPayInFullNotifications() {
 
     // 수업 횟수 기준 알림 (3개, 1개)
     const [classAlerts] = await connection.query(`
-      SELECT p.*, s.first_name, s.last_name
+      SELECT p.id AS payment_id, p.*, s.first_name, s.last_name
       FROM payinfull_payment p
       JOIN students s ON p.student_id = s.id
       WHERE 
-        (p.remaining_classes = 3 AND p.class_notification_3 = FALSE)
+        (p.remaining_classes = 3 AND p.class_notification_3 = 0)
         OR 
-        (p.remaining_classes = 1 AND p.class_notification_1 = FALSE)
+        (p.remaining_classes = 1 AND p.class_notification_1 = 0)
     `);
+    
 
     console.log("📌 Class Alerts Found:", classAlerts); // ✅ 여기!
 
     for (const student of classAlerts) {
       const message = `[${student.first_name}] has ${student.remaining_classes} classes remaining.`;
+      
+      console.log("📩 Sending alert for:", student.first_name, student.last_name, "-", student.remaining_classes, "classes left");
+
       await createNotification(connection, student.dojang_code, message);
 
       // 알림 보낸 후 플래그 true로 업데이트
@@ -29,7 +33,7 @@ async function checkPayInFullNotifications() {
         UPDATE payinfull_payment 
         SET ${flagColumn} = TRUE 
         WHERE id = ?
-      `, [student.id]);
+      `, [student.payment_id]);
     }
 
     // 종료일 기준 알림 (30일, 14일, 7일)
