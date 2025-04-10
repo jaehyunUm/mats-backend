@@ -70,7 +70,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         const endDate = new Date(payment.end_date);
         const timeDiff = endDate.getTime() - today.getTime();
         const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-        
+
         // 🔔 클래스 기준 알림
         if (newRemaining === 3 && payment.class_notification_3 === 0) {
           await createNotification(dojang_code, `[${first_name}] has 3 classes remaining.`);
@@ -84,13 +84,13 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
 
         // 🔔 종료일 기준 알림
         if (daysLeft === 30 && payment.month_notification_1 === 0) {
-          await createNotification(dojang_code, `[${first_name}]'s subscription expires in 30 days.`);
+          await createNotification(dojang_code, `[${first_name}]'s membership expires in 30 days.`);
           await connection.query(`UPDATE payinfull_payment SET month_notification_1 = 1 WHERE id = ?`, [payment.id]);
         } else if (daysLeft === 14 && payment.week_notification_2 === 0) {
-          await createNotification(dojang_code, `[${first_name}]'s subscription expires in 14 days.`);
+          await createNotification(dojang_code, `[${first_name}]'s membership expires in 14 days.`);
           await connection.query(`UPDATE payinfull_payment SET week_notification_2 = 1 WHERE id = ?`, [payment.id]);
         } else if (daysLeft === 7 && payment.week_notification_1 === 0) {
-          await createNotification(dojang_code, `[${first_name}]'s subscription expires in 7 days.`);
+          await createNotification(dojang_code, `[${first_name}]'s membership expires in 7 days.`);
           await connection.query(`UPDATE payinfull_payment SET week_notification_1 = 1 WHERE id = ?`, [payment.id]);
         }
       }
