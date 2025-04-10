@@ -1,3 +1,4 @@
+require('dotenv').config(); // 👈 꼭 추가!
 const db = require('../db');
 
 async function checkPayInFullNotifications() {
