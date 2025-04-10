@@ -67,30 +67,27 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         const payment = payInFull[0];
         const newRemaining = payment.remaining_classes - 1;
       
-        // 알림 조건 체크 + 알림 전송
+        // 🔔 클래스 기준 알림
         if (newRemaining === 3 && payment.class_notification_3 === 0) {
           await createNotification(dojang_code, `[${first_name}] has 3 classes remaining.`);
-          await connection.query(`
-            UPDATE payinfull_payment 
-            SET remaining_classes = ?, class_notification_3 = 1 
-            WHERE id = ?`, [newRemaining, payment.id]);
-          console.log(`🔔 Notification sent for 3 classes remaining for student ${studentId}`);
+          await connection.query(`UPDATE payinfull_payment SET remaining_classes = ?, class_notification_3 = 1 WHERE id = ?`, [newRemaining, payment.id]);
         } else if (newRemaining === 1 && payment.class_notification_1 === 0) {
           await createNotification(dojang_code, `[${first_name}] has only 1 class remaining.`);
-          await connection.query(`
-            UPDATE payinfull_payment 
-            SET remaining_classes = ?, class_notification_1 = 1 
-            WHERE id = ?`, [newRemaining, payment.id]);
-          console.log(`🔔 Notification sent for 1 class remaining for student ${studentId}`);
+          await connection.query(`UPDATE payinfull_payment SET remaining_classes = ?, class_notification_1 = 1 WHERE id = ?`, [newRemaining, payment.id]);
         } else {
-          // 알림 조건에 해당 안 되면 단순히 수업만 차감
-          await connection.query(
-            `UPDATE payinfull_payment 
-             SET remaining_classes = ? 
-             WHERE id = ?`,
-            [newRemaining, payment.id]
-          );
-          console.log(`➖ Remaining classes decreased for student ${studentId}`);
+          await connection.query(`UPDATE payinfull_payment SET remaining_classes = ? WHERE id = ?`, [newRemaining, payment.id]);
+        }
+
+        // 🔔 종료일 기준 알림
+        if (daysLeft === 30 && payment.month_notification_1 === 0) {
+          await createNotification(dojang_code, `[${first_name}]'s subscription expires in 30 days.`);
+          await connection.query(`UPDATE payinfull_payment SET month_notification_1 = 1 WHERE id = ?`, [payment.id]);
+        } else if (daysLeft === 14 && payment.week_notification_2 === 0) {
+          await createNotification(dojang_code, `[${first_name}]'s subscription expires in 14 days.`);
+          await connection.query(`UPDATE payinfull_payment SET week_notification_2 = 1 WHERE id = ?`, [payment.id]);
+        } else if (daysLeft === 7 && payment.week_notification_1 === 0) {
+          await createNotification(dojang_code, `[${first_name}]'s subscription expires in 7 days.`);
+          await connection.query(`UPDATE payinfull_payment SET week_notification_1 = 1 WHERE id = ?`, [payment.id]);
         }
       }
       
