@@ -1,7 +1,8 @@
 const cron = require('node-cron');
 const { checkPayInFullNotifications } = require('./checkNotifications');
 
-cron.schedule('0 9 * * *', () => {
-  console.log("📆 Running daily Pay In Full notification check...");
+// 새 코드: 1분마다 실행
+cron.schedule('* * * * *', () => {
+  console.log("📆 Running Pay In Full notification check every minute...");
   checkPayInFullNotifications();
 });
