@@ -38,40 +38,94 @@ router.post('/students/upload-image/:studentId', verifyToken, upload.single('ima
 router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
   const { studentId } = req.params;
   const { dojang_code } = req.user;
-
+  
   try {
-    // ✅ 학생 정보 조회 (belt_size 추가)
+    // ✅ 학생 정보 조회 (payment 정보 포함)
     const studentQuery = `
-    SELECT
-      s.first_name AS firstName,
-      s.last_name AS lastName,
-      s.birth_date AS dateOfBirth,
-      s.gender,
-      COALESCE(b.belt_color, 'Unknown') AS beltColor,
-      COALESCE(b.stripe_color, NULL) AS stripeColor, -- stripe_color 추가
-      s.belt_size, -- belt_size 추가
-      COALESCE(p.name, 'None') AS programName,
-      s.profile_image AS imageUrl,
-      s.parent_id AS parentId
-    FROM students s
-    LEFT JOIN programs p ON s.program_id = p.id
-    LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
-    WHERE s.id = ? AND s.dojang_code = ?;
-  `;
+      SELECT
+        s.first_name AS firstName,
+        s.last_name AS lastName,
+        s.birth_date AS dateOfBirth,
+        s.gender,
+        COALESCE(b.belt_color, 'Unknown') AS beltColor,
+        COALESCE(b.stripe_color, NULL) AS stripeColor,
+        s.belt_size,
+        COALESCE(p.name, 'None') AS programName,
+        s.profile_image AS imageUrl,
+        s.parent_id AS parentId,
+        p.payment_type,
+        p.operation_type,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.total_classes
+          ELSE NULL
+        END AS total_classes,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.remaining_classes
+          ELSE NULL
+        END AS remaining_classes,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.start_date
+          WHEN p.payment_type = 'monthly_pay' THEN mp.start_date 
+          ELSE NULL
+        END AS start_date,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.end_date
+          WHEN p.payment_type = 'monthly_pay' THEN mp.end_date
+          ELSE NULL
+        END AS end_date,
+        CASE 
+          WHEN p.payment_type = 'monthly_pay' THEN mp.payment_status
+          ELSE NULL
+        END AS payment_status,
+        CASE 
+          WHEN p.payment_type = 'monthly_pay' THEN mp.next_payment_date
+          ELSE NULL
+        END AS next_payment_date
+      FROM students s
+      LEFT JOIN programs p ON s.program_id = p.id
+      LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
+      LEFT JOIN payinfull_payment pf ON s.id = pf.student_id AND p.payment_type = 'pay_in_full'
+      LEFT JOIN monthly_payments mp ON s.id = mp.student_id AND p.payment_type = 'monthly_pay'
+      WHERE s.id = ? AND s.dojang_code = ?;
+    `;
+    
     const [studentResult] = await db.query(studentQuery, [studentId, dojang_code]);
     
     if (studentResult.length === 0) {
       console.error(`Student not found for ID: ${studentId} and Dojang Code: ${dojang_code}`);
       return res.status(404).json({ message: 'Student not found' });
     }
+    
     const student = studentResult[0];
     console.log('Student Data:', student); // 디버깅 로그
-
+    
+    // 결제 정보 구성
+    const paymentInfo = {
+      type: student.payment_type,
+      operationType: student.operation_type
+    };
+    
+    // payment_type에 따라 추가 정보 설정
+    if (student.payment_type === 'monthly_pay') {
+      paymentInfo.nextPaymentDate = student.next_payment_date;
+      paymentInfo.paymentStatus = student.payment_status;
+      paymentInfo.startDate = student.start_date;
+      paymentInfo.endDate = student.end_date;
+    } else if (student.payment_type === 'pay_in_full') {
+      if (student.operation_type === 'class_based') {
+        paymentInfo.totalClasses = student.total_classes;
+        paymentInfo.remainingClasses = student.remaining_classes;
+      } else {
+        paymentInfo.startDate = student.start_date;
+        paymentInfo.endDate = student.end_date;
+      }
+    }
+    
     // ✅ 학부모 정보 조회
     let parent = null;
     if (student.parentId) {
       const parentQuery = `
-        SELECT 
+        SELECT
           first_name AS firstName,
           last_name AS lastName,
           birth_date AS dateOfBirth,
@@ -80,14 +134,14 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
         FROM parents
         WHERE id = ? AND dojang_code = ?;
       `;
+      
       const [parentResult] = await db.query(parentQuery, [student.parentId, dojang_code]);
       parent = parentResult.length > 0 ? parentResult[0] : null;
-      console.log('Parent Data:', parent); // 디버깅 로그
     }
-
+    
     // ✅ 학생의 클래스 정보 조회
     const classQuery = `
-      SELECT 
+      SELECT
         cd.time,
         cd.day,
         cd.classname AS className
@@ -95,37 +149,21 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       JOIN class_details cd ON sc.class_id = cd.class_id AND sc.dojang_code = cd.dojang_code
       WHERE sc.student_id = ? AND sc.dojang_code = ?;
     `;
+    
     const [classResults] = await db.query(classQuery, [studentId, dojang_code]);
-    console.log('Class Data:', classResults); // 디버깅 로그
-
-    // ✅ 결제 정보 조회 (students_id 기반 조회)
-    const paymentQuery = `
-      SELECT 
-        next_payment_date
-      FROM monthly_payments
-      WHERE student_id = ? AND dojang_code = ? 
-      ORDER BY next_payment_date ASC LIMIT 1;  -- ✅ 가장 빠른 결제 날짜 1개만 조회
-    `;
-    const [paymentResult] = await db.query(paymentQuery, [studentId, dojang_code]);
-    const nextPaymentDate = paymentResult.length > 0 ? paymentResult[0].next_payment_date : null;
-    console.log('Payment Data:', nextPaymentDate); // 디버깅 로그
-
+    
     // ✅ 최종 데이터 반환
     res.json({
       student,
       parent,
-      classes: classResults, // 클래스 정보 포함
-      payment: {
-        nextPaymentDate, // ✅ 다음 결제 날짜 포함
-      },
+      classes: classResults,
+      payment: paymentInfo,
     });
   } catch (error) {
     console.error('Error fetching student, parent, and class information:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
-
-
 
 
   

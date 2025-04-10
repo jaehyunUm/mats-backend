@@ -6,11 +6,11 @@ const db = require("../db");
 async function processSubscriptions() {
   try {
     const [subscriptions] = await db.execute(`
-      SELECT 
-          mp.id, mp.parent_id, mp.program_id, mp.program_fee, mp.dojang_code, 
-          mp.source_id, mp.idempotency_key, mp.payment_id, mp.customer_id
+      SELECT
+        mp.id, mp.parent_id, mp.student_id, mp.program_id, mp.program_fee, mp.dojang_code,
+        mp.source_id, mp.idempotency_key, mp.payment_id, mp.customer_id
       FROM monthly_payments mp
-      WHERE mp.next_payment_date <= CURDATE() 
+      WHERE mp.next_payment_date <= CURDATE()
       AND (mp.payment_status = 'pending' OR mp.payment_status = 'failed');
     `);
 
