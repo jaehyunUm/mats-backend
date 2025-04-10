@@ -269,68 +269,53 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       const programInfo = programDetails[0];
       console.log("DB에서 가져온 프로그램 정보:", programInfo);
       
-      // 총 수업 횟수 계산 (DB 값 기준)
+      // 공통 필드: 시작 날짜 설정
+      const startDate = new Date().toISOString().split('T')[0];
       let totalClasses = 0;
+      let endDateStr = startDate; // 기본값으로 시작 날짜와 동일하게 설정
       
       if (programInfo.operation_type === 'class_based') {
         // class_based는 total_classes 값을 그대로 사용
         totalClasses = programInfo.total_classes;
         console.log(`Class-based 계산: 총 ${totalClasses}회`);
         
-        // 시작 날짜만 기록
-        const startDate = new Date().toISOString().split('T')[0];
-        
-        // DB에 저장 (class_based용 쿼리)
-        await connection.query(`
-          INSERT INTO payinfull_payment
-          (student_id, payment_id, total_classes, remaining_classes, 
-           start_date, end_date, dojang_code)
-          VALUES (?, ?, ?, ?, ?, NULL, ?)
-        `, [
-          studentId,
-          paymentId,
-          totalClasses,
-          totalClasses,
-          startDate,
-          dojang_code
-        ]);
-        
+        // class_based에서는 end_date를 시작 날짜로 설정 (필수 필드이므로)
+        // 실질적인 의미는 없지만 NULL이 아닌 값 필요
       } else if (programInfo.operation_type === 'duration_based') {
-        // 시작 날짜 설정
-        const startDate = new Date().toISOString().split('T')[0];
-        
         // 종료 날짜 계산
-        let endDate = new Date();
         try {
+          const endDate = new Date();
           endDate.setMonth(endDate.getMonth() + programInfo.duration_months);
+          endDateStr = endDate.toISOString().split('T')[0];
         } catch (error) {
           console.error("날짜 계산 오류:", error);
+          // 오류 시 endDateStr은 이미 startDate로 설정되어 있음
         }
-        const endDateStr = endDate.toISOString().split('T')[0];
         
         // duration_based일 경우 클래스 수 계산
         totalClasses = programInfo.classes_per_week * programInfo.duration_months * 4;
         console.log(`Duration-based 계산: ${programInfo.classes_per_week}회/주 × ${programInfo.duration_months}개월 × 4주 = ${totalClasses}회`);
-        
-        // DB에 저장 (duration_based용 쿼리)
-        await connection.query(`
-          INSERT INTO payinfull_payment
-          (student_id, payment_id, total_classes, remaining_classes, 
-           start_date, end_date, dojang_code)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, [
-          studentId,
-          paymentId,
-          totalClasses,
-          totalClasses,
-          startDate,
-          endDateStr,
-          dojang_code
-        ]);
       } else {
-        // 알 수 없는 operation_type의 경우 로그만 남기고 예외 처리
-        throw new Error(`Unknown operation_type: ${programInfo.operation_type}`);
+        // 알 수 없는 operation_type의 경우 로그 남기고 기본 처리
+        console.error(`알 수 없는 operation_type: ${programInfo.operation_type}, 기본값 사용`);
+        totalClasses = 0; // 기본값
       }
+      
+      // 공통 DB 쿼리로 처리 (operation_type과 무관하게 모든 필드 포함)
+      await connection.query(`
+        INSERT INTO payinfull_payment
+        (student_id, payment_id, total_classes, remaining_classes, 
+         start_date, end_date, dojang_code)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, [
+        studentId,
+        paymentId,
+        totalClasses,
+        totalClasses,
+        startDate,
+        endDateStr, // class_based인 경우에도 NULL 대신 시작 날짜 사용
+        dojang_code
+      ]);
       
       console.log("✅ Pay in full 등록 완료:", totalClasses, "회");
     }
