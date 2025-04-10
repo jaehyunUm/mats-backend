@@ -322,6 +322,20 @@ router.post('/process-payment', verifyToken, async (req, res) => {
 if (paymentType === "monthly_pay") {
   console.log("🔄 월간 결제 처리 시작...");
   try {
+    // 프로그램 정보 조회
+    const [programDetails] = await connection.query(`
+      SELECT id, payment_type, operation_type, total_classes, classes_per_week, duration_months
+      FROM programs
+      WHERE id = ?
+    `, [program.id]);
+    
+    if (!programDetails.length) {
+      throw new Error(`Program with id ${program.id} not found`);
+    }
+    
+    const programInfo = programDetails[0];
+    console.log("DB에서 가져온 프로그램 정보:", programInfo);
+    
     const today = new Date();
     const paymentDate = today.toISOString().split('T')[0];
     const nextPaymentDate = new Date(today);
@@ -333,15 +347,17 @@ if (paymentType === "monthly_pay") {
     
     // duration 기반으로 종료일 계산
     const endDate = new Date(today);
-    if (duration) {
-      // duration이 제공되면(월 단위), 이를 사용하여 종료일 계산
-      endDate.setMonth(endDate.getMonth() + parseInt(duration));
+    
+    // programInfo에서 duration_months를 사용
+    if (programInfo.duration_months) {
+      // duration_months가 제공되면, 이를 사용하여 종료일 계산
+      endDate.setMonth(endDate.getMonth() + parseInt(programInfo.duration_months));
     } else {
-      // duration이 지정되지 않으면 기본값으로 1개월 설정
+      // duration_months가 지정되지 않으면 기본값으로 1개월 설정
       endDate.setMonth(endDate.getMonth() + 1);
     }
-    const endDateString = endDate.toISOString().split('T')[0];
     
+    const endDateString = endDate.toISOString().split('T')[0];
     const monthlyIdempotencyKey = uuidv4();
     const monthlyPaymentId = uuidv4();
     
@@ -363,7 +379,7 @@ if (paymentType === "monthly_pay") {
         UPDATE monthly_payments
         SET program_id = ?, payment_date = ?, next_payment_date = ?, program_fee = ?,
         payment_status = 'pending', status = 'pending', source_id = ?,
-        customer_id = ?, idempotency_key = ?, payment_id = ?, 
+        customer_id = ?, idempotency_key = ?, payment_id = ?,
         start_date = ?, end_date = ?
         WHERE student_id = ? AND parent_id = ? AND dojang_code = ?
       `, [
