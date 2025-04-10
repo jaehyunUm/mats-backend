@@ -21,16 +21,40 @@ router.get('/membership-info', verifyToken, async (req, res) => {
         p.price AS program_price,
         p.payment_type,
         p.operation_type,
-        pf.total_classes,
-        pf.remaining_classes,
-        pf.start_date,
-        pf.end_date
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.total_classes
+          ELSE NULL
+        END AS total_classes,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.remaining_classes
+          ELSE NULL
+        END AS remaining_classes,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.start_date
+          WHEN p.payment_type = 'monthly_pay' THEN mp.start_date 
+          ELSE NULL
+        END AS start_date,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN pf.end_date
+          WHEN p.payment_type = 'monthly_pay' THEN mp.end_date
+          ELSE NULL
+        END AS end_date,
+        CASE 
+          WHEN p.payment_type = 'monthly_pay' THEN mp.payment_status
+          ELSE NULL
+        END AS payment_status,
+        CASE 
+          WHEN p.payment_type = 'monthly_pay' THEN mp.next_payment_date
+          ELSE NULL
+        END AS next_payment_date
       FROM
         students s
       JOIN
         programs p ON s.program_id = p.id
       LEFT JOIN
-        payinfull_payment pf ON s.id = pf.student_id
+        payinfull_payment pf ON s.id = pf.student_id AND p.payment_type = 'pay_in_full'
+      LEFT JOIN
+        monthly_payments mp ON s.id = mp.student_id AND p.payment_type = 'monthly_pay'
       WHERE
         s.parent_id = ? AND s.dojang_code = ?`,
       [parentId, dojang_code]
