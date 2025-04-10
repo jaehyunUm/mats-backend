@@ -255,7 +255,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     }
 
     if (paymentType === "pay_in_full") {
-      // 프로그램 정보 조회 - 실제 데이터베이스에서 가져오도록
+      // 프로그램 정보 조회
       const [programDetails] = await connection.query(`
         SELECT id, payment_type, operation_type, total_classes, classes_per_week, duration_months
         FROM programs 
@@ -269,39 +269,36 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       const programInfo = programDetails[0];
       console.log("DB에서 가져온 프로그램 정보:", programInfo);
       
-      // 공통 필드: 시작 날짜 설정
-      const startDate = new Date().toISOString().split('T')[0];
-      let totalClasses = 0;
-      let endDateStr = startDate; // 기본값으로 시작 날짜와 동일하게 설정
+      // 기본 변수 설정 - 모두 NULL로 초기화
+      let totalClasses = null;
+      let remainingClasses = null;
+      let startDate = null;
+      let endDateStr = null;
       
       if (programInfo.operation_type === 'class_based') {
-        // class_based는 total_classes 값을 그대로 사용
+        // class_based는 total_classes 값만 사용
         totalClasses = programInfo.total_classes;
+        remainingClasses = programInfo.total_classes;
         console.log(`Class-based 계산: 총 ${totalClasses}회`);
-        
-        // class_based에서는 end_date를 시작 날짜로 설정 (필수 필드이므로)
-        // 실질적인 의미는 없지만 NULL이 아닌 값 필요
       } else if (programInfo.operation_type === 'duration_based') {
-        // 종료 날짜 계산
+        // duration_based는 시작일과 종료일만 설정
+        startDate = new Date().toISOString().split('T')[0];
+        
         try {
           const endDate = new Date();
           endDate.setMonth(endDate.getMonth() + programInfo.duration_months);
           endDateStr = endDate.toISOString().split('T')[0];
         } catch (error) {
           console.error("날짜 계산 오류:", error);
-          // 오류 시 endDateStr은 이미 startDate로 설정되어 있음
+          endDateStr = null;
         }
         
-        // duration_based일 경우 클래스 수 계산
-        totalClasses = programInfo.classes_per_week * programInfo.duration_months * 4;
-        console.log(`Duration-based 계산: ${programInfo.classes_per_week}회/주 × ${programInfo.duration_months}개월 × 4주 = ${totalClasses}회`);
+        console.log(`Duration-based: 시작일 ${startDate}, 종료일 ${endDateStr}`);
       } else {
-        // 알 수 없는 operation_type의 경우 로그 남기고 기본 처리
-        console.error(`알 수 없는 operation_type: ${programInfo.operation_type}, 기본값 사용`);
-        totalClasses = 0; // 기본값
+        console.error(`알 수 없는 operation_type: ${programInfo.operation_type}`);
       }
       
-      // 공통 DB 쿼리로 처리 (operation_type과 무관하게 모든 필드 포함)
+      // 이제 NULL 값을 허용하므로 그대로 쿼리 실행
       await connection.query(`
         INSERT INTO payinfull_payment
         (student_id, payment_id, total_classes, remaining_classes, 
@@ -311,13 +308,13 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         studentId,
         paymentId,
         totalClasses,
-        totalClasses,
+        remainingClasses,
         startDate,
-        endDateStr, // class_based인 경우에도 NULL 대신 시작 날짜 사용
+        endDateStr,
         dojang_code
       ]);
       
-      console.log("✅ Pay in full 등록 완료:", totalClasses, "회");
+      console.log("✅ Pay in full 등록 완료");
     }
 
     // 월간 결제 처리
