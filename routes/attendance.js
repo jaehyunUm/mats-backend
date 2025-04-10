@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결
 const verifyToken = require('../middleware/verifyToken');
+const createNotification = require('../schedulers/createNotification');
 
-// 출석 상태를 저장하는 API
+
 router.post('/mark-attendance', verifyToken, async (req, res) => {
   const { classId, students, attendance_date } = req.body;
   const { dojang_code } = req.user;
@@ -23,7 +24,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
 
       // 벨트 정보 가져오기
       const [studentData] = await connection.query(
-        `SELECT belt_rank FROM students WHERE id = ?`,
+        `SELECT belt_rank, first_name FROM students WHERE id = ?`,
         [studentId]
       );
 
@@ -32,7 +33,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         continue;
       }
 
-      const belt_rank = studentData[0].belt_rank;
+      const { belt_rank, first_name } = studentData[0];
 
       // 수업 등록 여부 확인
       const [registeredClasses] = await connection.query(
@@ -56,19 +57,38 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
 
       // 🟡 Pay In Full 프로그램인지 확인 후 수업 차감
       const [payInFull] = await connection.query(
-        `SELECT id, remaining_classes FROM payinfull_payment 
-         WHERE student_id = ? AND dojang_code = ?`,
+        `SELECT * FROM payinfull_payment 
+         WHERE student_id = ? AND dojang_code = ? 
+         ORDER BY end_date DESC LIMIT 1`,
         [studentId, dojang_code]
       );
 
       if (payInFull.length > 0 && payInFull[0].remaining_classes > 0) {
+        const payment = payInFull[0];
+
+        // 수업 차감
         await connection.query(
           `UPDATE payinfull_payment 
            SET remaining_classes = remaining_classes - 1 
-           WHERE student_id = ? AND dojang_code = ? AND remaining_classes > 0`,
-          [studentId, dojang_code]
+           WHERE id = ? AND remaining_classes > 0`,
+          [payment.id]
         );
         console.log(`➖ Remaining classes decreased for student ${studentId}`);
+
+        const newRemaining = payment.remaining_classes - 1;
+
+        // 알림 조건 체크 + 알림 전송
+        if (newRemaining === 3 && payment.class_notification_3 === 0) {
+          await createNotification(dojang_code, `[${first_name}] has 3 classes remaining.`);
+          await connection.query(`UPDATE payinfull_payment SET class_notification_3 = 1 WHERE id = ?`, [payment.id]);
+          console.log(`🔔 Notification sent for 3 classes remaining for student ${studentId}`);
+        }
+
+        if (newRemaining === 1 && payment.class_notification_1 === 0) {
+          await createNotification(dojang_code, `[${first_name}] has only 1 class remaining.`);
+          await connection.query(`UPDATE payinfull_payment SET class_notification_1 = 1 WHERE id = ?`, [payment.id]);
+          console.log(`🔔 Notification sent for 1 class remaining for student ${studentId}`);
+        }
       }
     }
 
