@@ -66,7 +66,11 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
       if (payInFull.length > 0 && payInFull[0].remaining_classes > 0) {
         const payment = payInFull[0];
         const newRemaining = payment.remaining_classes - 1;
-      
+        const today = new Date();
+        const endDate = new Date(payment.end_date);
+        const timeDiff = endDate.getTime() - today.getTime();
+        const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+        
         // 🔔 클래스 기준 알림
         if (newRemaining === 3 && payment.class_notification_3 === 0) {
           await createNotification(dojang_code, `[${first_name}] has 3 classes remaining.`);
