@@ -7,29 +7,35 @@ const db = require('../db');
 router.get('/membership-info', verifyToken, async (req, res) => {
   const parentId = req.query.parent_id;
   const { dojang_code } = req.user;
-
+  
   if (!parentId) {
     return res.status(400).json({ message: 'Parent ID가 제공되지 않았습니다.' });
   }
-
+  
   try {
     const [rows] = await db.query(
-      `SELECT 
-          s.first_name, 
-          s.last_name, 
-          p.name AS program_name, 
-          p.price AS program_price
-       FROM 
-          students s
-       JOIN 
-          programs p 
-       ON 
-          s.program_id = p.id
-       WHERE 
-          s.parent_id = ? AND s.dojang_code = ?`,
+      `SELECT
+        s.first_name,
+        s.last_name,
+        p.name AS program_name,
+        p.price AS program_price,
+        p.payment_type,
+        p.operation_type,
+        pf.total_classes,
+        pf.remaining_classes,
+        pf.start_date,
+        pf.end_date
+      FROM
+        students s
+      JOIN
+        programs p ON s.program_id = p.id
+      LEFT JOIN
+        payinfull_payment pf ON s.id = pf.student_id
+      WHERE
+        s.parent_id = ? AND s.dojang_code = ?`,
       [parentId, dojang_code]
     );
-
+    
     res.status(200).json(rows);
   } catch (error) {
     console.error('자녀 정보 조회 오류:', error);
