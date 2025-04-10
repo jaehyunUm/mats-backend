@@ -65,31 +65,35 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
 
       if (payInFull.length > 0 && payInFull[0].remaining_classes > 0) {
         const payment = payInFull[0];
-
-        // 수업 차감
-        await connection.query(
-          `UPDATE payinfull_payment 
-           SET remaining_classes = remaining_classes - 1 
-           WHERE id = ? AND remaining_classes > 0`,
-          [payment.id]
-        );
-        console.log(`➖ Remaining classes decreased for student ${studentId}`);
-
         const newRemaining = payment.remaining_classes - 1;
-
+      
         // 알림 조건 체크 + 알림 전송
         if (newRemaining === 3 && payment.class_notification_3 === 0) {
           await createNotification(dojang_code, `[${first_name}] has 3 classes remaining.`);
-          await connection.query(`UPDATE payinfull_payment SET class_notification_3 = 1 WHERE id = ?`, [payment.id]);
+          await connection.query(`
+            UPDATE payinfull_payment 
+            SET remaining_classes = ?, class_notification_3 = 1 
+            WHERE id = ?`, [newRemaining, payment.id]);
           console.log(`🔔 Notification sent for 3 classes remaining for student ${studentId}`);
-        }
-
-        if (newRemaining === 1 && payment.class_notification_1 === 0) {
+        } else if (newRemaining === 1 && payment.class_notification_1 === 0) {
           await createNotification(dojang_code, `[${first_name}] has only 1 class remaining.`);
-          await connection.query(`UPDATE payinfull_payment SET class_notification_1 = 1 WHERE id = ?`, [payment.id]);
+          await connection.query(`
+            UPDATE payinfull_payment 
+            SET remaining_classes = ?, class_notification_1 = 1 
+            WHERE id = ?`, [newRemaining, payment.id]);
           console.log(`🔔 Notification sent for 1 class remaining for student ${studentId}`);
+        } else {
+          // 알림 조건에 해당 안 되면 단순히 수업만 차감
+          await connection.query(
+            `UPDATE payinfull_payment 
+             SET remaining_classes = ? 
+             WHERE id = ?`,
+            [newRemaining, payment.id]
+          );
+          console.log(`➖ Remaining classes decreased for student ${studentId}`);
         }
       }
+      
     }
 
     await connection.commit();
