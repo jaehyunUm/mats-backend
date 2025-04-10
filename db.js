@@ -12,6 +12,8 @@ const pool = mysql.createPool({
   bigNumberStrings: true, // ✅ BigInt를 자동으로 문자열로 변환
 });
 
+console.log("👉 DB_HOST:", process.env.DB_HOST);
+
 // 연결 풀에서 연결 가져오는 함수 재정의
 const originalGetConnection = pool.getConnection;
 pool.getConnection = async function(...args) {

@@ -1,4 +1,7 @@
 require('dotenv').config(); // 👈 꼭 추가!
+
+console.log("🔍 DB_HOST is:", process.env.DB_HOST); // 👈 이거 추가해봐!
+
 const db = require('../db');
 
 async function checkPayInFullNotifications() {
