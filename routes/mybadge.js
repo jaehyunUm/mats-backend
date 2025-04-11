@@ -7,40 +7,46 @@ const { uploadFileToS3 } = require('../modules/s3Service'); // S3 업로드 유�
 const { deleteFileFromS3 } = require('../modules/s3Service');
 
 
-// 배지 추가 API (이미지 파일 포함)
+
 router.post('/badges', verifyToken, upload.single('image'), async (req, res) => {
   console.log("📥 Received request body:", req.body); // ✅ 디버깅 로그 추가
   console.log("📂 Received file:", req.file); // ✅ 파일 데이터 확인
-
+  
   const { name, test_template_id, condition_value } = req.body;
   const { dojang_code } = req.user;
-
+  
   // 필수 필드 체크
   if (!name || !test_template_id || !condition_value) {
-      return res.status(400).json({ message: 'Missing required fields' });
+    return res.status(400).json({ message: 'Missing required fields' });
   }
-
+  
   try {
-      let fileName = null;
-
-      // ✅ S3에 이미지 업로드 (파일이 있을 경우)
-      if (req.file) {
-          fileName = await uploadFileToS3(req.file.originalname, req.file.buffer, dojang_code);
-      }
-
-      // ✅ 배지 정보 저장 쿼리
-      const query = `
-          INSERT INTO badges (name, image_url, dojang_code, test_template_id, condition_value) 
-          VALUES (?, ?, ?, ?, ?)
-      `;
-
-      await db.query(query, [name, fileName, dojang_code, test_template_id, condition_value]);
-
-      console.log("✔ Badge added successfully:", { name, test_template_id, condition_value });
-      res.status(201).json({ message: 'Badge added successfully' });
+    let fileName = null;
+    
+    // ✅ S3에 이미지 업로드 (파일이 있을 경우)
+    if (req.file) {
+      // 파일명에 타임스탬프 추가하여 고유한 파일명 생성
+      const timestamp = Date.now();
+      const originalname = req.file.originalname; // originalname 정의
+      const fileExtension = originalname.split('.').pop();
+      const uniqueFileName = `badge_${timestamp}.${fileExtension}`;
+      
+      // 업로드 함수에 고유한 파일명 전달
+      fileName = await uploadFileToS3(uniqueFileName, req.file.buffer, dojang_code);
+    }
+    
+    // ✅ 배지 정보 저장 쿼리
+    const query = `
+      INSERT INTO badges (name, image_url, dojang_code, test_template_id, condition_value)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+    await db.query(query, [name, fileName, dojang_code, test_template_id, condition_value]);
+    
+    console.log("✔ Badge added successfully:", { name, test_template_id, condition_value });
+    res.status(201).json({ message: 'Badge added successfully' });
   } catch (err) {
-      console.error("❌ Error adding badge:", err);
-      res.status(500).json({ message: 'Database error', error: err });
+    console.error("❌ Error adding badge:", err);
+    res.status(500).json({ message: 'Database error', error: err });
   }
 });
 
