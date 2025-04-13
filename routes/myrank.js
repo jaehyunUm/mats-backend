@@ -26,20 +26,19 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
     
     const { id: testTemplateId, evaluation_type } = testTemplate[0];
     
-    // `evaluation_type` 체크
+    // evaluation_type 체크
     if (evaluation_type !== 'count' && evaluation_type !== 'time') {
       return res.status(400).json({ message: 'Invalid test type' });
     }
     
-    // 모든 테스트 ID 결정
-    let testIds = [testTemplateId];
+    // 모든 테스트 ID 결정 - 여기서 allTestIds 초기화
+    let allTestIds = [testId];
     
     // 유사 테스트 포함이 활성화된 경우에만 추가 ID를 포함
     if (useSimilar && additionalTestIds.length > 0) {
-      testIds = [...testIds, ...additionalTestIds];
+      allTestIds = [...allTestIds, ...additionalTestIds];
     }
-
-
+    
     // 쿼리 수정 - WHERE 절 조건을 IN으로 변경
     const query = `
       WITH latest_tests AS (
@@ -80,8 +79,8 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
         count DESC
     `;
     
-    const params = dojangOnly 
-      ? [allTestIds, dojang_code] 
+    const params = dojangOnly
+      ? [allTestIds, dojang_code]
       : [allTestIds];
     
     const [rankingData] = await db.execute(query, params);
@@ -91,7 +90,6 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch ranking data' });
   }
 });
-
 
 
 // 객관적인 평가 항목 조회 API
