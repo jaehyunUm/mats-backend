@@ -190,6 +190,91 @@ router.get('/global-rankings', verifyToken, async (req, res) => {
 });
 
 
+router.get('/similar-tests', verifyToken, async (req, res) => {
+  try {
+    const { test_id } = req.query;
+    
+    if (!test_id) {
+      return res.status(400).json({ message: 'Test ID is required' });
+    }
+    
+    // 1. 선택된 테스트 정보 가져오기
+    const [selectedTest] = await db.query(
+      `SELECT id, test_name, evaluation_type, duration, target_count 
+       FROM test_template 
+       WHERE id = ?`,
+      [test_id]
+    );
+    
+    if (selectedTest.length === 0) {
+      return res.status(404).json({ message: 'Test not found' });
+    }
+    
+    const test = selectedTest[0];
+    
+    // 2. 유사한 테스트 찾기 (평가 유형과 value가 동일)
+    const similarTestsQuery = `
+      SELECT id, dojang_code, test_name, evaluation_type, duration, target_count,
+      CASE
+        WHEN evaluation_type = 'count' AND duration IS NOT NULL
+          THEN CONCAT(test_name, ' for ', duration, ' Seconds')
+        WHEN evaluation_type = 'time' AND target_count IS NOT NULL
+          THEN CONCAT(test_name, ' ', target_count, ' times')
+        ELSE test_name
+      END AS standardized_test_name
+      FROM test_template
+      WHERE evaluation_type = ?
+        AND (
+          (evaluation_type = 'count' AND duration = ?) OR
+          (evaluation_type = 'time' AND target_count = ?)
+        )
+    `;
+    
+    const [similarTests] = await db.query(
+      similarTestsQuery,
+      [test.evaluation_type, test.duration, test.target_count]
+    );
+    
+    // 3. 이름 유사도 비교를 위한 처리
+    // 간단한 정규화: 소문자 변환, 특수문자 및 여분의 공백 제거
+    const normalizeTestName = (name) => {
+      return name.toLowerCase()
+        .replace(/[^\w\s]/g, '')  // 특수문자 제거
+        .replace(/\s+/g, ' ')     // 여분 공백 제거
+        .trim();                  // 앞뒤 공백 제거
+    };
+    
+    const normalizedSelectedName = normalizeTestName(test.test_name);
+    
+    // 유사한 테스트 필터링 (이름 유사도 확인)
+    const matchingTests = similarTests.filter(t => {
+      const normalizedName = normalizeTestName(t.test_name);
+      
+      // 1. 정확히 일치
+      if (normalizedName === normalizedSelectedName) return true;
+      
+      // 2. 부분 문자열 포함
+      if (normalizedName.includes(normalizedSelectedName) || 
+          normalizedSelectedName.includes(normalizedName)) return true;
+      
+      // 3. 키워드 매칭 (kick, punch 등 주요 키워드 포함)
+      const keywords = ['kick', 'punch', 'push', 'squat', 'jump', 'run'];
+      const matchedKeywords = keywords.filter(keyword => 
+        normalizedName.includes(keyword) && normalizedSelectedName.includes(keyword)
+      );
+      
+      return matchedKeywords.length > 0;
+    });
+    
+    res.json(matchingTests);
+    
+  } catch (error) {
+    console.error('Error finding similar tests:', error);
+    res.status(500).json({ message: 'Failed to find similar tests' });
+  }
+});
+
+
 
 
 
