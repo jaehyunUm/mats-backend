@@ -188,26 +188,30 @@ router.get('/badges-with-results/:childId', verifyToken, async (req, res) => {
 
 router.get('/badge-condition-types', verifyToken, async (req, res) => {
   try {
+    // 토큰에서 도장 코드 추출
+    const { dojang_code } = req.user;
+    
     const query = `
-      SELECT id, test_name, evaluation_type, 
-        CASE 
-          WHEN evaluation_type = 'time' THEN target_count 
-          WHEN evaluation_type = 'count' THEN duration
-          ELSE NULL 
-        END AS value
+      SELECT id, test_name, evaluation_type,
+      CASE
+        WHEN evaluation_type = 'time' THEN target_count
+        WHEN evaluation_type = 'count' THEN duration
+        ELSE NULL
+      END AS value
       FROM test_template
       WHERE evaluation_type IN ('count', 'time')
+      AND dojang_code = ?
       ORDER BY test_name ASC;
     `;
     
-    const [results] = await db.query(query);
+    const [results] = await db.query(query, [dojang_code]);
     
     if (results.length === 0) {
-      console.warn("⚠ No condition types found in test_template.");
-      return res.status(404).json({ message: 'No condition types found.' });
+      console.warn(`⚠ No condition types found for dojang_code: ${dojang_code}`);
+      return res.status(404).json({ message: 'No condition types found for your dojang.' });
     }
     
-    console.log("🔍 Fetched Badge Condition Types:", results);
+    console.log(`🔍 Fetched Badge Condition Types for dojang_code ${dojang_code}:`, results);
     res.status(200).json(results);
   } catch (error) {
     console.error("❌ Error fetching badge condition types:", error);
