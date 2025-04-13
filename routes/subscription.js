@@ -8,6 +8,8 @@ const { v4: uuidv4 } = require("uuid");
 const { createOrderTemplate } = require('./createOrderTemplate'); 
 const { Client } = require('square'); // ✅ Square SDK Client 가져오기
 
+
+
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { subscriptionId } = req.body;
 

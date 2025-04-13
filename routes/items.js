@@ -242,48 +242,87 @@ if (item[0].image_url) {
   });
 
 // 아이템 수정 API
-router.put('/items/:id', verifyToken, async (req, res) => {
+// 아이템 수정 API
+router.put('/items/:id', verifyToken, upload.single('image'), async (req, res) => {
   console.log('Request received:', req.params, req.body);
-  
   const { id } = req.params; // 아이템 ID
   const { dojang_code } = req.user; // 토큰에서 추출한 도장 코드
-  const { name, price, sizes } = req.body; // 수정할 데이터
+  const { name, price } = req.body; // 기본 데이터
+  
+  let sizes = [];
+  // sizes가 undefined일 경우 빈 배열로 설정
+  if (req.body.sizes) {
+    try {
+      sizes = JSON.parse(req.body.sizes);
+    } catch (error) {
+      console.error("❌ ERROR: Failed to parse sizes JSON", error);
+      return res.status(400).json({ message: "Invalid sizes format" });
+    }
+  }
+  console.log("✅ Parsed sizes:", sizes);
 
   try {
     console.log('Request Params:', req.params);
     console.log('Request Body:', req.body);
+    console.log('Request File:', req.file);
+
+    // 이미지 처리 - 새 이미지가 업로드된 경우
+    let imageUrl = null;
+    if (req.file) {
+      // 현재 아이템의 기존 이미지 URL 가져오기
+      const [currentItem] = await db.query(
+        'SELECT image_url FROM items WHERE id = ? AND dojang_code = ?',
+        [id, dojang_code]
+      );
+      
+      // 새 이미지 S3에 업로드
+      imageUrl = await uploadFileToS3(req.file.originalname, req.file.buffer, dojang_code);
+      console.log("✅ Uploaded new image:", imageUrl);
+      
+      // 기존 이미지가 있으면 S3에서 삭제 (선택적)
+      if (currentItem.length > 0 && currentItem[0].image_url) {
+        try {
+          await deleteFileFromS3(currentItem[0].image_url);
+          console.log("✅ Deleted old image:", currentItem[0].image_url);
+        } catch (deleteErr) {
+          console.error("Warning: Failed to delete old image:", deleteErr);
+          // 이미지 삭제 실패는 전체 업데이트를 중단시키지 않음
+        }
+      }
+    }
 
     // 데이터베이스에서 아이템 업데이트
-    const [result] = await db.query(
-      `UPDATE items 
-       SET name = ?, price = ?
-       WHERE id = ? AND dojang_code = ?`,
-      [name, price, id, dojang_code]
-    );
-
+    const updateQuery = imageUrl 
+      ? 'UPDATE items SET name = ?, price = ?, image_url = ? WHERE id = ? AND dojang_code = ?'
+      : 'UPDATE items SET name = ?, price = ? WHERE id = ? AND dojang_code = ?';
+    
+    const updateParams = imageUrl 
+      ? [name, price, imageUrl, id, dojang_code]
+      : [name, price, id, dojang_code];
+    
+    const [result] = await db.query(updateQuery, updateParams);
+    
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Item not found or unauthorized.' });
     }
-
+    
     // item_sizes 테이블 업데이트
     if (Array.isArray(sizes)) {
       // 기존 사이즈 데이터 삭제
       await db.query(`DELETE FROM item_sizes WHERE item_id = ?`, [id]);
-
+      
       // 새 사이즈 데이터 삽입
-      const sizeInsertQuery = `INSERT INTO item_sizes (item_id, size, quantity, dojang_code) VALUES (?, ?, ?, ?)
-`;
+      const sizeInsertQuery = `INSERT INTO item_sizes (item_id, size, quantity, dojang_code) VALUES (?, ?, ?, ?)`;
       for (const { size, quantity } of sizes) {
         if (size && quantity) {
           await db.query(sizeInsertQuery, [id, size, quantity, dojang_code]);
-
           console.log(`Updated size and quantity for item_id ${id}:`, { size, quantity });
         } else {
           console.warn('Invalid size or quantity skipped:', { size, quantity });
         }
       }
     }
-
+    
     res.status(200).json({ message: 'Item and sizes updated successfully.' });
   } catch (error) {
     console.error('Error updating item:', error);
