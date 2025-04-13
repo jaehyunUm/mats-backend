@@ -14,6 +14,12 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
   const additionalTestIds = req.query.test_ids ? req.query.test_ids.split(',') : [];
   
   try {
+    // 디버깅 로그 추가
+    console.log("테스트 ID:", testId);
+    console.log("추가 테스트 ID:", additionalTestIds);
+    console.log("도장 코드:", dojang_code);
+    console.log("내 도장만:", dojangOnly);
+    
     // 선택한 testId가 실제 test_template에 존재하는지 확인
     const [testTemplate] = await db.execute(
       `SELECT id, test_name, evaluation_type FROM test_template WHERE id = ? LIMIT 1`,
@@ -39,20 +45,23 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
       allTestIds = [...allTestIds, ...additionalTestIds];
     }
     
-    // 쿼리 수정 - WHERE 절 조건을 IN으로 변경
+    console.log("최종 테스트 ID 목록:", allTestIds);
+    
+    // 테이블 이름 확인: testresult or test_results?
+    // 실제 DB에 맞는 테이블 이름과 필드명 사용
     const query = `
       WITH latest_tests AS (
         SELECT
-          t1.student_id,
-          t1.test_template_id,
-          t1.result_value,
-          t1.created_at,
+          tr.student_id,
+          tr.test_template_id,
+          tr.result_value,
+          tr.created_at,
           ROW_NUMBER() OVER (
-            PARTITION BY t1.student_id, t1.test_template_id
-            ORDER BY t1.created_at DESC
+            PARTITION BY tr.student_id, tr.test_template_id
+            ORDER BY tr.created_at DESC
           ) AS rn
-        FROM testresult t1
-        WHERE t1.test_template_id IN (?)
+        FROM testresult tr
+        WHERE tr.test_template_id IN (?)
       )
       SELECT
         s.id AS student_id,
@@ -79,11 +88,17 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
         count DESC
     `;
     
+    // 파라미터 형식 주의
     const params = dojangOnly
-      ? [allTestIds, dojang_code]
-      : [allTestIds];
+      ? [[allTestIds], dojang_code]  // 배열을 한 번 더 감싸기
+      : [[allTestIds]];
+    
+    console.log("실행할 쿼리:", query);
+    console.log("파라미터:", params);
     
     const [rankingData] = await db.execute(query, params);
+    
+    console.log("결과 데이터 개수:", rankingData.length);
     res.json(rankingData);
   } catch (error) {
     console.error('Error fetching ranking data:', error);
