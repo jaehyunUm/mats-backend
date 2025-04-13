@@ -47,51 +47,50 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
     
     console.log("최종 테스트 ID 목록:", allTestIds);
     
-    // 테이블 이름 확인: testresult or test_results?
-    // 실제 DB에 맞는 테이블 이름과 필드명 사용
     const query = `
-      WITH latest_tests AS (
-        SELECT
-          tr.student_id,
-          tr.test_template_id,
-          tr.result_value,
-          tr.created_at,
-          ROW_NUMBER() OVER (
-            PARTITION BY tr.student_id, tr.test_template_id
-            ORDER BY tr.created_at DESC
-          ) AS rn
-        FROM testresult tr
-        WHERE tr.test_template_id IN (?)
-      )
-      SELECT
-        s.id AS student_id,
-        CONCAT(s.last_name, ' ', s.first_name) AS name,
-        s.dojang_code AS dojang_code,
-        d.dojang_name AS studio_name,
-        YEAR(CURDATE()) - YEAR(s.birth_date) AS age,
-        s.belt_rank AS belt_rank,
-        b.belt_color AS belt_color,
-        latest_tests.result_value AS count,
-        tt.test_name
-      FROM
-        students s
-      JOIN
-        latest_tests ON s.id = latest_tests.student_id AND latest_tests.rn = 1
-      JOIN
-        test_template tt ON latest_tests.test_template_id = tt.id
-      JOIN
-        beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
-      JOIN
-        dojangs d ON s.dojang_code = d.dojang_code
-      ${dojangOnly ? 'WHERE s.dojang_code = ?' : ''}
-      ORDER BY
-        count DESC
-    `;
+    WITH latest_tests AS (
+    SELECT
+      tr.student_id,
+      tr.test_template_id,
+      tr.result_value,
+      tr.created_at,
+      ROW_NUMBER() OVER (
+        PARTITION BY tr.student_id, tr.test_template_id
+        ORDER BY tr.created_at DESC
+      ) AS rn
+    FROM testresult tr
+    WHERE tr.test_template_id IN (${allTestIds.map(() => '?').join(',')})
+    )
+    SELECT
+      s.id AS student_id,
+      CONCAT(s.last_name, ' ', s.first_name) AS name,
+      s.dojang_code AS dojang_code,
+      d.dojang_name AS studio_name,
+      YEAR(CURDATE()) - YEAR(s.birth_date) AS age,
+      s.belt_rank AS belt_rank,
+      b.belt_color AS belt_color,
+      latest_tests.result_value AS count,
+      tt.test_name
+    FROM
+      students s
+    JOIN
+      latest_tests ON s.id = latest_tests.student_id AND latest_tests.rn = 1
+    JOIN
+      test_template tt ON latest_tests.test_template_id = tt.id
+    JOIN
+      beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
+    JOIN
+      dojangs d ON s.dojang_code = d.dojang_code
+    ${dojangOnly ? 'WHERE s.dojang_code = ?' : ''}
+    ORDER BY
+      count DESC
+  `;
+  
     
     // 파라미터 형식 주의
     const params = dojangOnly
-      ? [[allTestIds], dojang_code]  // 배열을 한 번 더 감싸기
-      : [[allTestIds]];
+    ? [...allTestIds, dojang_code]  // 각 ID를 개별 파라미터로 전달
+    : [...allTestIds];
     
     console.log("실행할 쿼리:", query);
     console.log("파라미터:", params);
