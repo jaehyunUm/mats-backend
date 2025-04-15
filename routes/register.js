@@ -233,32 +233,49 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     ]);
     console.log("✅ Program payment record inserted");
 
-    // 유니폼 처리 (추가된 부분)
-    if (uniforms && uniforms.length > 0) {
-      console.log("🧵 Processing uniform purchase:", uniforms);
-      for (const uniform of uniforms) {
-        const itemId = uniform.id; // ✅ 여기 수정
-        const { size, quantity } = uniform;
-    
-        const [stockCheck] = await connection.query(`
-          SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?
-        `, [itemId, size]);
-    
-        if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
-          throw new Error(`Insufficient stock for item ${itemId}, size ${size}`);
-        }
-    
-        await connection.query(`
-          UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
-        `, [quantity, itemId, size]);
-    
-        await connection.query(`
-          INSERT INTO item_purchases (student_id, item_id, size, quantity, payment_id, dojang_code)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `, [studentId, itemId, size, quantity, paymentId, dojang_code]);
-      }
-      console.log("✅ Uniform purchase processed");
+// 유니폼 처리
+if (uniforms && uniforms.length > 0) {
+  console.log("🧵 Processing uniform purchase:", uniforms);
+  for (const uniform of uniforms) {
+    const itemId = uniform.id;
+    const { size, quantity } = uniform;
+
+    // 재고 확인
+    const [stockCheck] = await connection.query(`
+      SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?
+    `, [itemId, size]);
+
+    if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
+      throw new Error(`Insufficient stock for item ${itemId}, size ${size}`);
     }
+
+    // 재고 업데이트
+    await connection.query(`
+      UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
+    `, [quantity, itemId, size]);
+
+    // ✅ 유니폼 구매 정보 저장 (수정된 테이블명: item_payments)
+    await connection.query(`
+      INSERT INTO item_payments 
+      (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'completed', ?, ?, ?)
+    `, [
+      studentId,
+      itemId,
+      size,
+      quantity,
+      uniform.price || 0,
+      `key-${Date.now()}`, // idempotency_key 생성
+      'card',
+      'USD',
+      dojang_code,
+      parent_id,
+      cardId
+    ]);
+  }
+  console.log("✅ Uniform purchase processed");
+}
+
     
 
     if (paymentType === "pay_in_full") {
