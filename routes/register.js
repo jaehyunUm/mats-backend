@@ -8,19 +8,13 @@ const verifyToken = require('../middleware/verifyToken');
   
 router.post("/register-student", verifyToken, async (req, res) => {
   try {
-    console.log("📢 Received student registration request:", req.body);
-    console.log("🛠️ DEBUG: dojang_code from middleware:", req.dojang_code);
-
     const { first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id } = req.body;
     const { dojang_code } = req.user;
 
-    // ✅ `dojang_code`가 없으면 오류 반환
     if (!dojang_code) {
-      console.error("❌ ERROR: Dojang code is missing");
       return res.status(400).json({ success: false, message: "Dojang code is missing" });
     }
 
-    // ✅ 값 검증 및 `null` 처리
     const safeFirstName = first_name || null;
     const safeLastName = last_name || null;
     const safeBirthDate = birth_date || null;
@@ -31,40 +25,54 @@ router.post("/register-student", verifyToken, async (req, res) => {
     const safeProgramId = program_id !== undefined ? program_id : null;
     const safeProfileImage = profile_image !== undefined ? profile_image : null;
 
-    console.log("✅ DEBUG: Parent ID:", safeParentId);
-    console.log("✅ DEBUG: Dojang Code:", dojang_code);
-
-    // ✅ 필수 필드 체크
     if (!safeFirstName || !safeLastName || !safeBirthDate || !safeGender || safeParentId === null) {
-      console.error("❌ ERROR: Missing required student fields:", req.body);
       return res.status(400).json({ success: false, message: "Missing required student fields" });
     }
-    console.log("🛠️ DEBUG: Inserting into students table with values:", [
-      safeFirstName, safeLastName, safeBirthDate, safeGender, safeBeltRank, 
-      safeBeltSize, safeParentId, safeProfileImage, safeProgramId, dojang_code
-  ]);
-    // ✅ MySQL에 데이터 삽입
-    const [result] = await db.execute(
-      `INSERT INTO students (first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id, dojang_code) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [safeFirstName, safeLastName, safeBirthDate, safeGender, safeBeltRank, safeBeltSize, safeParentId, safeProfileImage, safeProgramId, dojang_code]
+
+    // ✅ 기존 학생 있는지 확인
+    const [existing] = await db.query(
+      `SELECT id FROM students WHERE first_name = ? AND last_name = ? AND birth_date = ? AND parent_id = ? AND dojang_code = ?`,
+      [safeFirstName, safeLastName, safeBirthDate, safeParentId, dojang_code]
     );
-    console.log("✅ DEBUG: Student inserted successfully. Insert ID:", result.insertId);
-    // ✅ 새로 생성된 student_id 반환
-    const student_id = result.insertId;
-    console.log("✅ Student registered successfully:", student_id);
+
+    let student_id;
+
+    if (existing.length > 0) {
+      // ✅ 기존 학생 있으면 업데이트
+      student_id = existing[0].id;
+
+      await db.query(
+        `UPDATE students 
+         SET gender = ?, belt_rank = ?, belt_size = ?, profile_image = ?, program_id = ?
+         WHERE id = ?`,
+        [safeGender, safeBeltRank, safeBeltSize, safeProfileImage, safeProgramId, student_id]
+      );
+
+      console.log("🟡 Existing student updated:", student_id);
+    } else {
+      // ✅ 없으면 새로 등록
+      const [result] = await db.execute(
+        `INSERT INTO students (first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id, dojang_code) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [safeFirstName, safeLastName, safeBirthDate, safeGender, safeBeltRank, safeBeltSize, safeParentId, safeProfileImage, safeProgramId, dojang_code]
+      );
+      student_id = result.insertId;
+
+      console.log("🟢 New student inserted:", student_id);
+    }
 
     return res.status(201).json({ success: true, student_id });
 
   } catch (error) {
-    console.error("❌ ERROR: Failed to register student:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Server error. Please try again.", 
+    console.error("❌ ERROR: Failed to register or update student:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error. Please try again.",
       error: error.message || "Unknown error"
-  });
+    });
   }
 });
+
 
 
 
