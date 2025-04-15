@@ -9,9 +9,20 @@ router.get('/children/:parentId', verifyToken, async (req, res) => {
 
   try {
     const query = `
-      SELECT id, first_name, last_name, birth_date, gender, belt_rank, belt_size
-      FROM students
-      WHERE parent_id = ? AND dojang_code = ?
+      SELECT 
+        s.id, 
+        s.first_name, 
+        s.last_name, 
+        s.birth_date, 
+        s.gender, 
+        s.belt_rank, 
+        s.belt_size,
+        b.belt_color,
+        b.stripe_color
+      FROM students s
+      LEFT JOIN beltsystem b 
+        ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
+      WHERE s.parent_id = ? AND s.dojang_code = ?
     `;
     
     const [children] = await db.query(query, [parentId, dojang_code]);
@@ -26,6 +37,7 @@ router.get('/children/:parentId', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Error fetching children data.' });
   }
 });
+
 
 
 
