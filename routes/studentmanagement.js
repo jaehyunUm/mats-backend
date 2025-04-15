@@ -53,42 +53,42 @@ router.get('/students', verifyToken, async (req, res) => {
     }
   });
 
- // 전체 학생 목록 가져오기 (벨트 색상 조인 + 나이 계산 포함)
- router.get('/studentmanagement', verifyToken, async (req, res) => {
-  try {
-    const sql = `
-      SELECT
-        s.id,
-        s.parent_id,
-        s.first_name,
-        s.last_name,
-        s.gender,
-        s.birth_date,
-        TIMESTAMPDIFF(YEAR, s.birth_date, CURDATE()) AS age, -- ✅ 만 나이 계산
-        s.belt_rank,
-        b.belt_color, -- ✅ 조인으로 belt_color 가져오기
-        b.stripe_color, -- ✅ stripe_color도 가져오기
-        s.program_id,
-        s.profile_image,
-        s.belt_size,
-        s.dojang_code,
-        s.created_at
-      FROM
-        students s
-      LEFT JOIN
-        beltsystem b
-      ON
-        s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
-      WHERE
-        s.dojang_code = ?
-    `;
-    const [students] = await db.query(sql, [req.user.dojang_code]);
-    res.status(200).json(students);
-  } catch (err) {
-    console.error('Error fetching students:', err);
-    res.status(500).json({ message: 'Database error', error: err });
-  }
-});
+  router.get('/studentmanagement', verifyToken, async (req, res) => {
+    try {
+      const sql = `
+        SELECT
+          s.id,
+          s.parent_id,
+          s.first_name,
+          s.last_name,
+          s.gender,
+          s.birth_date,
+          TIMESTAMPDIFF(YEAR, s.birth_date, CURDATE()) AS age,
+          s.belt_rank,
+          b.belt_color,
+          b.stripe_color,
+          s.program_id,
+          p.name AS program_name,  -- 프로그램 이름 추가
+          s.profile_image,
+          s.belt_size,
+          s.dojang_code,
+          s.created_at
+        FROM
+          students s
+        LEFT JOIN
+          beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
+        LEFT JOIN
+          programs p ON s.program_id = p.id  -- 프로그램 테이블과 조인
+        WHERE
+          s.dojang_code = ?
+      `;
+      const [students] = await db.query(sql, [req.user.dojang_code]);
+      res.status(200).json(students);
+    } catch (err) {
+      console.error('Error fetching students:', err);
+      res.status(500).json({ message: 'Database error', error: err });
+    }
+  });
 
 router.get('/programs/basic', verifyToken, async (req, res) => {
     const { dojang_code } = req.user;
