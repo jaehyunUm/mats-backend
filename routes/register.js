@@ -617,50 +617,6 @@ res.status(500).json({ message: "Server error", error: error.message });
 });
 
 
-router.post("/update-stock", verifyToken, async (req, res) => {
-  try {
-      console.log("📥 Received stock update request:", req.body);
-      console.log("📥 Extracted Dojang Code from Token:", req.user.dojang_code); // ✅ 미들웨어에서 가져오기
-
-      const { itemId, size, quantity } = req.body;
-      const { dojang_code } = req.user;;  // ✅ 미들웨어에서 설정한 값 사용
-
-      if (!itemId || !size || !quantity || !dojang_code) {
-          console.error("❌ Missing required fields:", { itemId, size, quantity, dojang_code });
-          return res.status(400).json({ success: false, message: "Missing required fields" });
-      }
-
-      const [rows] = await db.query(
-          `SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ? AND dojang_code = ?`,
-          [itemId, size, dojang_code]
-      );
-
-      if (rows.length === 0) {
-          return res.status(404).json({ success: false, message: "Item not found" });
-      }
-
-      const currentQuantity = rows[0].quantity;
-
-      if (currentQuantity < quantity) {
-          return res.status(400).json({ success: false, message: "Not enough stock available" });
-      }
-
-      const [updateResult] = await db.query(
-          `UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ? AND dojang_code = ?`,
-          [quantity, itemId, size, dojang_code]
-      );
-
-      if (updateResult.affectedRows > 0) {
-          return res.status(200).json({ success: true, message: "Stock updated successfully" });
-      } else {
-          return res.status(500).json({ success: false, message: "Failed to update stock" });
-      }
-  } catch (error) {
-      console.error("❌ Stock update error:", error);
-      return res.status(500).json({ success: false, message: "Server error", error });
-  }
-});
-
 
 
 

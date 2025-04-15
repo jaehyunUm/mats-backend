@@ -80,29 +80,29 @@ router.get('/items/:itemId?', verifyToken, async (req, res) => {
     if (itemId) {
       // 특정 itemId의 상세 정보를 가져오기
       const query = `
-     SELECT 
-  i.id, i.name, i.price, i.image_url, 
-  s.size, s.quantity
-FROM items i
-LEFT JOIN item_sizes s 
-  ON i.id = s.item_id AND s.dojang_code = ?
-WHERE i.dojang_code = ? AND i.id = ?
-
-    `;
-    const [rows] = await db.query(query, [dojang_code, dojang_code, itemId]); 
-
+        SELECT 
+          i.id, i.name, i.price, i.image_url, i.category_id,
+          c.name AS category_name,
+          s.size, s.quantity
+        FROM items i
+        LEFT JOIN item_sizes s ON i.id = s.item_id AND s.dojang_code = ?
+        LEFT JOIN categories c ON i.category_id = c.id
+        WHERE i.dojang_code = ? AND i.id = ?
+      `;
+      const [rows] = await db.query(query, [dojang_code, dojang_code, itemId]);
 
       if (rows.length === 0) {
         console.log("Item not found");
         return res.status(404).json({ message: 'Item not found' });
       }
 
-      // 데이터 그룹화 (단일 아이템)
       const item = {
         id: rows[0].id,
         name: rows[0].name,
         price: rows[0].price,
         image_url: rows[0].image_url,
+        category_id: rows[0].category_id,
+        category_name: rows[0].category_name || null,
         sizes: rows
           .filter(row => row.size && row.quantity)
           .map(row => ({ size: row.size, quantity: row.quantity })),
@@ -114,30 +114,31 @@ WHERE i.dojang_code = ? AND i.id = ?
       // 모든 아이템 가져오기
       const query = `
         SELECT 
-          i.id, i.name, i.price, i.image_url, 
+          i.id, i.name, i.price, i.image_url, i.category_id,
+          c.name AS category_name,
           s.size, s.quantity
         FROM items i
         LEFT JOIN item_sizes s ON i.id = s.item_id
+        LEFT JOIN categories c ON i.category_id = c.id
         WHERE i.dojang_code = ?
       `;
       const [rows] = await db.query(query, [dojang_code]);
 
-      // 데이터를 items 형태로 그룹화
       const items = rows.reduce((acc, row) => {
         const existingItem = acc.find((item) => item.id === row.id);
 
         if (existingItem) {
-          // 기존 아이템에 사이즈 추가
           if (row.size && row.quantity) {
             existingItem.sizes.push({ size: row.size, quantity: row.quantity });
           }
         } else {
-          // 새로운 아이템 추가
           acc.push({
             id: row.id,
             name: row.name,
             price: row.price,
             image_url: row.image_url,
+            category_id: row.category_id,
+            category_name: row.category_name || null,
             sizes: row.size ? [{ size: row.size, quantity: row.quantity }] : [],
           });
         }
@@ -146,7 +147,6 @@ WHERE i.dojang_code = ? AND i.id = ?
       }, []);
 
       console.log("Fetched all items:", JSON.stringify(items, null, 2));
-
       return res.status(200).json(items);
     }
   } catch (err) {
@@ -154,6 +154,7 @@ WHERE i.dojang_code = ? AND i.id = ?
     res.status(500).json({ message: "Database error", error: err });
   }
 });
+
 
 
 
