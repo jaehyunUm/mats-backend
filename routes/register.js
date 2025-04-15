@@ -237,23 +237,21 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     if (uniforms && uniforms.length > 0) {
       console.log("🧵 Processing uniform purchase:", uniforms);
       for (const uniform of uniforms) {
-        const { itemId, size, quantity } = uniform;
-        
-        // 재고 확인
+        const itemId = uniform.id; // ✅ 여기 수정
+        const { size, quantity } = uniform;
+    
         const [stockCheck] = await connection.query(`
           SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?
         `, [itemId, size]);
-
+    
         if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
           throw new Error(`Insufficient stock for item ${itemId}, size ${size}`);
         }
-
-        // 재고 업데이트
+    
         await connection.query(`
           UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
         `, [quantity, itemId, size]);
-
-        // 구매 기록 저장
+    
         await connection.query(`
           INSERT INTO item_purchases (student_id, item_id, size, quantity, payment_id, dojang_code)
           VALUES (?, ?, ?, ?, ?, ?)
@@ -261,6 +259,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       }
       console.log("✅ Uniform purchase processed");
     }
+    
 
     if (paymentType === "pay_in_full") {
       // 프로그램 정보 조회
