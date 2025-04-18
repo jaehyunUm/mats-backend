@@ -479,7 +479,6 @@ router.put('/update-belt-quantity', verifyToken, async (req, res) => {
   }
 });
 
-// test-template 생성 API
 router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
   const { dojang_code } = req.user;
@@ -488,9 +487,14 @@ router.post('/test-template', verifyToken, async (req, res) => {
     const [result] = await db.query(
       `INSERT INTO test_template (dojang_code, test_name, evaluation_type, test_type, duration, target_count)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [dojang_code, test_name, evaluation_type, test_type, 
-       evaluation_type === 'count' ? duration : null, 
-       evaluation_type === 'time' ? target_count : null]
+      [
+        dojang_code,
+        test_name,
+        evaluation_type,
+        test_type,
+        evaluation_type === 'count' ? duration : null,
+        (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null
+      ]
     );
     
     res.json({ message: 'Test template created successfully', id: result.insertId });
@@ -499,6 +503,7 @@ router.post('/test-template', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to create test template' });
   }
 });
+
 
 // 도장 오너가 생성한 평가 기준 목록 가져오기
 router.get('/test-templates', verifyToken, async (req, res) => {
