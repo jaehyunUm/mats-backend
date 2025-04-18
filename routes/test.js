@@ -482,7 +482,8 @@ router.put('/update-belt-quantity', verifyToken, async (req, res) => {
 router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
   const { dojang_code } = req.user;
-  
+  console.log("📥 received eval type:", evaluation_type); // 이걸로 값 확인
+
   try {
     const [result] = await db.query(
       `INSERT INTO test_template (dojang_code, test_name, evaluation_type, test_type, duration, target_count)
