@@ -481,8 +481,10 @@ router.put('/update-belt-quantity', verifyToken, async (req, res) => {
 
 router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
+
+  console.log("✅ Received:", { test_name, evaluation_type, test_type }); // 여기에 찍어봐
+
   const { dojang_code } = req.user;
-  console.log("📥 received eval type:", evaluation_type); // 이걸로 값 확인
 
   try {
     const [result] = await db.query(
@@ -491,19 +493,20 @@ router.post('/test-template', verifyToken, async (req, res) => {
       [
         dojang_code,
         test_name,
-        evaluation_type,
+        evaluation_type, // ❗ 여기가 ''으로 오염되었을 가능성
         test_type,
         evaluation_type === 'count' ? duration : null,
         (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null
       ]
     );
-    
+
     res.json({ message: 'Test template created successfully', id: result.insertId });
   } catch (error) {
     console.error('❌ Error creating test template:', error);
     res.status(500).json({ message: 'Failed to create test template' });
   }
 });
+
 
 
 // 도장 오너가 생성한 평가 기준 목록 가져오기
