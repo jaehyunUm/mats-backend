@@ -481,22 +481,23 @@ router.put('/update-belt-quantity', verifyToken, async (req, res) => {
 
 router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
-
-  console.log("✅ Received:", { test_name, evaluation_type, test_type }); // 여기에 찍어봐
-
   const { dojang_code } = req.user;
+
+  const type = (evaluation_type || '').trim(); // ✅ sanitize
+  console.log("📥 Cleaned evaluation_type:", type); // 로그 확인
 
   try {
     const [result] = await db.query(
-      `INSERT INTO test_template (dojang_code, test_name, evaluation_type, test_type, duration, target_count)
+      `INSERT INTO test_template 
+        (dojang_code, test_name, evaluation_type, test_type, duration, target_count)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [
         dojang_code,
         test_name,
-        evaluation_type, // ❗ 여기가 ''으로 오염되었을 가능성
+        type, // ✅ 정제된 값 저장
         test_type,
-        evaluation_type === 'count' ? duration : null,
-        (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null
+        type === 'count' ? duration : null,
+        (type === 'time' || type === 'attempt') ? target_count : null
       ]
     );
 
@@ -506,6 +507,7 @@ router.post('/test-template', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to create test template' });
   }
 });
+
 
 
 
