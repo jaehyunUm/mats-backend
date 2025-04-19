@@ -508,51 +508,6 @@ router.post('/test-template', verifyToken, async (req, res) => {
   }
 });
 
-
-
-
-// 도장 오너가 생성한 평가 기준 목록 가져오기
-router.get('/test-templates', verifyToken, async (req, res) => {
-  const { dojang_code } = req.user;
-  const { test_type } = req.query;
-
-  try {
-    let query = `
-      SELECT
-        id,
-        test_name,
-        evaluation_type,
-        test_type,
-        CASE
-          WHEN evaluation_type = 'count' THEN duration
-          WHEN evaluation_type = 'time' THEN target_count
-          WHEN evaluation_type = 'attempt' THEN target_count
-          ELSE NULL
-        END AS value,
-        created_at
-      FROM test_template
-      WHERE dojang_code = ?
-    `;
-
-    const queryParams = [dojang_code];
-
-    if (test_type) {
-      query += ` AND test_type = ?`;
-      queryParams.push(test_type);
-    }
-
-    query += ` ORDER BY id ASC`;
-
-    const [testTemplates] = await db.query(query, queryParams);
-
-    res.status(200).json(testTemplates);
-  } catch (error) {
-    console.error('❌ Error fetching test templates:', error);
-    res.status(500).json({ message: 'Failed to fetch test templates' });
-  }
-});
-
-
 router.put('/test-template/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
@@ -601,6 +556,51 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to update test template' });
   }
 });
+
+
+// 도장 오너가 생성한 평가 기준 목록 가져오기
+router.get('/test-templates', verifyToken, async (req, res) => {
+  const { dojang_code } = req.user;
+  const { test_type } = req.query;
+
+  try {
+    let query = `
+      SELECT
+        id,
+        test_name,
+        evaluation_type,
+        test_type,
+        CASE
+          WHEN evaluation_type = 'count' THEN duration
+          WHEN evaluation_type = 'time' THEN target_count
+          WHEN evaluation_type = 'attempt' THEN target_count
+          ELSE NULL
+        END AS value,
+        created_at
+      FROM test_template
+      WHERE dojang_code = ?
+    `;
+
+    const queryParams = [dojang_code];
+
+    if (test_type) {
+      query += ` AND test_type = ?`;
+      queryParams.push(test_type);
+    }
+
+    query += ` ORDER BY id ASC`;
+
+    const [testTemplates] = await db.query(query, queryParams);
+
+    res.status(200).json(testTemplates);
+  } catch (error) {
+    console.error('❌ Error fetching test templates:', error);
+    res.status(500).json({ message: 'Failed to fetch test templates' });
+  }
+});
+
+
+
 
 
 // test-template 삭제 API
