@@ -242,7 +242,7 @@ if (item[0].image_url) {
     }
   });
 
-// 아이템 수정 API
+
 // 아이템 수정 API
 router.put('/items/:id', verifyToken, upload.single('image'), async (req, res) => {
   console.log('Request received:', req.params, req.body);

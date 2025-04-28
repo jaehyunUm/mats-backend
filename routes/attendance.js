@@ -97,6 +97,47 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
       
     }
 
+    for (const student of students) {
+      const studentId = student.id;
+      const attendance_status = student.status; // ✅ 학생 상태 가져오기
+    
+      // (기존 벨트, 수업 등록 여부 확인하는 코드들은 그대로)
+    
+      // 출석 저장 (기존 코드 그대로)
+    
+      // ✅ 출석/결석 처리 추가
+      if (attendance_status === 'present') {
+        await connection.query(`
+          UPDATE students
+          SET consecutive_absences = 0
+          WHERE id = ? AND dojang_code = ?
+        `, [studentId, dojang_code]);
+      } else if (attendance_status === 'absent') {
+        await connection.query(`
+          UPDATE students
+          SET consecutive_absences = consecutive_absences + 1
+          WHERE id = ? AND dojang_code = ?
+        `, [studentId, dojang_code]);
+    
+        const [studentResult] = await connection.query(`
+          SELECT first_name, last_name, consecutive_absences
+          FROM students
+          WHERE id = ? AND dojang_code = ?
+        `, [studentId, dojang_code]);
+    
+        const studentData = studentResult[0];
+    
+        if (studentData.consecutive_absences >= 2) {
+          const message = `Student ${studentData.first_name} ${studentData.last_name} has been absent for ${studentData.consecutive_absences} consecutive classes.`;
+    
+          await db.query(`
+            INSERT INTO notifications (dojang_code, message)
+            VALUES (?, ?)
+          `, [dojang_code, message]);
+        }
+      }
+    }
+
     await connection.commit();
     res.status(200).json({ success: true });
   } catch (error) {
@@ -162,6 +203,36 @@ router.post('/mark-absence', verifyToken, async (req, res) => {
        ON DUPLICATE KEY UPDATE absence_date = VALUES(absence_date)`,
       [values]
     );
+
+    for (const absentStudent of absentStudents) {
+      const studentId = absentStudent.id;
+    
+      // 1. 학생의 연속 결석 수 증가
+      await db.query(`
+        UPDATE students
+        SET consecutive_absences = consecutive_absences + 1
+        WHERE id = ? AND dojang_code = ?
+      `, [studentId, dojang_code]);
+    
+      // 2. 학생의 현재 연속 결석 수 조회
+      const [studentResult] = await db.query(`
+        SELECT first_name, last_name, consecutive_absences
+        FROM students
+        WHERE id = ? AND dojang_code = ?
+      `, [studentId, dojang_code]);
+    
+      const student = studentResult[0];
+    
+      // 3. 연속 결석 2번 이상이면 알림 생성
+      if (student.consecutive_absences >= 2) {
+        const message = `Student ${student.first_name} ${student.last_name} has been absent for ${student.consecutive_absences} consecutive classes.`;
+    
+        await db.query(`
+          INSERT INTO notifications (dojang_code, message)
+          VALUES (?, ?)
+        `, [dojang_code, message]);
+      }
+    }
 
     console.log("✅ Absences recorded successfully:", absentStudents);
 
