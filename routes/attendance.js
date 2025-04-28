@@ -9,18 +9,18 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
   const { classId, students, attendance_date } = req.body;
   const { dojang_code } = req.user;
   
-  console.log('Received attendance request:');
-  console.log('Class ID:', classId);
-  console.log('Students:', students);
-  console.log('Attendance Date:', attendance_date);
-  console.log('Date type:', typeof attendance_date);
-  
   const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
     for (const student of students) {
       const studentId = student.id;
+      const attendance_status = student.status; // ✅ 학생의 상태(present 또는 absent)
+
+      // present 인 학생만 처리
+      if (attendance_status !== 'present') {
+        continue; // absent 학생은 무시하고 넘어간다
+      }
 
       // 벨트 정보 가져오기
       const [studentData] = await connection.query(
@@ -47,15 +47,24 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
       }
 
       // 출석 저장
-      const attendanceQuery = `
-        INSERT INTO attendance (student_id, class_id, dojang_code, attendance_date, belt_rank)
-        VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), belt_rank = VALUES(belt_rank);
-      `;
-      await connection.query(attendanceQuery, [studentId, classId, dojang_code, attendance_date, belt_rank]);
+      await connection.query(
+        `INSERT INTO attendance (student_id, class_id, dojang_code, attendance_date, belt_rank)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), belt_rank = VALUES(belt_rank)`,
+        [studentId, classId, dojang_code, attendance_date, belt_rank]
+      );
+
       console.log(`✅ Attendance recorded for student ${studentId}`);
 
-      // 🟡 Pay In Full 프로그램인지 확인 후 수업 차감
+      // 출석했으니까 연속 결석 수 리셋
+      await connection.query(
+        `UPDATE students
+         SET consecutive_absences = 0
+         WHERE id = ? AND dojang_code = ?`,
+        [studentId, dojang_code]
+      );
+
+      // 🟡 PayInFull 프로그램 처리 (원래 하던 대로)
       const [payInFull] = await connection.query(
         `SELECT * FROM payinfull_payment 
          WHERE student_id = ? AND dojang_code = ? 
@@ -71,7 +80,6 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         const timeDiff = endDate.getTime() - today.getTime();
         const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
 
-        // 🔔 클래스 기준 알림
         if (newRemaining === 3 && payment.class_notification_3 === 0) {
           await createNotification(dojang_code, `[${first_name}] has 3 classes remaining.`);
           await connection.query(`UPDATE payinfull_payment SET remaining_classes = ?, class_notification_3 = 1 WHERE id = ?`, [newRemaining, payment.id]);
@@ -82,7 +90,6 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
           await connection.query(`UPDATE payinfull_payment SET remaining_classes = ? WHERE id = ?`, [newRemaining, payment.id]);
         }
 
-        // 🔔 종료일 기준 알림
         if (daysLeft === 30 && payment.month_notification_1 === 0) {
           await createNotification(dojang_code, `[${first_name}]'s membership expires in 30 days.`);
           await connection.query(`UPDATE payinfull_payment SET month_notification_1 = 1 WHERE id = ?`, [payment.id]);
@@ -92,48 +99,6 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         } else if (daysLeft === 7 && payment.week_notification_1 === 0) {
           await createNotification(dojang_code, `[${first_name}]'s membership expires in 7 days.`);
           await connection.query(`UPDATE payinfull_payment SET week_notification_1 = 1 WHERE id = ?`, [payment.id]);
-        }
-      }
-      
-    }
-
-    for (const student of students) {
-      const studentId = student.id;
-      const attendance_status = student.status; // ✅ 학생 상태 가져오기
-    
-      // (기존 벨트, 수업 등록 여부 확인하는 코드들은 그대로)
-    
-      // 출석 저장 (기존 코드 그대로)
-    
-      // ✅ 출석/결석 처리 추가
-      if (attendance_status === 'present') {
-        await connection.query(`
-          UPDATE students
-          SET consecutive_absences = 0
-          WHERE id = ? AND dojang_code = ?
-        `, [studentId, dojang_code]);
-      } else if (attendance_status === 'absent') {
-        await connection.query(`
-          UPDATE students
-          SET consecutive_absences = consecutive_absences + 1
-          WHERE id = ? AND dojang_code = ?
-        `, [studentId, dojang_code]);
-    
-        const [studentResult] = await connection.query(`
-          SELECT first_name, last_name, consecutive_absences
-          FROM students
-          WHERE id = ? AND dojang_code = ?
-        `, [studentId, dojang_code]);
-    
-        const studentData = studentResult[0];
-    
-        if (studentData.consecutive_absences >= 2) {
-          const message = `Student ${studentData.first_name} ${studentData.last_name} has been absent for ${studentData.consecutive_absences} consecutive classes.`;
-    
-          await db.query(`
-            INSERT INTO notifications (dojang_code, message)
-            VALUES (?, ?)
-          `, [dojang_code, message]);
         }
       }
     }
@@ -148,6 +113,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
     connection.release();
   }
 });
+
 
 
   
