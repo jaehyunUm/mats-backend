@@ -8,45 +8,33 @@ const createNotification = require('../schedulers/createNotification');
 router.post('/mark-attendance', verifyToken, async (req, res) => {
   const { classId, students, attendance_date } = req.body;
   const { dojang_code } = req.user;
-  
+
   const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
     for (const student of students) {
       const studentId = student.id;
-      const attendance_status = student.status; // ✅ 학생의 상태(present 또는 absent)
 
-      // present 인 학생만 처리
-      if (attendance_status !== 'present') {
-        continue; // absent 학생은 무시하고 넘어간다
-      }
-
-      // 벨트 정보 가져오기
+      // 1. 벨트 정보 가져오기
       const [studentData] = await connection.query(
         `SELECT belt_rank, first_name FROM students WHERE id = ?`,
         [studentId]
       );
 
-      if (!studentData || studentData.length === 0) {
-        console.warn(`Student ${studentId} not found.`);
-        continue;
-      }
+      if (!studentData.length) continue;
 
       const { belt_rank, first_name } = studentData[0];
 
-      // 수업 등록 여부 확인
+      // 2. 수업 등록 여부 확인
       const [registeredClasses] = await connection.query(
         `SELECT * FROM student_classes WHERE student_id = ? AND class_id = ? AND dojang_code = ?`,
         [studentId, classId, dojang_code]
       );
 
-      if (registeredClasses.length === 0) {
-        console.warn(`Student ${studentId} is not registered for class ${classId}.`);
-        continue;
-      }
+      if (registeredClasses.length === 0) continue;
 
-      // 출석 저장
+      // 3. 출석 저장
       await connection.query(
         `INSERT INTO attendance (student_id, class_id, dojang_code, attendance_date, belt_rank)
          VALUES (?, ?, ?, ?, ?)
@@ -54,9 +42,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         [studentId, classId, dojang_code, attendance_date, belt_rank]
       );
 
-      console.log(`✅ Attendance recorded for student ${studentId}`);
-
-      // 출석했으니까 연속 결석 수 리셋
+      // 4. 연속 결석 초기화
       await connection.query(
         `UPDATE students
          SET consecutive_absences = 0
@@ -64,7 +50,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         [studentId, dojang_code]
       );
 
-      // 🟡 PayInFull 프로그램 처리 (원래 하던 대로)
+      // 5. Pay In Full 프로그램 수업 차감
       const [payInFull] = await connection.query(
         `SELECT * FROM payinfull_payment 
          WHERE student_id = ? AND dojang_code = ? 
@@ -80,6 +66,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         const timeDiff = endDate.getTime() - today.getTime();
         const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
 
+        // 클래스 기준 알림
         if (newRemaining === 3 && payment.class_notification_3 === 0) {
           await createNotification(dojang_code, `[${first_name}] has 3 classes remaining.`);
           await connection.query(`UPDATE payinfull_payment SET remaining_classes = ?, class_notification_3 = 1 WHERE id = ?`, [newRemaining, payment.id]);
@@ -90,6 +77,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
           await connection.query(`UPDATE payinfull_payment SET remaining_classes = ? WHERE id = ?`, [newRemaining, payment.id]);
         }
 
+        // 만료일 기준 알림
         if (daysLeft === 30 && payment.month_notification_1 === 0) {
           await createNotification(dojang_code, `[${first_name}]'s membership expires in 30 days.`);
           await connection.query(`UPDATE payinfull_payment SET month_notification_1 = 1 WHERE id = ?`, [payment.id]);
@@ -104,7 +92,7 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
     }
 
     await connection.commit();
-    res.status(200).json({ success: true });
+    res.status(200).json({ success: true, message: 'Attendance recorded successfully' });
   } catch (error) {
     await connection.rollback();
     console.error('❌ Error saving attendance:', error);
