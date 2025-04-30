@@ -180,7 +180,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     const finalIdempotencyKey = idempotencyKey || uuidv4();
 
     // 테스트 비용 저장 (test_payments 테이블)
-    const testFeeValue = parseFloat(amountValue / 2).toFixed(2); // 총액의 절반을 테스트 비용으로
+    const testFeeValue = '0.01'; // 테스트 비용을 0.01로 고정
     
     console.log("🛠️ DEBUG: Saving test payment record:", {
       amount: testFeeValue,
@@ -259,7 +259,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     const paymentBody = {
       sourceId: card_id,
       amountMoney: {
-        amount: Math.round(amountValue * 100),
+        amount: Math.round(amountValue),
         currency,
       },
       idempotencyKey: finalIdempotencyKey,
@@ -292,7 +292,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
       return res.status(200).json({ 
         success: true, 
-        message: "Test payment processed successfully",
+        message: "Payment successful and data saved",
         payment_id: mainPaymentId
       });
     } else {
