@@ -103,6 +103,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
   console.log("🔍 Payment Type:", paymentType);
   console.log("🔍 Program Fee:", program_fee);
   console.log("🔍 Registration Fee:", registration_fee);
+  console.log("🔍 Received Program Data:", program); // 프로그램 데이터 전체 로깅
 
   // 유효성 검사 강화: 결제 유형 확인
   if (!paymentType || (paymentType !== "monthly_pay" && paymentType !== "pay_in_full")) {
