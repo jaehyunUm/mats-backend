@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결 파일
 const verifyToken = require('../middleware/verifyToken');
 const { createSquareClientWithToken } = require('../modules/squareClient'); // ✅ 오너별 Square 클라이언트 생성 함수
+const { v4: uuidv4 } = require('uuid');
 
 // 벨트별 테스트 조건을 가져오는 엔드포인트
 router.get('/get-test-condition/:belt_rank', verifyToken, async (req, res) => {
@@ -103,127 +104,253 @@ router.get('/get-test-schedule/:testType', verifyToken, async (req, res) => {
 
 
 router.post('/submit-test-payment', verifyToken, async (req, res) => {
+  console.log("Submit-test-payment route called");
+  console.log("받은 결제 요청 데이터:", req.body);
+
   const {
-    card_id,
-    student_id,
-    testOnlyAmount, // 여기에 추가
-    idempotencyKey,
+    student,
+    test,
+    amount,
     currency,
+    idempotencyKey,
     parent_id,
     customer_id,
-    boards // ⬅️ 보드 데이터 포함
+    cardId,
+    student_id,
+    items // 아이템 정보 추가
   } = req.body;
 
-  const { dojang_code } = req.user;
+  // 일관성 있는 변수명 사용
+  const test_fee = test?.test_fee;
+  
+  console.log("🔍 Test Fee:", test_fee);
 
-  if (!card_id || !amount || !customer_id) {
-    return res.status(400).json({ message: 'Missing required fields: card_id, amount, or customer_id.' });
+  // amount 정수화 및 유효성 검사
+  const amountValue = parseFloat(amount);
+
+  console.log("🚀 DEBUG: Checking test_fee:", test_fee);
+  if (typeof test_fee === "undefined" || test_fee === null) {
+    console.error("❌ ERROR: `test_fee` is missing in request body");
+    return res.status(400).json({ success: false, message: "Test fee is missing in request body" });
   }
 
+  // 필수 필드 검증
+  if (
+    !student_id ||
+    !student ||
+    !test ||
+    isNaN(amountValue) ||
+    amountValue <= 0 ||
+    !currency ||
+    !parent_id ||
+    !cardId
+  ) {
+    console.error("❌ ERROR: Missing required fields in request body", req.body);
+    return res.status(400).json({ success: false, message: "Missing or invalid fields in request body" });
+  }
+
+  const { dojang_code } = req.user;
+  if (!dojang_code) {
+    return res.status(400).json({ success: false, message: "Dojang code is missing from the request" });
+  }
+
+  // Square 계정 정보 확인
+  const [ownerInfo] = await db.query(
+    "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+    [dojang_code]
+  );
+
+  if (!ownerInfo.length) {
+    return res.status(400).json({ success: false, message: "No Square account connected for this dojang." });
+  }
+
+  const ownerAccessToken = ownerInfo[0].square_access_token;
+  const locationId = ownerInfo[0].location_id;
+
+  const squareClient = createSquareClientWithToken(ownerAccessToken);
+  const paymentsApi = squareClient.paymentsApi;
+
+  // 트랜잭션 시작
+  let connection;
   try {
-    // ✅ 도장 오너의 Square access_token과 location_id 가져오기
-    const [ownerInfo] = await db.query(
-      "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
-      [dojang_code]
-    );
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-    if (!ownerInfo.length) {
-      return res.status(400).json({ message: "No Square account connected for this dojang." });
+    // 학생 정보 처리
+    let studentId = student_id;
+    const [existingStudent] = await connection.query(`
+      SELECT id FROM students WHERE first_name = ? AND last_name = ? AND DATE(birth_date) = ? AND dojang_code = ?
+    `, [student.firstName, student.lastName, student.dateOfBirth, dojang_code]);
+
+    if (existingStudent.length > 0) {
+      studentId = existingStudent[0].id;
+      await connection.query(`
+        UPDATE students 
+        SET belt_rank = ?, gender = ?, belt_size = ?, parent_id = ? 
+        WHERE id = ?
+      `, [
+        student.belt_rank,
+        student.gender,
+        student.beltSize || null,
+        parent_id || null,
+        studentId
+      ]);
+      console.log("✅ Student record updated:", studentId);
+    } else {
+      console.error("❌ Student not found with provided information");
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({ success: false, message: "Student not found. Please register first." });
     }
 
-    const ownerAccessToken = ownerInfo[0].square_access_token;
-    const locationId = ownerInfo[0].location_id;
+    console.log("✅ Student ID confirmed:", studentId);
 
-    // ✅ 오너의 Access Token으로 Square Client 생성
-    const squareClient = createSquareClientWithToken(ownerAccessToken);
-    const paymentsApi = squareClient.paymentsApi;
+    // 결제 ID 및 idempotencyKey 생성
+    const mainPaymentId = uuidv4();
+    const finalIdempotencyKey = idempotencyKey || uuidv4();
 
-    // ✅ Square 결제 요청
-    const paymentRequest = {
-      sourceId: card_id,
-      amountMoney: {
-        amount: Math.round(amount), // 센트 단위
-        currency: currency || 'USD',
-      },
-      idempotencyKey,
-      customerId: customer_id,
-      locationId,
-    };
+    // 테스트 요금 계산 
+    const testFeeValue = parseFloat(test.test_fee || 0);
+    
+    console.log("🔍 계산된 테스트 요금:", testFeeValue);
+    
+    // 테스트 비용 저장 (test_payments 테이블)
+    if (testFeeValue > 0) {
+      console.log("🛠️ DEBUG: Saving test fee payment record:", {
+        payment_id: mainPaymentId,
+        test_id: test.id,
+        amount: testFeeValue.toFixed(2),
+        dojang_code
+      });
 
-    console.log("🔁 Square Payment Request:", paymentRequest);
-
-    const paymentResponse = await paymentsApi.createPayment(paymentRequest);
-
-    if (!paymentResponse.result.payment || paymentResponse.result.payment.status !== 'COMPLETED') {
-      return res.status(400).json({ message: 'Square payment failed', details: paymentResponse.result });
-    }
-
-    console.log('✅ Square Payment Response:', paymentResponse.result);
-
-    // ✅ DB에 결제 정보 저장
-    const [result] = await db.execute(
-      'INSERT INTO test_payments (student_id, amount, idempotency_key, currency, status, dojang_code, parent_id, card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        student_id,
-        parseFloat(testOnlyAmount.toFixed(2)),  // 시험비만 저장
-        idempotencyKey,
-        currency || 'USD',
-        'completed',
+      await connection.query(`
+        INSERT INTO test_payments (
+          payment_id, student_id, test_id, amount, status, 
+          dojang_code, idempotency_key, source_id, parent_id
+        ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+      `, [
+        mainPaymentId,
+        studentId,
+        test.id,
+        testFeeValue.toFixed(2),
         dojang_code,
-        parent_id,
-        card_id,
-      ]
-    );
+        finalIdempotencyKey,
+        cardId,
+        parent_id
+      ]);
+      console.log("✅ Test fee payment record inserted");
+    }
 
-    // ✅ 보드 정보 저장
-    if (boards && boards.length > 0) {
-      for (const board of boards) {
-        const itemId = board.id;
-        const { size, quantity, price } = board;
+    // 아이템 처리 (item_payments 테이블)
+    if (items && items.length > 0) {
+      console.log("🧵 Processing item purchase:", items);
+      for (const item of items) {
+        const itemId = item.id;
+        const { size, quantity } = item;
 
-        // 재고 확인
-        const [stockCheck] = await db.query(
-          `SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?`,
-          [itemId, size]
-        );
-
-        if (!stockCheck.length || stockCheck[0].quantity < quantity) {
-          return res.status(400).json({ message: `Insufficient stock for board item ${itemId}, size ${size}` });
+        if (!itemId || !size || !quantity || quantity <= 0) {
+          throw new Error("Invalid item data: missing required fields or invalid quantity");
         }
 
-        // 재고 차감
-        await db.query(
-          `UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?`,
-          [quantity, itemId, size]
-        );
+        // 재고 확인
+        const [stockCheck] = await connection.query(`
+          SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?
+        `, [itemId, size]);
 
-        // 결제 내역 저장
-        await db.query(
-          `INSERT INTO item_payments 
+        if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
+          const availableQuantity = stockCheck.length > 0 ? stockCheck[0].quantity : 0;
+          const errorMsg = `Insufficient stock for item (ID: ${itemId}, Size: ${size}). Requested: ${quantity}, Available: ${availableQuantity}`;
+          console.error("❌ " + errorMsg);
+          throw new Error(errorMsg);
+        }
+
+        // 재고 업데이트
+        await connection.query(`
+          UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
+        `, [quantity, itemId, size]);
+
+        // 아이템 구매 정보 저장 (item_payments 테이블)
+        await connection.query(`
+          INSERT INTO item_payments 
           (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'completed', ?, ?, ?)`,
-          [
-            student_id,
-            itemId,
-            size,
-            quantity,
-            price || 0,
-            `test-${Date.now()}`, // 유일한 키 생성
-            'card',
-            currency || 'USD',
-            dojang_code,
-            parent_id,
-            card_id
-          ]
-        );
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?)
+        `, [
+          studentId,
+          itemId,
+          size,
+          quantity,
+          item.price || 0,
+          `item-${itemId}-${Date.now()}`,
+          'card',
+          currency,
+          dojang_code,
+          parent_id,
+          cardId
+        ]);
       }
-      console.log("✅ Board purchase recorded");
+      console.log("✅ Item purchase processed");
     }
 
-    return res.status(201).json({ message: 'Payment successful and data saved' });
+    // Square 결제 처리
+    const paymentBody = {
+      sourceId: cardId,
+      amountMoney: {
+        amount: Math.round(amountValue * 100),
+        currency,
+      },
+      idempotencyKey: finalIdempotencyKey,
+      locationId: locationId,
+      customerId: customer_id,
+    };
+
+    console.log("Requesting payment with body:", JSON.stringify(paymentBody, null, 2));
+
+    const { result } = await paymentsApi.createPayment(paymentBody);
+
+    if (result && result.payment && result.payment.status === "COMPLETED") {
+      console.log("✅ Payment completed successfully. Square payment ID:", result.payment.id);
+
+      // 테스트 결제 상태 업데이트
+      await connection.query(`
+        UPDATE test_payments SET status = 'completed' WHERE payment_id = ?
+      `, [mainPaymentId]);
+
+      // 아이템 결제 상태 업데이트
+      if (items && items.length > 0) {
+        await connection.query(`
+          UPDATE item_payments SET status = 'completed' 
+          WHERE student_id = ? AND status = 'pending'
+        `, [studentId]);
+      }
+
+      // 트랜잭션 커밋
+      await connection.commit();
+
+      return res.status(200).json({ 
+        success: true, 
+        message: "Test payment processed successfully",
+        payment_id: mainPaymentId
+      });
+    } else {
+      throw new Error("Payment not completed by Square");
+    }
+
   } catch (error) {
-    console.error('❌ Error processing test payment:', error);
-    return res.status(500).json({ message: 'Payment processing failed', error: error.message });
+    // 트랜잭션 롤백
+    if (connection) {
+      await connection.rollback();
+    }
+    console.error("❌ Error processing payment:", error);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Error processing payment", 
+      error: error.message 
+    });
+  } finally {
+    // 연결 해제 보장
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
