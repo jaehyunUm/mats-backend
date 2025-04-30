@@ -220,21 +220,13 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     console.log("🔍 계산된 프로그램 요금:", programFeeValue);
     console.log("🔍 계산된 등록 요금:", registrationFeeValue);
     
-    // 총 결제 금액 계산 (프로그램 요금 + 등록 요금)
-    const totalAmount = parseFloat((programFeeValue + registrationFeeValue).toFixed(2));
-
-    if (isNaN(totalAmount) || totalAmount <= 0) {
-      console.error("❌ ERROR: Invalid total amount calculation:", { programFeeValue, registrationFeeValue, totalAmount });
-      throw new Error("Invalid program fee amount");
-    }
-
-    // 프로그램 비용 저장
+    // 프로그램 비용 저장 (program_payments 테이블)
     if (programFeeValue > 0) {
       console.log("🛠️ DEBUG: Saving program fee payment record:", {
         payment_id: mainPaymentId,
         program_id: program.id,
         amount: programFeeValue.toFixed(2),
-        fee_type: 'program_fee',
+        fee_type: 'program',
         dojang_code
       });
 
@@ -242,7 +234,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         INSERT INTO program_payments (
           payment_id, student_id, program_id, amount, fee_type, status, 
           dojang_code, idempotency_key, source_id, parent_id
-        ) VALUES (?, ?, ?, ?, 'program_fee', 'pending', ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, 'program', 'pending', ?, ?, ?, ?)
       `, [
         mainPaymentId,
         studentId,
@@ -256,15 +248,15 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.log("✅ Program fee payment record inserted");
     }
 
-    // 등록비 저장 (있는 경우에만)
+    // 등록비 저장 (program_payments 테이블)
     if (registrationFeeValue > 0) {
-      const registrationPaymentId = mainPaymentId + "-reg"; // 동일한 트랜잭션에 속하지만 고유한 ID 생성
+      const registrationPaymentId = mainPaymentId + "-reg";
       
       console.log("🛠️ DEBUG: Saving registration fee payment record:", {
         payment_id: registrationPaymentId,
         program_id: program.id,
         amount: registrationFeeValue.toFixed(2),
-        fee_type: 'registration_fee',
+        fee_type: 'registration',
         dojang_code
       });
 
@@ -272,7 +264,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         INSERT INTO program_payments (
           payment_id, student_id, program_id, amount, fee_type, status, 
           dojang_code, idempotency_key, source_id, parent_id
-        ) VALUES (?, ?, ?, ?, 'registration_fee', 'pending', ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, 'registration', 'pending', ?, ?, ?, ?)
       `, [
         registrationPaymentId,
         studentId,
@@ -286,7 +278,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.log("✅ Registration fee payment record inserted");
     }
 
-    // 유니폼 처리
+    // 유니폼 처리 (item_payments 테이블)
     if (uniforms && uniforms.length > 0) {
       console.log("🧵 Processing uniform purchase:", uniforms);
       for (const uniform of uniforms) {
@@ -314,18 +306,18 @@ router.post('/process-payment', verifyToken, async (req, res) => {
           UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
         `, [quantity, itemId, size]);
 
-        // 유니폼 구매 정보 저장
+        // 유니폼 구매 정보 저장 (item_payments 테이블)
         await connection.query(`
           INSERT INTO item_payments 
           (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'completed', ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?)
         `, [
           studentId,
           itemId,
           size,
           quantity,
           uniform.price || 0,
-          `uniform-${itemId}-${Date.now()}`, // 더 유니크한 idempotency_key 생성
+          `uniform-${itemId}-${Date.now()}`,
           'card',
           currency,
           dojang_code,
@@ -537,7 +529,15 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       // 모든 프로그램 결제 상태 업데이트
       await connection.query(`
         UPDATE program_payments SET status = 'completed' WHERE payment_id LIKE ?
-      `, [`${mainPaymentId}%`]);  // 메인 ID와 메인 ID로 시작하는 모든 결제 상태 업데이트
+      `, [`${mainPaymentId}%`]);
+
+      // 아이템 결제 상태 업데이트
+      if (uniforms && uniforms.length > 0) {
+        await connection.query(`
+          UPDATE item_payments SET status = 'completed' 
+          WHERE student_id = ? AND status = 'pending'
+        `, [studentId]);
+      }
 
       // 월간 결제인 경우 월간 결제 상태도 업데이트
       if (paymentType === "monthly_pay") {
