@@ -106,7 +106,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
   const {
     card_id,
     student_id,
-    amount,
+    testOnlyAmount, // 여기에 추가
     idempotencyKey,
     currency,
     parent_id,
