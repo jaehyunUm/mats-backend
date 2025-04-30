@@ -183,24 +183,25 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     const testFeeValue = parseFloat(amountValue / 2).toFixed(2); // 총액의 절반을 테스트 비용으로
     
     console.log("🛠️ DEBUG: Saving test payment record:", {
-      payment_id: mainPaymentId,
       amount: testFeeValue,
       dojang_code
     });
 
     await connection.query(`
       INSERT INTO test_payments (
-        payment_id, student_id, amount, status, 
-        dojang_code, idempotency_key, source_id, parent_id
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+        student_id, amount, status, 
+        dojang_code, idempotency_key, source_id, parent_id, card_id,
+        payment_method, currency
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, 'card', ?)
     `, [
-      mainPaymentId,
       student_id,
       testFeeValue,
       dojang_code,
       finalIdempotencyKey,
       card_id,
-      parent_id
+      parent_id,
+      card_id,
+      currency
     ]);
     console.log("✅ Test payment record inserted");
 
