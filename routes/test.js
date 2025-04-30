@@ -111,7 +111,9 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     currency,
     parent_id,
     customer_id,
+    boards // ⬅️ 보드 데이터 포함
   } = req.body;
+
   const { dojang_code } = req.user;
 
   if (!card_id || !amount || !customer_id) {
@@ -145,7 +147,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       },
       idempotencyKey,
       customerId: customer_id,
-      locationId: locationId, // ✅ 위치 정보도 포함!
+      locationId,
     };
 
     console.log("🔁 Square Payment Request:", paymentRequest);
@@ -163,7 +165,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       'INSERT INTO test_payments (student_id, amount, idempotency_key, currency, status, dojang_code, parent_id, card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [
         student_id,
-        amount / 100, // 달러 단위로 저장
+        amount / 100, // 달러 단위 저장
         idempotencyKey,
         currency || 'USD',
         'completed',
@@ -173,12 +175,58 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       ]
     );
 
-    res.status(201).json({ message: 'Payment successful and data saved' });
+    // ✅ 보드 정보 저장
+    if (boards && boards.length > 0) {
+      for (const board of boards) {
+        const itemId = board.id;
+        const { size, quantity, price } = board;
+
+        // 재고 확인
+        const [stockCheck] = await db.query(
+          `SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?`,
+          [itemId, size]
+        );
+
+        if (!stockCheck.length || stockCheck[0].quantity < quantity) {
+          return res.status(400).json({ message: `Insufficient stock for board item ${itemId}, size ${size}` });
+        }
+
+        // 재고 차감
+        await db.query(
+          `UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?`,
+          [quantity, itemId, size]
+        );
+
+        // 결제 내역 저장
+        await db.query(
+          `INSERT INTO item_payments 
+          (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'completed', ?, ?, ?)`,
+          [
+            student_id,
+            itemId,
+            size,
+            quantity,
+            price || 0,
+            `test-${Date.now()}`, // 유일한 키 생성
+            'card',
+            currency || 'USD',
+            dojang_code,
+            parent_id,
+            card_id
+          ]
+        );
+      }
+      console.log("✅ Board purchase recorded");
+    }
+
+    return res.status(201).json({ message: 'Payment successful and data saved' });
   } catch (error) {
     console.error('❌ Error processing test payment:', error);
-    res.status(500).json({ message: 'Payment processing failed', error: error.message });
+    return res.status(500).json({ message: 'Payment processing failed', error: error.message });
   }
 });
+
 
 
 
