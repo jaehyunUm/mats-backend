@@ -216,16 +216,18 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     // 프로그램 요금 계산 
     const programFeeValue = parseFloat(program.program_fee || 0);
     const registrationFeeValue = parseFloat(program.registration_fee || 0);
+    const totalProgramFee = programFeeValue + registrationFeeValue;
     
     console.log("🔍 계산된 프로그램 요금:", programFeeValue);
     console.log("🔍 계산된 등록 요금:", registrationFeeValue);
+    console.log("🔍 총 프로그램 요금:", totalProgramFee);
     
     // 프로그램 비용 저장 (program_payments 테이블)
-    if (programFeeValue > 0) {
-      console.log("🛠️ DEBUG: Saving program fee payment record:", {
+    if (totalProgramFee > 0) {
+      console.log("🛠️ DEBUG: Saving program payment record:", {
         payment_id: mainPaymentId,
         program_id: program.id,
-        amount: programFeeValue.toFixed(2),
+        amount: totalProgramFee.toFixed(2),
         fee_type: 'program',
         dojang_code
       });
@@ -239,43 +241,13 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         mainPaymentId,
         studentId,
         program.id,
-        programFeeValue.toFixed(2),
+        totalProgramFee.toFixed(2),
         dojang_code,
         finalIdempotencyKey,
         cardId,
         parent_id
       ]);
-      console.log("✅ Program fee payment record inserted");
-    }
-
-    // 등록비 저장 (program_payments 테이블)
-    if (registrationFeeValue > 0) {
-      const registrationPaymentId = mainPaymentId + "-reg";
-      
-      console.log("🛠️ DEBUG: Saving registration fee payment record:", {
-        payment_id: registrationPaymentId,
-        program_id: program.id,
-        amount: registrationFeeValue.toFixed(2),
-        fee_type: 'registration',
-        dojang_code
-      });
-
-      await connection.query(`
-        INSERT INTO program_payments (
-          payment_id, student_id, program_id, amount, fee_type, status, 
-          dojang_code, idempotency_key, source_id, parent_id
-        ) VALUES (?, ?, ?, ?, 'registration', 'pending', ?, ?, ?, ?)
-      `, [
-        registrationPaymentId,
-        studentId,
-        program.id,
-        registrationFeeValue.toFixed(2),
-        dojang_code,
-        finalIdempotencyKey,
-        cardId,
-        parent_id
-      ]);
-      console.log("✅ Registration fee payment record inserted");
+      console.log("✅ Program payment record inserted");
     }
 
     // 유니폼 처리 (item_payments 테이블)
