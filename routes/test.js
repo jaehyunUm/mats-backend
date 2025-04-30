@@ -259,7 +259,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     const paymentBody = {
       sourceId: card_id,
       amountMoney: {
-        amount: Math.round(amountValue),
+        amount: amountValue, // 프론트엔드에서 보낸 금액을 그대로 사용
         currency,
       },
       idempotencyKey: finalIdempotencyKey,
