@@ -98,9 +98,11 @@ router.post('/process-payment', verifyToken, async (req, res) => {
   // 일관성 있는 변수명 사용
   const paymentType = program?.paymentType || program?.payment_type;
   const program_fee = program?.program_fee;
+  const registration_fee = program?.registration_fee || 0;
   
   console.log("🔍 Payment Type:", paymentType);
   console.log("🔍 Program Fee:", program_fee);
+  console.log("🔍 Registration Fee:", registration_fee);
 
   // 유효성 검사 강화: 결제 유형 확인
   if (!paymentType || (paymentType !== "monthly_pay" && paymentType !== "pay_in_full")) {
@@ -208,44 +210,81 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     console.log("✅ Classes enrollment completed");
 
     // 결제 ID 및 idempotencyKey 생성
-    const paymentId = uuidv4();
+    const mainPaymentId = uuidv4();
     const finalIdempotencyKey = idempotencyKey || uuidv4();
-
-    console.log("🛠️ DEBUG: Payment Data to be inserted into program_payments:", {
-      paymentId,
-      program_id: program.id,
-      amount: amountValue.toFixed(2),
-      dojang_code,
-      idempotencyKey: finalIdempotencyKey,
-      cardId,
-      parent_id
-    });
 
     // 프로그램 요금 계산 
     const programFeeValue = parseFloat(program.program_fee || 0);
     const registrationFeeValue = parseFloat(program.registration_fee || 0);
-    const pureProgramAmount = parseFloat((programFeeValue + registrationFeeValue).toFixed(2));
+    
+    console.log("🔍 계산된 프로그램 요금:", programFeeValue);
+    console.log("🔍 계산된 등록 요금:", registrationFeeValue);
+    
+    // 총 결제 금액 계산 (프로그램 요금 + 등록 요금)
+    const totalAmount = parseFloat((programFeeValue + registrationFeeValue).toFixed(2));
 
-    if (isNaN(pureProgramAmount) || pureProgramAmount <= 0) {
-      console.error("❌ ERROR: Invalid program amount calculation:", { programFeeValue, registrationFeeValue, pureProgramAmount });
+    if (isNaN(totalAmount) || totalAmount <= 0) {
+      console.error("❌ ERROR: Invalid total amount calculation:", { programFeeValue, registrationFeeValue, totalAmount });
       throw new Error("Invalid program fee amount");
     }
 
-    // 프로그램 결제 정보 저장
-    await connection.query(`
-      INSERT INTO program_payments (payment_id, student_id, program_id, amount, status, dojang_code, idempotency_key, source_id, parent_id) 
-      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-    `, [
-      paymentId,
-      studentId,
-      program.id,
-      pureProgramAmount,
-      dojang_code,
-      finalIdempotencyKey,
-      cardId,
-      parent_id
-    ]);
-    console.log("✅ Program payment record inserted");
+    // 프로그램 비용 저장
+    if (programFeeValue > 0) {
+      console.log("🛠️ DEBUG: Saving program fee payment record:", {
+        payment_id: mainPaymentId,
+        program_id: program.id,
+        amount: programFeeValue.toFixed(2),
+        fee_type: 'program_fee',
+        dojang_code
+      });
+
+      await connection.query(`
+        INSERT INTO program_payments (
+          payment_id, student_id, program_id, amount, fee_type, status, 
+          dojang_code, idempotency_key, source_id, parent_id
+        ) VALUES (?, ?, ?, ?, 'program_fee', 'pending', ?, ?, ?, ?)
+      `, [
+        mainPaymentId,
+        studentId,
+        program.id,
+        programFeeValue.toFixed(2),
+        dojang_code,
+        finalIdempotencyKey,
+        cardId,
+        parent_id
+      ]);
+      console.log("✅ Program fee payment record inserted");
+    }
+
+    // 등록비 저장 (있는 경우에만)
+    if (registrationFeeValue > 0) {
+      const registrationPaymentId = mainPaymentId + "-reg"; // 동일한 트랜잭션에 속하지만 고유한 ID 생성
+      
+      console.log("🛠️ DEBUG: Saving registration fee payment record:", {
+        payment_id: registrationPaymentId,
+        program_id: program.id,
+        amount: registrationFeeValue.toFixed(2),
+        fee_type: 'registration_fee',
+        dojang_code
+      });
+
+      await connection.query(`
+        INSERT INTO program_payments (
+          payment_id, student_id, program_id, amount, fee_type, status, 
+          dojang_code, idempotency_key, source_id, parent_id
+        ) VALUES (?, ?, ?, ?, 'registration_fee', 'pending', ?, ?, ?, ?)
+      `, [
+        registrationPaymentId,
+        studentId,
+        program.id,
+        registrationFeeValue.toFixed(2),
+        dojang_code,
+        finalIdempotencyKey,
+        cardId,
+        parent_id
+      ]);
+      console.log("✅ Registration fee payment record inserted");
+    }
 
     // 유니폼 처리
     if (uniforms && uniforms.length > 0) {
@@ -349,7 +388,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `, [
         studentId,
-        paymentId,
+        mainPaymentId, // 프로그램 결제 ID 사용
         totalClasses,
         remainingClasses,
         startDate,
@@ -432,7 +471,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
             cardId,
             customer_id || null,
             monthlyIdempotencyKey,
-            monthlyPaymentId,
+            mainPaymentId, // 메인 결제 ID 사용
             startDate,
             endDateString,
             studentId,
@@ -460,7 +499,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
             cardId,
             customer_id || null,
             monthlyIdempotencyKey,
-            monthlyPaymentId,
+            mainPaymentId, // 메인 결제 ID 사용
             startDate,
             endDateString
           ]);
@@ -495,10 +534,10 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     if (result && result.payment && result.payment.status === "COMPLETED") {
       console.log("✅ Payment completed successfully. Square payment ID:", result.payment.id);
 
-      // 결제 상태 업데이트
+      // 모든 프로그램 결제 상태 업데이트
       await connection.query(`
-        UPDATE program_payments SET status = 'completed' WHERE payment_id = ?
-      `, [paymentId]);
+        UPDATE program_payments SET status = 'completed' WHERE payment_id LIKE ?
+      `, [`${mainPaymentId}%`]);  // 메인 ID와 메인 ID로 시작하는 모든 결제 상태 업데이트
 
       // 월간 결제인 경우 월간 결제 상태도 업데이트
       if (paymentType === "monthly_pay") {
@@ -507,7 +546,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
           SET payment_status = 'completed', status = 'completed', 
               last_payment_date = payment_date
           WHERE payment_id = ?
-        `, [paymentId]);
+        `, [mainPaymentId]);
       }
 
       // 트랜잭션 커밋
@@ -516,7 +555,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       return res.status(200).json({ 
         success: true, 
         message: "Student registered and payment processed successfully",
-        payment_id: paymentId
+        payment_id: mainPaymentId
       });
     } else {
       throw new Error("Payment not completed by Square");
