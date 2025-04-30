@@ -276,8 +276,8 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
       // 테스트 결제 상태 업데이트
       await connection.query(`
-        UPDATE test_payments SET status = 'completed' WHERE payment_id = ?
-      `, [mainPaymentId]);
+        UPDATE test_payments SET status = 'completed' WHERE card_id = ?
+      `, [card_id]);
 
       // 아이템 결제 상태 업데이트
       if (boards && boards.length > 0) {
