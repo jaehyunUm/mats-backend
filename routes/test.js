@@ -108,42 +108,27 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
   console.log("받은 결제 요청 데이터:", req.body);
 
   const {
-    student,
-    test,
+    card_id,
+    student_id,
     amount,
-    currency,
     idempotencyKey,
+    currency,
     parent_id,
     customer_id,
-    cardId,
-    student_id,
-    items // 아이템 정보 추가
+    boards // 보드 데이터
   } = req.body;
-
-  // 일관성 있는 변수명 사용
-  const test_fee = test?.test_fee;
-  
-  console.log("🔍 Test Fee:", test_fee);
 
   // amount 정수화 및 유효성 검사
   const amountValue = parseFloat(amount);
 
-  console.log("🚀 DEBUG: Checking test_fee:", test_fee);
-  if (typeof test_fee === "undefined" || test_fee === null) {
-    console.error("❌ ERROR: `test_fee` is missing in request body");
-    return res.status(400).json({ success: false, message: "Test fee is missing in request body" });
-  }
-
   // 필수 필드 검증
   if (
     !student_id ||
-    !student ||
-    !test ||
     isNaN(amountValue) ||
     amountValue <= 0 ||
     !currency ||
     !parent_id ||
-    !cardId
+    !card_id
   ) {
     console.error("❌ ERROR: Missing required fields in request body", req.body);
     return res.status(400).json({ success: false, message: "Missing or invalid fields in request body" });
@@ -176,80 +161,58 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    // 학생 정보 처리
-    let studentId = student_id;
+    // 학생 정보 확인
     const [existingStudent] = await connection.query(`
-      SELECT id FROM students WHERE first_name = ? AND last_name = ? AND DATE(birth_date) = ? AND dojang_code = ?
-    `, [student.firstName, student.lastName, student.dateOfBirth, dojang_code]);
+      SELECT id FROM students WHERE id = ? AND dojang_code = ?
+    `, [student_id, dojang_code]);
 
-    if (existingStudent.length > 0) {
-      studentId = existingStudent[0].id;
-      await connection.query(`
-        UPDATE students 
-        SET belt_rank = ?, gender = ?, belt_size = ?, parent_id = ? 
-        WHERE id = ?
-      `, [
-        student.belt_rank,
-        student.gender,
-        student.beltSize || null,
-        parent_id || null,
-        studentId
-      ]);
-      console.log("✅ Student record updated:", studentId);
-    } else {
-      console.error("❌ Student not found with provided information");
+    if (!existingStudent.length) {
+      console.error("❌ Student not found");
       await connection.rollback();
       connection.release();
-      return res.status(400).json({ success: false, message: "Student not found. Please register first." });
+      return res.status(400).json({ success: false, message: "Student not found" });
     }
 
-    console.log("✅ Student ID confirmed:", studentId);
+    console.log("✅ Student ID confirmed:", student_id);
 
     // 결제 ID 및 idempotencyKey 생성
     const mainPaymentId = uuidv4();
     const finalIdempotencyKey = idempotencyKey || uuidv4();
 
-    // 테스트 요금 계산 
-    const testFeeValue = parseFloat(test.test_fee || 0);
-    
-    console.log("🔍 계산된 테스트 요금:", testFeeValue);
-    
     // 테스트 비용 저장 (test_payments 테이블)
-    if (testFeeValue > 0) {
-      console.log("🛠️ DEBUG: Saving test fee payment record:", {
-        payment_id: mainPaymentId,
-        test_id: test.id,
-        amount: testFeeValue.toFixed(2),
-        dojang_code
-      });
+    const testFeeValue = parseFloat(amountValue / 2).toFixed(2); // 총액의 절반을 테스트 비용으로
+    
+    console.log("🛠️ DEBUG: Saving test payment record:", {
+      payment_id: mainPaymentId,
+      amount: testFeeValue,
+      dojang_code
+    });
 
-      await connection.query(`
-        INSERT INTO test_payments (
-          payment_id, student_id, test_id, amount, status, 
-          dojang_code, idempotency_key, source_id, parent_id
-        ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-      `, [
-        mainPaymentId,
-        studentId,
-        test.id,
-        testFeeValue.toFixed(2),
-        dojang_code,
-        finalIdempotencyKey,
-        cardId,
-        parent_id
-      ]);
-      console.log("✅ Test fee payment record inserted");
-    }
+    await connection.query(`
+      INSERT INTO test_payments (
+        payment_id, student_id, amount, status, 
+        dojang_code, idempotency_key, source_id, parent_id
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+    `, [
+      mainPaymentId,
+      student_id,
+      testFeeValue,
+      dojang_code,
+      finalIdempotencyKey,
+      card_id,
+      parent_id
+    ]);
+    console.log("✅ Test payment record inserted");
 
-    // 아이템 처리 (item_payments 테이블)
-    if (items && items.length > 0) {
-      console.log("🧵 Processing item purchase:", items);
-      for (const item of items) {
-        const itemId = item.id;
-        const { size, quantity } = item;
+    // 아이템(보드) 처리 (item_payments 테이블)
+    if (boards && boards.length > 0) {
+      console.log("🧵 Processing board purchase:", boards);
+      for (const board of boards) {
+        const itemId = board.id;
+        const { size, quantity } = board;
 
         if (!itemId || !size || !quantity || quantity <= 0) {
-          throw new Error("Invalid item data: missing required fields or invalid quantity");
+          throw new Error("Invalid board data: missing required fields or invalid quantity");
         }
 
         // 재고 확인
@@ -259,7 +222,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
         if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
           const availableQuantity = stockCheck.length > 0 ? stockCheck[0].quantity : 0;
-          const errorMsg = `Insufficient stock for item (ID: ${itemId}, Size: ${size}). Requested: ${quantity}, Available: ${availableQuantity}`;
+          const errorMsg = `Insufficient stock for board (ID: ${itemId}, Size: ${size}). Requested: ${quantity}, Available: ${availableQuantity}`;
           console.error("❌ " + errorMsg);
           throw new Error(errorMsg);
         }
@@ -269,31 +232,31 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
         `, [quantity, itemId, size]);
 
-        // 아이템 구매 정보 저장 (item_payments 테이블)
+        // 보드 구매 정보 저장 (item_payments 테이블)
         await connection.query(`
           INSERT INTO item_payments 
           (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?)
         `, [
-          studentId,
+          student_id,
           itemId,
           size,
           quantity,
-          item.price || 0,
-          `item-${itemId}-${Date.now()}`,
+          board.price || 0,
+          `board-${itemId}-${Date.now()}`,
           'card',
           currency,
           dojang_code,
           parent_id,
-          cardId
+          card_id
         ]);
       }
-      console.log("✅ Item purchase processed");
+      console.log("✅ Board purchase processed");
     }
 
     // Square 결제 처리
     const paymentBody = {
-      sourceId: cardId,
+      sourceId: card_id,
       amountMoney: {
         amount: Math.round(amountValue * 100),
         currency,
@@ -316,11 +279,11 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       `, [mainPaymentId]);
 
       // 아이템 결제 상태 업데이트
-      if (items && items.length > 0) {
+      if (boards && boards.length > 0) {
         await connection.query(`
           UPDATE item_payments SET status = 'completed' 
           WHERE student_id = ? AND status = 'pending'
-        `, [studentId]);
+        `, [student_id]);
       }
 
       // 트랜잭션 커밋
