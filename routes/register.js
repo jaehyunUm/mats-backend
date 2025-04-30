@@ -95,14 +95,15 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     uniforms // 유니폼 정보 추가
   } = req.body;
 
-  const paymentType = program.paymentType || program.payment_type;
-  const program_fee = program.program_fee;
+  // 일관성 있는 변수명 사용
+  const paymentType = program?.paymentType || program?.payment_type;
+  const program_fee = program?.program_fee;
   
   console.log("🔍 Payment Type:", paymentType);
   console.log("🔍 Program Fee:", program_fee);
 
   // 유효성 검사 강화: 결제 유형 확인
-  if (paymentType !== "monthly_pay" && paymentType !== "pay_in_full") {
+  if (!paymentType || (paymentType !== "monthly_pay" && paymentType !== "pay_in_full")) {
     console.error("❌ Invalid payment type:", paymentType);
     return res.status(400).json({ success: false, message: "Invalid payment type" });
   }
@@ -113,6 +114,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
   console.log("🚀 DEBUG: Checking program_fee:", program_fee);
   if (typeof program_fee === "undefined" || program_fee === null) {
     console.error("❌ ERROR: `program_fee` is missing in request body");
+    return res.status(400).json({ success: false, message: "Program fee is missing in request body" });
   }
 
   // 필수 필드 검증
@@ -125,8 +127,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     amountValue <= 0 ||
     !currency ||
     !parent_id ||
-    !cardId ||
-    typeof program.paymentType === 'undefined'
+    !cardId
   ) {
     console.error("❌ ERROR: Missing required fields in request body", req.body);
     return res.status(400).json({ success: false, message: "Missing or invalid fields in request body" });
@@ -154,10 +155,11 @@ router.post('/process-payment', verifyToken, async (req, res) => {
   const paymentsApi = squareClient.paymentsApi;
 
   // 트랜잭션 시작
-  const connection = await db.getConnection();
-  await connection.beginTransaction();
-
+  let connection;
   try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
     // 학생 정보 처리
     let studentId = student_id;
     const [existingStudent] = await connection.query(`
@@ -181,6 +183,8 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.log("✅ Student record updated:", studentId);
     } else {
       console.error("❌ Student not found with provided information");
+      await connection.rollback();
+      connection.release();
       return res.status(400).json({ success: false, message: "Student not found. Please register first." });
     }
 
@@ -217,6 +221,16 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       parent_id
     });
 
+    // 프로그램 요금 계산 
+    const programFeeValue = parseFloat(program.program_fee || 0);
+    const registrationFeeValue = parseFloat(program.registration_fee || 0);
+    const pureProgramAmount = parseFloat((programFeeValue + registrationFeeValue).toFixed(2));
+
+    if (isNaN(pureProgramAmount) || pureProgramAmount <= 0) {
+      console.error("❌ ERROR: Invalid program amount calculation:", { programFeeValue, registrationFeeValue, pureProgramAmount });
+      throw new Error("Invalid program fee amount");
+    }
+
     // 프로그램 결제 정보 저장
     await connection.query(`
       INSERT INTO program_payments (payment_id, student_id, program_id, amount, status, dojang_code, idempotency_key, source_id, parent_id) 
@@ -225,7 +239,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       paymentId,
       studentId,
       program.id,
-      amountValue.toFixed(2),
+      pureProgramAmount,
       dojang_code,
       finalIdempotencyKey,
       cardId,
@@ -233,50 +247,55 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     ]);
     console.log("✅ Program payment record inserted");
 
-// 유니폼 처리
-if (uniforms && uniforms.length > 0) {
-  console.log("🧵 Processing uniform purchase:", uniforms);
-  for (const uniform of uniforms) {
-    const itemId = uniform.id;
-    const { size, quantity } = uniform;
+    // 유니폼 처리
+    if (uniforms && uniforms.length > 0) {
+      console.log("🧵 Processing uniform purchase:", uniforms);
+      for (const uniform of uniforms) {
+        const itemId = uniform.id;
+        const { size, quantity } = uniform;
 
-    // 재고 확인
-    const [stockCheck] = await connection.query(`
-      SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?
-    `, [itemId, size]);
+        if (!itemId || !size || !quantity || quantity <= 0) {
+          throw new Error("Invalid uniform data: missing required fields or invalid quantity");
+        }
 
-    if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
-      throw new Error(`Insufficient stock for item ${itemId}, size ${size}`);
+        // 재고 확인
+        const [stockCheck] = await connection.query(`
+          SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?
+        `, [itemId, size]);
+
+        if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
+          const availableQuantity = stockCheck.length > 0 ? stockCheck[0].quantity : 0;
+          const errorMsg = `Insufficient stock for uniform (ID: ${itemId}, Size: ${size}). Requested: ${quantity}, Available: ${availableQuantity}`;
+          console.error("❌ " + errorMsg);
+          throw new Error(errorMsg);
+        }
+
+        // 재고 업데이트
+        await connection.query(`
+          UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
+        `, [quantity, itemId, size]);
+
+        // 유니폼 구매 정보 저장
+        await connection.query(`
+          INSERT INTO item_payments 
+          (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'completed', ?, ?, ?)
+        `, [
+          studentId,
+          itemId,
+          size,
+          quantity,
+          uniform.price || 0,
+          `uniform-${itemId}-${Date.now()}`, // 더 유니크한 idempotency_key 생성
+          'card',
+          currency,
+          dojang_code,
+          parent_id,
+          cardId
+        ]);
+      }
+      console.log("✅ Uniform purchase processed");
     }
-
-    // 재고 업데이트
-    await connection.query(`
-      UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
-    `, [quantity, itemId, size]);
-
-    // ✅ 유니폼 구매 정보 저장 (수정된 테이블명: item_payments)
-    await connection.query(`
-      INSERT INTO item_payments 
-      (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'completed', ?, ?, ?)
-    `, [
-      studentId,
-      itemId,
-      size,
-      quantity,
-      uniform.price || 0,
-      `key-${Date.now()}`, // idempotency_key 생성
-      'card',
-      'USD',
-      dojang_code,
-      parent_id,
-      cardId
-    ]);
-  }
-  console.log("✅ Uniform purchase processed");
-}
-
-    
 
     if (paymentType === "pay_in_full") {
       // 프로그램 정보 조회
@@ -310,7 +329,7 @@ if (uniforms && uniforms.length > 0) {
         
         try {
           const endDate = new Date();
-          endDate.setMonth(endDate.getMonth() + programInfo.duration_months);
+          endDate.setMonth(endDate.getMonth() + (programInfo.duration_months || 1));
           endDateStr = endDate.toISOString().split('T')[0];
         } catch (error) {
           console.error("날짜 계산 오류:", error);
@@ -342,121 +361,120 @@ if (uniforms && uniforms.length > 0) {
     }
 
     // 월간 결제 처리
-// 월간 결제 처리
-if (paymentType === "monthly_pay") {
-  console.log("🔄 월간 결제 처리 시작...");
-  try {
-    // 프로그램 정보 조회
-    const [programDetails] = await connection.query(`
-      SELECT id, payment_type, operation_type, total_classes, classes_per_week, duration_months
-      FROM programs
-      WHERE id = ?
-    `, [program.id]);
-    
-    if (!programDetails.length) {
-      throw new Error(`Program with id ${program.id} not found`);
-    }
-    
-    const programInfo = programDetails[0];
-    console.log("DB에서 가져온 프로그램 정보:", programInfo);
-    
-    const today = new Date();
-    const paymentDate = today.toISOString().split('T')[0];
-    const nextPaymentDate = new Date(today);
-    nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
-    const nextPaymentDateString = nextPaymentDate.toISOString().split('T')[0];
-    
-    // 시작일을 오늘로 설정
-    const startDate = paymentDate;
-    
-    // duration 기반으로 종료일 계산
-    const endDate = new Date(today);
-    
-    // programInfo에서 duration_months를 사용
-    if (programInfo.duration_months) {
-      // duration_months가 제공되면, 이를 사용하여 종료일 계산
-      endDate.setMonth(endDate.getMonth() + parseInt(programInfo.duration_months));
+    if (paymentType === "monthly_pay") {
+      console.log("🔄 월간 결제 처리 시작...");
+      try {
+        // 프로그램 정보 조회
+        const [programDetails] = await connection.query(`
+          SELECT id, payment_type, operation_type, total_classes, classes_per_week, duration_months
+          FROM programs
+          WHERE id = ?
+        `, [program.id]);
+        
+        if (!programDetails.length) {
+          throw new Error(`Program with id ${program.id} not found`);
+        }
+        
+        const programInfo = programDetails[0];
+        console.log("DB에서 가져온 프로그램 정보:", programInfo);
+        
+        const today = new Date();
+        const paymentDate = today.toISOString().split('T')[0];
+        const nextPaymentDate = new Date(today);
+        nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+        const nextPaymentDateString = nextPaymentDate.toISOString().split('T')[0];
+        
+        // 시작일을 오늘로 설정
+        const startDate = paymentDate;
+        
+        // duration 기반으로 종료일 계산
+        const endDate = new Date(today);
+        
+        // programInfo에서 duration_months를 사용
+        if (programInfo.duration_months) {
+          // duration_months가 제공되면, 이를 사용하여 종료일 계산
+          endDate.setMonth(endDate.getMonth() + parseInt(programInfo.duration_months));
+        } else {
+          // duration_months가 지정되지 않으면 기본값으로 1개월 설정
+          endDate.setMonth(endDate.getMonth() + 1);
+        }
+        
+        const endDateString = endDate.toISOString().split('T')[0];
+        const monthlyIdempotencyKey = uuidv4();
+        const monthlyPaymentId = uuidv4();
+        
+        // 기존 월간 결제 정보 확인
+        const [existingPayment] = await connection.query(`
+          SELECT id FROM monthly_payments
+          WHERE student_id = ? AND parent_id = ? AND dojang_code = ?
+        `, [studentId, parent_id, dojang_code]);
+        
+        const programFeeValue = parseFloat(program_fee);
+        if (isNaN(programFeeValue) || programFeeValue <= 0) {
+          throw new Error("월간 결제를 위한 유효하지 않은 프로그램 비용");
+        }
+        
+        if (existingPayment.length > 0) {
+          console.log("🟡 기존 구독이 발견되었습니다. 삽입 대신 업데이트합니다.");
+          // 업데이트 쿼리 수정: start_date와 end_date 추가
+          await connection.query(`
+            UPDATE monthly_payments
+            SET program_id = ?, payment_date = ?, next_payment_date = ?, program_fee = ?,
+            payment_status = 'pending', status = 'pending', source_id = ?,
+            customer_id = ?, idempotency_key = ?, payment_id = ?,
+            start_date = ?, end_date = ?
+            WHERE student_id = ? AND parent_id = ? AND dojang_code = ?
+          `, [
+            program.id,
+            paymentDate,
+            nextPaymentDateString,
+            programFeeValue,
+            cardId,
+            customer_id || null,
+            monthlyIdempotencyKey,
+            monthlyPaymentId,
+            startDate,
+            endDateString,
+            studentId,
+            parent_id,
+            dojang_code
+          ]);
+          console.log("✅ 월간 결제 기록이 업데이트되었습니다.");
+        } else {
+          console.log("🟢 기존 구독이 없습니다. 새 기록을 삽입합니다.");
+          // 삽입 쿼리 수정: start_date와 end_date 추가
+          await connection.query(`
+            INSERT INTO monthly_payments
+            (parent_id, student_id, program_id, payment_date, next_payment_date, last_payment_date,
+            program_fee, payment_status, status, dojang_code, source_id, customer_id, idempotency_key, payment_id,
+            start_date, end_date)
+            VALUES (?, ?, ?, ?, ?, NULL, ?, 'pending', 'pending', ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            parent_id,
+            studentId,
+            program.id,
+            paymentDate,
+            nextPaymentDateString,
+            programFeeValue,
+            dojang_code,
+            cardId,
+            customer_id || null,
+            monthlyIdempotencyKey,
+            monthlyPaymentId,
+            startDate,
+            endDateString
+          ]);
+          console.log("✅ 새 월간 결제 기록이 삽입되었습니다.");
+        }
+      } catch (monthlyError) {
+        console.error("❌ 월간 결제 처리 중 오류:", monthlyError);
+        throw monthlyError; // 상위 try-catch로 전달
+      }
+    } else if (paymentType === "pay_in_full") {
+      console.log("✅ 이것은 pay_in_full 프로그램입니다. 월간 결제 처리를 건너뜁니다.");
     } else {
-      // duration_months가 지정되지 않으면 기본값으로 1개월 설정
-      endDate.setMonth(endDate.getMonth() + 1);
+      console.warn("⚠️ 알 수 없는 결제 유형이 감지되었습니다:", paymentType);
     }
-    
-    const endDateString = endDate.toISOString().split('T')[0];
-    const monthlyIdempotencyKey = uuidv4();
-    const monthlyPaymentId = uuidv4();
-    
-    // 기존 월간 결제 정보 확인
-    const [existingPayment] = await connection.query(`
-      SELECT id FROM monthly_payments
-      WHERE student_id = ? AND parent_id = ? AND dojang_code = ?
-    `, [studentId, parent_id, dojang_code]);
-    
-    const programFeeValue = parseFloat(program_fee);
-    if (isNaN(programFeeValue) || programFeeValue <= 0) {
-      throw new Error("월간 결제를 위한 유효하지 않은 프로그램 비용");
-    }
-    
-    if (existingPayment.length > 0) {
-      console.log("🟡 기존 구독이 발견되었습니다. 삽입 대신 업데이트합니다.");
-      // 업데이트 쿼리 수정: start_date와 end_date 추가
-      await connection.query(`
-        UPDATE monthly_payments
-        SET program_id = ?, payment_date = ?, next_payment_date = ?, program_fee = ?,
-        payment_status = 'pending', status = 'pending', source_id = ?,
-        customer_id = ?, idempotency_key = ?, payment_id = ?,
-        start_date = ?, end_date = ?
-        WHERE student_id = ? AND parent_id = ? AND dojang_code = ?
-      `, [
-        program.id,
-        paymentDate,
-        nextPaymentDateString,
-        programFeeValue,
-        cardId,
-        customer_id || null,
-        monthlyIdempotencyKey,
-        monthlyPaymentId,
-        startDate,
-        endDateString,
-        studentId,
-        parent_id,
-        dojang_code
-      ]);
-      console.log("✅ 월간 결제 기록이 업데이트되었습니다.");
-    } else {
-      console.log("🟢 기존 구독이 없습니다. 새 기록을 삽입합니다.");
-      // 삽입 쿼리 수정: start_date와 end_date 추가
-      await connection.query(`
-        INSERT INTO monthly_payments
-        (parent_id, student_id, program_id, payment_date, next_payment_date, last_payment_date,
-        program_fee, payment_status, status, dojang_code, source_id, customer_id, idempotency_key, payment_id,
-        start_date, end_date)
-        VALUES (?, ?, ?, ?, ?, NULL, ?, 'pending', 'pending', ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        parent_id,
-        studentId,
-        program.id,
-        paymentDate,
-        nextPaymentDateString,
-        programFeeValue,
-        dojang_code,
-        cardId,
-        customer_id || null,
-        monthlyIdempotencyKey,
-        monthlyPaymentId,
-        startDate,
-        endDateString
-      ]);
-      console.log("✅ 새 월간 결제 기록이 삽입되었습니다.");
-    }
-  } catch (monthlyError) {
-    console.error("❌ 월간 결제 처리 중 오류:", monthlyError);
-    throw monthlyError; // 상위 try-catch로 전달
-  }
-} else if (paymentType === "pay_in_full") {
-  console.log("✅ 이것은 pay_in_full 프로그램입니다. 월간 결제 처리를 건너뜁니다.");
-} else {
-  console.warn("⚠️ 알 수 없는 결제 유형이 감지되었습니다:", paymentType);
-}
 
     // Square 결제 처리
     const paymentBody = {
@@ -506,7 +524,9 @@ if (paymentType === "monthly_pay") {
 
   } catch (error) {
     // 트랜잭션 롤백
-    await connection.rollback();
+    if (connection) {
+      await connection.rollback();
+    }
     console.error("❌ Error processing payment:", error);
     return res.status(500).json({ 
       success: false, 
@@ -514,7 +534,10 @@ if (paymentType === "monthly_pay") {
       error: error.message 
     });
   } finally {
-    connection.release();
+    // 연결 해제 보장
+    if (connection) {
+      connection.release();
+    }
   }
 });
 

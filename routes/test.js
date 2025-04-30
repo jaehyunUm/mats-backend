@@ -165,7 +165,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       'INSERT INTO test_payments (student_id, amount, idempotency_key, currency, status, dojang_code, parent_id, card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [
         student_id,
-        amount / 100, // 달러 단위 저장
+        parseFloat(testOnlyAmount.toFixed(2)),  // 시험비만 저장
         idempotencyKey,
         currency || 'USD',
         'completed',
