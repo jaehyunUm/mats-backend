@@ -70,7 +70,8 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
       s.belt_rank AS belt_rank,
       b.belt_color AS belt_color,
       latest_tests.result_value AS count,
-      tt.test_name
+      tt.test_name,
+      tt.evaluation_type
     FROM
       students s
     JOIN
