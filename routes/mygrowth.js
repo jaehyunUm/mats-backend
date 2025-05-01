@@ -43,6 +43,7 @@ router.get('/test-results/:studentId', verifyToken, async (req, res) => {
         r.student_id,
         r.test_template_id,
         t.test_name,
+        t.evaluation_type,
         r.result_value,
         r.test_type,
         DATE_FORMAT(r.created_at, '%Y-%m-%d') AS date,
@@ -58,7 +59,20 @@ router.get('/test-results/:studentId', verifyToken, async (req, res) => {
     const processedResults = testResults.map((result) => {
       const previous = result.previous_result;
       const current = result.result_value;
-      const growthRate = previous ? (((current - previous) / previous) * 100).toFixed(1) : 'N/A';
+      let growthRate;
+      
+      if (previous) {
+        if (result.evaluation_type === 'time') {
+          // time 타입인 경우 성장률 부호 반전 (시간이 줄어들면 성장)
+          growthRate = (((previous - current) / previous) * 100).toFixed(1);
+        } else {
+          // 다른 타입은 기존 방식대로 계산
+          growthRate = (((current - previous) / previous) * 100).toFixed(1);
+        }
+      } else {
+        growthRate = 'N/A';
+      }
+      
       return {
         ...result,
         growth_rate: growthRate,
