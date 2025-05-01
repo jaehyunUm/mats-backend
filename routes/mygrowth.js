@@ -40,20 +40,20 @@ router.get('/test-results/:studentId', verifyToken, async (req, res) => {
   try {
     const [testResults] = await db.query(
       `SELECT
-      r.student_id,
-      r.test_template_id,
-      t.test_name,
-      t.evaluation_type,  // 여기서 test_template에서 evaluation_type을 가져옴
-      r.result_value,
-      r.test_type,
-      DATE_FORMAT(r.created_at, '%Y-%m-%d') AS date,
-      LAG(r.result_value) OVER (PARTITION BY r.student_id, t.test_name ORDER BY r.created_at) AS previous_result
-    FROM testresult r
-    JOIN test_template t ON r.test_template_id = t.id
-    WHERE r.student_id = ? AND t.dojang_code = ?
-    ORDER BY r.test_template_id, r.created_at ASC`,
-    [studentId, dojang_code]
-  );
+        r.student_id,
+        r.test_template_id,
+        t.test_name,
+        t.evaluation_type,
+        r.result_value,
+        r.test_type,
+        DATE_FORMAT(r.created_at, '%Y-%m-%d') AS date,
+        LAG(r.result_value) OVER (PARTITION BY r.student_id, t.test_name ORDER BY r.created_at) AS previous_result
+      FROM testresult r
+      JOIN test_template t ON r.test_template_id = t.id
+      WHERE r.student_id = ? AND t.dojang_code = ?
+      ORDER BY r.test_template_id, r.created_at ASC`,
+      [studentId, dojang_code]
+    );
 
     // 성장률 계산 추가
     const processedResults = testResults.map((result) => {
