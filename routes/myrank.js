@@ -74,7 +74,7 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
           CONCAT(
             FLOOR(latest_tests.result_value / 60), 
             "'", 
-            LPAD(latest_tests.result_value % 60, 2, '0'), 
+            LPAD(MOD(latest_tests.result_value, 60), 2, '0'), 
             '"'
           )
         ELSE latest_tests.result_value
