@@ -69,7 +69,16 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
       YEAR(CURDATE()) - YEAR(s.birth_date) AS age,
       s.belt_rank AS belt_rank,
       b.belt_color AS belt_color,
-      latest_tests.result_value AS count,
+      CASE
+        WHEN tt.evaluation_type = 'time' THEN
+          CONCAT(
+            FLOOR(latest_tests.result_value / 60), 
+            "'", 
+            LPAD(latest_tests.result_value % 60, 2, '0'), 
+            '"'
+          )
+        ELSE latest_tests.result_value
+      END AS count,
       tt.test_name,
       tt.evaluation_type
     FROM
@@ -84,7 +93,10 @@ router.get('/ranking/:testId', verifyToken, async (req, res) => {
       dojangs d ON s.dojang_code = d.dojang_code
     ${dojangOnly ? 'WHERE s.dojang_code = ?' : ''}
     ORDER BY
-      count DESC
+      CASE
+        WHEN tt.evaluation_type = 'time' THEN latest_tests.result_value
+        ELSE -latest_tests.result_value
+      END
   `;
   
     
