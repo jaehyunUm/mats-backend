@@ -992,5 +992,102 @@ router.post('/card-save', verifyToken, async (req, res) => {
   }
 });
 
+// Apple IAP receipt verification endpoint
+router.post('/verify-receipt', verifyToken, async (req, res) => {
+  const { receipt, productId } = req.body;
+  const { dojang_code } = req.user;
+
+  if (!receipt || !productId) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Receipt and product ID are required' 
+    });
+  }
+
+  try {
+    // Verify receipt with Apple's servers
+    const verifyUrl = process.env.NODE_ENV === 'production'
+      ? 'https://buy.itunes.apple.com/verifyReceipt'
+      : 'https://sandbox.itunes.apple.com/verifyReceipt';
+
+    const response = await fetch(verifyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        'receipt-data': receipt,
+        'password': process.env.APPLE_SHARED_SECRET,
+        'exclude-old-transactions': true
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.status !== 0) {
+      console.error('Apple receipt verification failed:', data);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid receipt'
+      });
+    }
+
+    // Find the latest subscription purchase
+    const latestReceipt = data.latest_receipt_info
+      ? data.latest_receipt_info[data.latest_receipt_info.length - 1]
+      : null;
+
+    if (!latestReceipt) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid subscription found'
+      });
+    }
+
+    // Check if the subscription is active
+    const expiresDate = new Date(parseInt(latestReceipt.expires_date_ms));
+    const isActive = expiresDate > new Date();
+
+    if (!isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Subscription has expired'
+      });
+    }
+
+    // Update user's subscription status in database
+    await db.query(
+      `INSERT INTO subscriptions (
+        dojang_code, 
+        subscription_id, 
+        status, 
+        next_billing_date,
+        payment_method
+      ) VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        status = VALUES(status),
+        next_billing_date = VALUES(next_billing_date),
+        payment_method = VALUES(payment_method)`,
+      [
+        dojang_code,
+        latestReceipt.transaction_id,
+        'active',
+        expiresDate.toISOString().split('T')[0],
+        'apple_iap'
+      ]
+    );
+
+    res.json({
+      success: true,
+      subscriptionActive: true,
+      expiresDate: expiresDate.toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error verifying receipt:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error verifying receipt'
+    });
+  }
+});
 
 module.exports = router;
