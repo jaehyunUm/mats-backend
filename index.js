@@ -184,75 +184,87 @@ app.post('/webhook', (req, res) => {
 
 
 
+// 비밀번호 재설정 링크 전송
+app.post('/api/send-reset-link', async (req, res) => {
+  const { email } = req.body;
 
-  // 비밀번호 재설정 링크 전송
-  app.post('/api/send-reset-link', async (req, res) => {
-    const { email } = req.body;
+  console.log("📢 DEBUG: Password reset requested for email:", email);
 
-    console.log("📢 DEBUG: Password reset requested for email:", email);
+  if (!email || !/\S+@\S+\.\S+/.test(email)) {
+    console.error("❌ ERROR: Invalid email address received:", email);
+    return res.status(400).json({ message: 'Invalid email address' });
+  }
 
-    if (!email || !/\S+@\S+\.\S+/.test(email)) {
-        console.error("❌ ERROR: Invalid email address received:", email);
-        return res.status(400).json({ message: 'Invalid email address' });
+  const normalizedEmail = email.trim().toLowerCase();
+  let user = null;
+
+  try {
+    console.log("📢 DEBUG: Checking 'users' table for email:", normalizedEmail);
+    const [userResults] = await db.query(
+      'SELECT * FROM users WHERE LOWER(email) = ?', 
+      [normalizedEmail]
+    );
+
+    if (userResults.length > 0) {
+      user = userResults[0];
+      user.role = 'owner';
+    } else {
+      console.log("📢 DEBUG: Checking 'parents' table for email:", normalizedEmail);
+      const [parentResults] = await db.query(
+        'SELECT * FROM parents WHERE LOWER(email) = ?', 
+        [normalizedEmail]
+      );
+
+      if (parentResults.length > 0) {
+        user = parentResults[0];
+        user.role = 'parent';
+      }
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
-
-    try {
-        console.log("📢 DEBUG: Checking database for email:", normalizedEmail);
-
-        const [results] = await db.query('SELECT * FROM users WHERE LOWER(email) = ?', [normalizedEmail]);
-
-        if (results.length === 0) {
-            console.error("❌ ERROR: No user found with email:", normalizedEmail);
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        const user = results[0];
-
-        console.log("✅ User found:", user);
-
-        // JWT 토큰 생성 (1시간 유효)
-        const secretKey = process.env.JWT_SECRET || 'defaultSecretKey';
-        const token = jwt.sign({ email: user.email }, secretKey, { expiresIn: '1h' });
-
-        // 비밀번호 재설정 링크
-        const resetLink = `https://mats-backend.onrender.com/api/reset-password?token=${token}`; // 👈 너가 소유한 도메인
-        console.log("📢 DEBUG: Generated Reset Link:", resetLink); // 디버깅용
-
-        // 이메일 전송 설정
-        const mailOptions = {
-          from: process.env.EMAIL_USER || 'noreply@example.com',
-          to: user.email,
-          subject: 'Password Reset',
-          text: `Click the link below to reset your password:\n\n${resetLink}\n\nIf the link doesn't work, copy and paste it into your app manually.`,
-          html: `
-            <p>Click the link below to reset your password:</p>
-            <p><a href="${resetLink}">${resetLink}</a></p>
-            <p>If the link doesn't work, copy and paste it into your app manually.</p>
-          `
-        };
-
-        console.log("📢 DEBUG: Sending email to:", user.email);
-
-        transporter.sendMail(mailOptions, (error, info) => {
-            if (error) {
-                console.error("❌ ERROR: Failed to send email:", error);
-                return res.status(500).json({ message: 'Error sending email' });
-            }
-            console.log("✅ Email sent:", info.response);
-            
-             // ✅ 정상적인 응답 반환 (📢 디버깅 추가)
-             const successResponse = { message: "Password reset link sent successfully" };
-             console.log("📢 DEBUG: Sending Response:", successResponse);
-             return res.status(200).json(successResponse);
-         });
-
-    } catch (err) {
-        console.error("❌ ERROR: Database error:", err);
-        return res.status(500).json({ message: "Database error", error: err.message });
+    if (!user) {
+      console.error("❌ ERROR: No user found with email:", normalizedEmail);
+      return res.status(404).json({ message: 'User not found' });
     }
+
+    console.log("✅ User found:", user);
+
+    // JWT 토큰 생성 (1시간 유효)
+    const secretKey = process.env.JWT_SECRET || 'defaultSecretKey';
+    const token = jwt.sign({ email: user.email, role: user.role }, secretKey, { expiresIn: '1h' });
+
+    const resetLink = `https://mats-backend.onrender.com/api/reset-password?token=${token}`;
+    console.log("📢 DEBUG: Generated Reset Link:", resetLink);
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER || 'noreply@example.com',
+      to: user.email,
+      subject: 'Password Reset',
+      text: `Click the link below to reset your password:\n\n${resetLink}`,
+      html: `
+        <p>Click the link below to reset your password:</p>
+        <p><a href="${resetLink}">${resetLink}</a></p>
+        <p>If the link doesn't work, copy and paste it into your app manually.</p>
+      `,
+    };
+
+    console.log("📢 DEBUG: Sending email to:", user.email);
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error("❌ ERROR: Failed to send email:", error);
+        return res.status(500).json({ message: 'Error sending email' });
+      }
+
+      console.log("✅ Email sent:", info.response);
+      return res.status(200).json({ message: "Password reset link sent successfully" });
+    });
+
+  } catch (err) {
+    console.error("❌ ERROR: Database error:", err);
+    return res.status(500).json({ message: "Database error", error: err.message });
+  }
 });
+
 
 app.get('/api/reset-password', (req, res) => {
   const { token } = req.query;
