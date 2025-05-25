@@ -1,4 +1,4 @@
-const { paymentsApi } = require('../modules/squareClient'); // Square 클라이언트 가져오기
+const { paymentsApi } = require('../modules/stripeClient'); // Square 클라이언트 가져오기
 const { v4: uuidv4 } = require('uuid');
 
 const processPayment = async (req, res) => {

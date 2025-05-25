@@ -1,5 +1,5 @@
 // paymentService.js
-const { createSquareClientWithToken } = require('../modules/squareClient');
+const { createSquareClientWithToken } = require('../modules/stripeClient');
 const db = require('../db');
 const uuidv4 = require('uuid').v4;
 const dayjs = require('dayjs');

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { client, customersApi, cardsApi, createSquareClientWithToken} = require('../modules/squareClient');
+const { client, customersApi, cardsApi, createSquareClientWithToken} = require('../modules/stripeClient');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db'); // DB 모듈 확인
 const verifyToken = require('../middleware/verifyToken');

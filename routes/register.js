@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db'); // 데이터베이스 연결 파일
 const router = express.Router();
 const uuidv4 = require('uuid').v4;
-const {createSquareClientWithToken} = require('../modules/squareClient');
+const {createSquareClientWithToken} = require('../modules/stripeClient');
 const verifyToken = require('../middleware/verifyToken');
 
   

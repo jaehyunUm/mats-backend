@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
-const { generateOAuthLink, client, createSquareClientWithToken } = require('../modules/squareClient');
+const { generateOAuthLink, client, createSquareClientWithToken } = require('../modules/stripeClient');
 require('dotenv').config();
 
 

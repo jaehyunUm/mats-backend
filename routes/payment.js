@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결
 const verifyToken = require('../middleware/verifyToken');
-const { createSquareClientWithToken } = require('../modules/squareClient'); // ✅ 바뀐 부분
+const { createSquareClientWithToken } = require('../modules/stripeClient'); // ✅ 바뀐 부분
 
 router.post('/payment', verifyToken, async (req, res) => {
   const { student_id, amount, idempotencyKey, card_id, itemId, size, quantity, customer_id, parent_id } = req.body;

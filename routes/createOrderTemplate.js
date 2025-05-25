@@ -1,5 +1,5 @@
 // createOrderTemplate.js
-const { ordersApi} = require('../modules/squareClient');
+const { ordersApi} = require('../modules/stripeClient');
 require('dotenv').config();
 const { v4: uuidv4 } = require("uuid");
 
