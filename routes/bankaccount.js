@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
-const { generateOAuthLink, client } = require('../modules/stripeClient');
+const stripeClient = require('../modules/stripeClient');
 require('dotenv').config();
 
 // 환경 변수 로깅 추가
@@ -14,8 +14,12 @@ console.log('STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? 'Set' : 'Not S
 router.get('/bank-account/connect', verifyToken, (req, res) => {
   const dojang_code = req.user.dojang_code;
   const redirectUri = "https://mats-backend.onrender.com/api/bank-account/callback";
-  const authLink = generateOAuthLink(redirectUri, dojang_code);
-  console.log('🔗 Generated Auth Link:', authLink); // 생성된 링크 로깅
+  
+  // stripeClient 모듈 확인
+  console.log('🔍 stripeClient module:', stripeClient);
+  
+  const authLink = stripeClient.generateOAuthLink(redirectUri, dojang_code);
+  console.log('🔗 Generated Auth Link:', authLink);
   res.json({ success: true, url: authLink });
 });
 
@@ -37,7 +41,7 @@ router.get('/bank-account/callback', async (req, res) => {
 
   try {
     // Stripe OAuth 토큰 교환
-    const response = await client.oauth.token({
+    const response = await stripeClient.client.oauth.token({
       grant_type: 'authorization_code',
       code: code,
     });
@@ -45,7 +49,7 @@ router.get('/bank-account/callback', async (req, res) => {
     const { access_token, refresh_token, stripe_user_id } = response;
 
     // Stripe 계정 정보 가져오기
-    const account = await client.accounts.retrieve(stripe_user_id);
+    const account = await stripeClient.client.accounts.retrieve(stripe_user_id);
 
     // DB에 저장
     await db.query(`
