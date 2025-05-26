@@ -5,11 +5,17 @@ const verifyToken = require('../middleware/verifyToken');
 const { generateOAuthLink, client } = require('../modules/stripeClient');
 require('dotenv').config();
 
+// 환경 변수 로깅 추가
+console.log('🔑 Environment Variables:');
+console.log('STRIPE_CLIENT_ID:', process.env.STRIPE_CLIENT_ID);
+console.log('STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? 'Set' : 'Not Set');
+
 // Stripe Connect 시작
 router.get('/bank-account/connect', verifyToken, (req, res) => {
   const dojang_code = req.user.dojang_code;
   const redirectUri = "https://mats-backend.onrender.com/api/bank-account/callback";
   const authLink = generateOAuthLink(redirectUri, dojang_code);
+  console.log('🔗 Generated Auth Link:', authLink); // 생성된 링크 로깅
   res.json({ success: true, url: authLink });
 });
 

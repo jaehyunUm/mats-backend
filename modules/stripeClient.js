@@ -17,6 +17,8 @@ const createStripeClientWithKey = (secretKey) => {
 // Stripe Connect OAuth 링크 생성
 const generateOAuthLink = (redirectUri, dojangCode) => {
   const clientId = process.env.STRIPE_CLIENT_ID;
+  console.log('🔑 Using STRIPE_CLIENT_ID:', clientId); // 클라이언트 ID 로깅
+  
   const scope = "read_write"; // Stripe Connect 기본 스코프
 
   // state에 dojang_code 담기 (base64url 인코딩)
@@ -27,7 +29,9 @@ const generateOAuthLink = (redirectUri, dojangCode) => {
   console.log("💡 Generating Stripe Connect Link for Dojang:", dojangCode);
   console.log("🔐 Encoded state:", state);
 
-  return `https://connect.stripe.com/oauth/authorize?client_id=${clientId}&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+  const authUrl = `https://connect.stripe.com/oauth/authorize?client_id=${clientId}&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+  console.log('🔗 Final Auth URL:', authUrl); // 최종 URL 로깅
+  return authUrl;
 };
 
 // Stripe 계정 토큰 갱신
