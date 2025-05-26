@@ -78,13 +78,20 @@ router.get('/bank-account/callback', async (req, res) => {
         <style>
           body { font-family: sans-serif; text-align: center; padding: 50px; }
           h2 { color: #2ecc71; }
-          button { padding: 10px 20px; background-color: #007aff; color: white; border: none; border-radius: 5px; font-size: 16px; }
         </style>
       </head>
       <body>
         <h2>✅ Stripe connection completed!</h2>
-        <p>Tap the button below to return to the app.</p>
-        <button onclick="window.ReactNativeWebView.postMessage('mats://stripe-connect-success')">Return to App</button>
+        <p>Returning to the app...</p>
+        <script>
+          setTimeout(function() {
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage('mats://stripe-connect-success');
+            } else {
+              window.location = 'mats://stripe-connect-success';
+            }
+          }, 500);
+        </script>
       </body>
     </html>
   `);
