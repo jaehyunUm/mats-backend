@@ -95,32 +95,19 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     uniforms // 유니폼 정보 추가
   } = req.body;
 
-  // 일관성 있는 변수명 사용
   const paymentType = program?.paymentType || program?.payment_type;
   const program_fee = program?.program_fee;
   const registration_fee = program?.registration_fee || 0;
-  
-  console.log("🔍 Payment Type:", paymentType);
-  console.log("🔍 Program Fee:", program_fee);
-  console.log("🔍 Registration Fee:", registration_fee);
-  console.log("🔍 Received Program Data:", program); // 프로그램 데이터 전체 로깅
 
-  // 유효성 검사 강화: 결제 유형 확인
   if (!paymentType || (paymentType !== "monthly_pay" && paymentType !== "pay_in_full")) {
-    console.error("❌ Invalid payment type:", paymentType);
     return res.status(400).json({ success: false, message: "Invalid payment type" });
   }
 
-  // amount 정수화 및 유효성 검사
   const amountValue = parseFloat(amount);
-
-  console.log("🚀 DEBUG: Checking program_fee:", program_fee);
   if (typeof program_fee === "undefined" || program_fee === null) {
-    console.error("❌ ERROR: `program_fee` is missing in request body");
     return res.status(400).json({ success: false, message: "Program fee is missing in request body" });
   }
 
-  // 필수 필드 검증
   if (
     !student_id ||
     !student ||
@@ -132,7 +119,6 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     !parent_id ||
     !cardId
   ) {
-    console.error("❌ ERROR: Missing required fields in request body", req.body);
     return res.status(400).json({ success: false, message: "Missing or invalid fields in request body" });
   }
 
@@ -141,21 +127,19 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: "Dojang code is missing from the request" });
   }
 
-  // Square 계정 정보 확인
+  // Stripe 계정 정보 확인
   const [ownerInfo] = await db.query(
-    "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+    "SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
     [dojang_code]
   );
 
   if (!ownerInfo.length) {
-    return res.status(400).json({ success: false, message: "No Square account connected for this dojang." });
+    return res.status(400).json({ success: false, message: "No Stripe account connected for this dojang." });
   }
 
-  const ownerAccessToken = ownerInfo[0].square_access_token;
-  const locationId = ownerInfo[0].location_id;
-
-  const squareClient = createSquareClientWithToken(ownerAccessToken);
-  const paymentsApi = squareClient.paymentsApi;
+  const stripeAccessToken = ownerInfo[0].stripe_access_token;
+  const stripeAccountId = ownerInfo[0].stripe_account_id;
+  const stripe = require("../modules/stripeClient").createStripeClientWithKey(stripeAccessToken);
 
   // 트랜잭션 시작
   let connection;
@@ -480,26 +464,30 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.warn("⚠️ 알 수 없는 결제 유형이 감지되었습니다:", paymentType);
     }
 
-    // Square 결제 처리
-    const paymentBody = {
-      sourceId: cardId,
-      amountMoney: {
-        amount: Math.round(amountValue * 100),
-        currency,
+    // Stripe 결제 처리
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amountValue * 100),
+      currency,
+      customer: customer_id,
+      payment_method: cardId,
+      off_session: true,
+      confirm: true,
+      metadata: {
+        student_id,
+        parent_id,
+        dojang_code,
+        program_id: program.id,
+        mainPaymentId,
       },
       idempotencyKey: finalIdempotencyKey,
-      locationId: locationId,
-      customerId: customer_id,
-    };
+      on_behalf_of: stripeAccountId,
+      transfer_data: {
+        destination: stripeAccountId,
+      },
+    });
 
-    console.log("Requesting payment with body:", JSON.stringify(paymentBody, null, 2));
-
-    const { result } = await paymentsApi.createPayment(paymentBody);
-
-    if (result && result.payment && result.payment.status === "COMPLETED") {
-      console.log("✅ Payment completed successfully. Square payment ID:", result.payment.id);
-
-      // 모든 프로그램 결제 상태 업데이트
+    if (paymentIntent && paymentIntent.status === "succeeded") {
+      // 결제 성공 후 DB 상태 업데이트
       await connection.query(`
         UPDATE program_payments SET status = 'completed' WHERE payment_id LIKE ?
       `, [`${mainPaymentId}%`]);
@@ -524,29 +512,25 @@ router.post('/process-payment', verifyToken, async (req, res) => {
 
       // 트랜잭션 커밋
       await connection.commit();
-
       return res.status(200).json({ 
         success: true, 
         message: "Student registered and payment processed successfully",
         payment_id: mainPaymentId
       });
     } else {
-      throw new Error("Payment not completed by Square");
+      throw new Error("Payment not completed by Stripe");
     }
 
   } catch (error) {
-    // 트랜잭션 롤백
     if (connection) {
       await connection.rollback();
     }
-    console.error("❌ Error processing payment:", error);
     return res.status(500).json({ 
       success: false, 
       message: "Error processing payment", 
       error: error.message 
     });
   } finally {
-    // 연결 해제 보장
     if (connection) {
       connection.release();
     }

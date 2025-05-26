@@ -38,11 +38,11 @@ const processPaymentForSubscription = async (subscription) => {
 
         // ✅ 해당 도장 코드에 대한 Square 액세스 토큰 조회
         const [ownerRows] = await connection.query(
-            `SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ? LIMIT 1`,
+            `SELECT stripe_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ? LIMIT 1`,
             [subscription.dojang_code]
         );
 
-        if (!ownerRows.length || !ownerRows[0].square_access_token) {
+        if (!ownerRows.length || !ownerRows[0].stripe_access_token) {
             console.error(`❌ No Square access token found for dojang code: ${subscription.dojang_code}`);
             await connection.query(`UPDATE monthly_payments SET payment_status = 'failed' WHERE id = ?`, [subscription.id]);
             
@@ -56,7 +56,7 @@ const processPaymentForSubscription = async (subscription) => {
             return { success: false, error: 'No Square access token found' };
         }
 
-        const ownerAccessToken = ownerRows[0].square_access_token;
+        const ownerAccessToken = ownerRows[0].stripe_access_token;
         const locationId = ownerRows[0].location_id;
 
         // ✅ 해당 오너의 액세스 토큰으로 Square 클라이언트 생성

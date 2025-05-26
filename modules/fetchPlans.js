@@ -7,7 +7,7 @@ const fetchPlans = async () => {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`
+                "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`
             },
             body: JSON.stringify({
                 object_types: ["ITEM", "SUBSCRIPTION_PLAN"]

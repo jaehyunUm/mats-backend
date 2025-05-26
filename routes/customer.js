@@ -35,15 +35,15 @@ const normalizeBrandName = (brand) => {
     try {
       // ✅ 도장 오너의 Square Access Token 가져오기
       const [ownerRow] = await db.query(
-        "SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
+        "SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
         [dojang_code]
       );
   
-      if (!ownerRow.length || !ownerRow[0].square_access_token) {
+      if (!ownerRow.length || !ownerRow[0].stripe_access_token) {
         return res.status(400).json({ success: false, message: "Dojang owner has not connected Square OAuth" });
       }
   
-      const ownerAccessToken = ownerRow[0].square_access_token;
+      const ownerAccessToken = ownerRow[0].stripe_access_token;
       const squareClient = createSquareClientWithToken(ownerAccessToken);
       const customersApi = squareClient.customersApi;
   
@@ -101,14 +101,14 @@ const normalizeBrandName = (brand) => {
   
     try {
       const [ownerRow] = await db.query(
-        "SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
+        "SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
         [dojang_code]
       );
       
-      if (!ownerRow.length || !ownerRow[0].square_access_token) {
+      if (!ownerRow.length || !ownerRow[0].stripe_access_token) {
           return res.status(400).json({ success: false, message: "Dojang owner has not connected Square OAuth" });
       }
-      const ownerAccessToken = ownerRow[0].square_access_token;
+      const ownerAccessToken = ownerRow[0].stripe_access_token;
   
       const squareClient = createSquareClientWithToken(ownerAccessToken);
       const cardsApi = squareClient.cardsApi;
@@ -214,13 +214,13 @@ const normalizeBrandName = (brand) => {
         try {
           // 도장 오너의 Square Access Token 가져오기
           const [ownerRow] = await db.query(
-            'SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?',
+            'SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?',
             [card.dojang_code]
           );
           if (!ownerRow.length) throw new Error('No token found for this dojang');
       
           // 해당 오너 토큰으로 Square client 생성
-          const squareClient = createSquareClientWithToken(ownerRow[0].square_access_token);
+          const squareClient = createSquareClientWithToken(ownerRow[0].stripe_access_token);
       
           // 그 client로 카드 정보 요청
           const { result } = await squareClient.cardsApi.retrieveCard(card.card_id);
@@ -302,11 +302,11 @@ router.get("/card/details/:cardId", verifyToken, async (req, res) => {
   
     try {
       // ✅ Square OAuth Access Token 가져오기
-      const [ownerRow] = await db.query("SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?", [dojang_code]);
-      if (!ownerRow.length || !ownerRow[0].square_access_token) {
+      const [ownerRow] = await db.query("SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?", [dojang_code]);
+      if (!ownerRow.length || !ownerRow[0].stripe_access_token) {
         return res.status(400).json({ success: false, message: "Dojang owner has not connected Square OAuth" });
       }
-      const squareAccessToken = ownerRow[0].square_access_token;
+      const squareAccessToken = ownerRow[0].stripe_access_token;
   
 
      // ✅ Square 카드 삭제 요청
@@ -374,7 +374,7 @@ if (!deleteResponse.ok && deleteResponse.status !== 404) {
       const checkCardResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}`, {
         method: "GET",
         headers: {
-          "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`,
+          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`,
           "Content-Type": "application/json",
         },
       });
@@ -389,7 +389,7 @@ if (!deleteResponse.ok && deleteResponse.status !== 404) {
       const disableResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}/disable`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`,
+          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`,
           "Content-Type": "application/json",
         },
       });

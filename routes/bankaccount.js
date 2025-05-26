@@ -23,7 +23,7 @@ router.get('/bank-account/connect', verifyToken, (req, res) => {
   res.json({ success: true, url: authLink });
 });
 
-// Stripe Connect 콜백 처리
+
 router.get('/bank-account/callback', async (req, res) => {
   const { code, state } = req.query;
   console.log("🔹 Authorization Code:", code);
@@ -68,8 +68,7 @@ router.get('/bank-account/callback', async (req, res) => {
 
     console.log("✅ Stripe Connect Data Successfully Stored in Database");
 
-    // 딥링크로 앱으로 복귀
-   // 딥링크 대신 HTML 페이지 응답
+
    res.send(`
     <html>
       <head>

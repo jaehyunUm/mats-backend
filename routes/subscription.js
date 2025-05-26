@@ -22,7 +22,7 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
       const response = await fetch(`https://connect.squareup.com/v2/subscriptions/${subscriptionId}/cancel`, {
           method: 'POST',
           headers: {
-              'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`, // Square API 토큰
+              'Authorization': `Bearer ${process.env.stripe_access_token_PRODUCTION}`, // Square API 토큰
               'Content-Type': 'application/json',
           },
       });
@@ -224,7 +224,7 @@ router.post("/subscription", verifyToken, async (req, res) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`
+          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`
         },
         body: JSON.stringify(subscriptionPayload)
       });
@@ -296,7 +296,7 @@ router.post("/subscription", verifyToken, async (req, res) => {
         method: "GET",
         headers: {
           "Square-Version": "2024-01-18",
-          "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`,
+          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`,
           "Content-Type": "application/json",
         },
       });
@@ -388,8 +388,8 @@ router.get("/subscription-status", verifyToken, async (req, res) => {
   }
 });
 
-// 📌 Square 계정 상태 체크 API
-router.get("/square/status", verifyToken, async (req, res) => {
+// 📌 Stripe 계정 상태 체크 API
+router.get("/stripe/status", verifyToken, async (req, res) => {
   try {
     const { dojang_code } = req.user;
 
@@ -397,39 +397,29 @@ router.get("/square/status", verifyToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing dojang_code" });
     }
 
-    // ✅ 1. 해당 도장의 access_token 조회
+    // 1. 해당 도장의 Stripe 계정 ID 조회
     const [rows] = await db.query(
-      "SELECT square_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
+      "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
       [dojang_code]
     );
 
-    if (rows.length === 0 || !rows[0].square_access_token) {
-      return res.status(404).json({ success: false, message: "No Square access token found" });
+    if (rows.length === 0 || !rows[0].stripe_account_id) {
+      return res.status(404).json({ success: false, message: "No Stripe account found" });
     }
 
-    const accessToken = rows[0].square_access_token;
+    const stripeAccountId = rows[0].stripe_account_id;
 
-    // ✅ 2. Square API Client 설정
-    const squareClient = new Client({
-      accessToken,
-      environment: "production", // 또는 'sandbox'
-    });
+    // 2. Stripe 계정 정보 조회
+    const account = await stripe.accounts.retrieve(stripeAccountId);
 
-    // ✅ 3. /v2/locations 호출
-    const { result } = await squareClient.locationsApi.listLocations();
-    const location = result.locations?.[0];
+    // 3. 은행 계좌 연결 여부 확인
+    const hasBankLinked = account.external_accounts && account.external_accounts.total_count > 0;
 
-    if (!location) {
-      return res.status(400).json({ success: false, message: "No Square location found" });
-    }
+    // 4. 카드 결제 활성화 여부(카드 결제 capability)
+    const hasCardProcessing = account.capabilities && account.capabilities.card_payments === 'active';
 
-    const isBusinessAccount = !!location.businessName;
-    const hasCardProcessing = location.capabilities.includes("CREDIT_CARD_PROCESSING");
-
- // ✅ 4. 은행 연결 여부 확인 (중요!)
- const { result: bankResult } = await squareClient.bankAccountsApi.listBankAccounts();
- const bankAccounts = bankResult.bankAccounts || [];
- const hasBankLinked = bankAccounts.length > 0;
+    // 5. 비즈니스 계정 여부(개인/비즈니스 타입)
+    const isBusinessAccount = account.business_type === 'company' || account.business_type === 'corporation';
 
     res.json({
       success: true,
@@ -439,8 +429,8 @@ router.get("/square/status", verifyToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Error checking Square account status:", error);
-    res.status(500).json({ success: false, message: "Failed to check Square status" });
+    console.error("❌ Error checking Stripe account status:", error);
+    res.status(500).json({ success: false, message: "Failed to check Stripe status" });
   }
 });
   
@@ -456,7 +446,7 @@ router.get("/square/plans", async (req, res) => {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.SQUARE_ACCESS_TOKEN_PRODUCTION}`
+                "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`
             },
             body: JSON.stringify({
                 object_types: ["ITEM", "SUBSCRIPTION_PLAN"]
@@ -742,7 +732,7 @@ router.post("/customer-create", verifyToken, async (req, res) => {
     
     // 오류 세부 정보 로깅
     if (error.errors) {
-      console.error("❌ Square API Error Details:", JSON.stringify(error.errors));
+      console.error("❌ Stripe API Error Details:", JSON.stringify(error.errors));
     }
     
     res.status(500).json({ success: false, message: "Failed to create customer", error: error.message });
@@ -813,16 +803,16 @@ router.post('/card-save', verifyToken, async (req, res) => {
   }
   
   try {
-    console.log("✨ Square API 호출 준비");
-    const ownerAccessToken = process.env.SQUARE_ACCESS_TOKEN_PRODUCTION;
+    console.log("✨ Stripe API 호출 준비");
+    const ownerAccessToken = process.env.stripe_access_token_PRODUCTION;
     if (!ownerAccessToken) {
-      console.log("❌ 오류: Square Access Token 설정 누락");
-      return res.status(500).json({ success: false, message: "Square Access Token is not configured." });
+      console.log("❌ 오류: Stripe Access Token 설정 누락");
+      return res.status(500).json({ success: false, message: "Stripe Access Token is not configured." });
     }
     
-    // Square API 환경 정보 로깅
-    console.log("✨ Square API 환경:", process.env.NODE_ENV);
-    console.log("✨ Square API 모드:", process.env.SQUARE_ENVIRONMENT || "설정 없음");
+    // Stripe API 환경 정보 로깅
+    console.log("✨ Stripe API 환경:", process.env.NODE_ENV);
+    console.log("✨ Stripe API 모드:", process.env.SQUARE_ENVIRONMENT || "설정 없음");
     
     console.log("✨ 카드 생성 요청:", JSON.stringify({
       idempotencyKey: "UUID 생성됨",
@@ -831,8 +821,8 @@ router.post('/card-save', verifyToken, async (req, res) => {
       customerId
     }));
     
-    // Square API 호출 - 내부 try-catch로 감싸기
-    console.time("Square API 호출 시간");
+    // Stripe API 호출 - 내부 try-catch로 감싸기
+    console.time("Stripe API 호출 시간");
     let cardResult;
     try {
       const response = await cardsApi.createCard({
@@ -851,49 +841,49 @@ router.post('/card-save', verifyToken, async (req, res) => {
         },
       });
       cardResult = response.result;
-      console.timeEnd("Square API 호출 시간");
-    } catch (squareError) {
-      console.error("❌ Square API 호출 오류:", squareError);
-      console.error("❌ Square 오류 메시지:", squareError.message);
-      console.error("❌ Square 오류 상세:", squareError.errors || "상세 정보 없음");
+      console.timeEnd("Stripe API 호출 시간");
+    } catch (stripeError) {
+      console.error("❌ Stripe API 호출 오류:", stripeError);
+      console.error("❌ Stripe 오류 메시지:", stripeError.message);
+      console.error("❌ Stripe 오류 상세:", stripeError.errors || "상세 정보 없음");
       try {
-        console.error("❌ Square 응답 전체:", JSON.stringify(squareError.response || {}));
+        console.error("❌ Stripe 응답 전체:", JSON.stringify(stripeError.response || {}));
       } catch (jsonError) {
-        console.error("❌ Square 응답(직렬화 불가):", squareError.response);
+        console.error("❌ Stripe 응답(직렬화 불가):", stripeError.response);
       }
       return res.status(400).json({
         success: false,
-        message: "Failed to save card. Square API Error",
-        squareError: squareError.message,
-        details: squareError.errors || []
+        message: "Failed to save card. Stripe API Error",
+        stripeError: stripeError.message,
+        details: stripeError.errors || []
       });
     }
     
-    // Square API 응답 확인 - cardResult가 유효한지 확인
+    // Stripe API 응답 확인 - cardResult가 유효한지 확인
     if (!cardResult) {
-      console.log("❌ 오류: Square API 응답 없음");
+      console.log("❌ 오류: Stripe API 응답 없음");
       return res.status(400).json({
         success: false,
-        message: "Failed to save card. No response from Square API."
+        message: "Failed to save card. No response from Stripe API."
       });
     }
     
     if (cardResult.errors) {
       try {
-        console.error('❌ Square API 오류:', JSON.stringify(cardResult.errors));
+        console.error('❌ Stripe API 오류:', JSON.stringify(cardResult.errors));
       } catch (jsonError) {
-        console.error('❌ Square API 오류(직렬화 불가):', cardResult.errors);
+        console.error('❌ Stripe API 오류(직렬화 불가):', cardResult.errors);
       }
       return res.status(400).json({
         success: false,
-        message: "Failed to save card. Square API Error",
-        squareError: cardResult.errors
+        message: "Failed to save card. Stripe API Error",
+        stripeError: cardResult.errors
       });
     }
     
     // 카드 정보 로깅
     try {
-      console.log("✨ Square API 응답 성공:", JSON.stringify({
+      console.log("✨ Stripe API 응답 성공:", JSON.stringify({
         cardId: cardResult.card.id,
         cardBrand: cardResult.card.cardBrand,
         last4: cardResult.card.last4,
@@ -901,7 +891,7 @@ router.post('/card-save', verifyToken, async (req, res) => {
         expYear: cardResult.card.expYear
       }));
     } catch (jsonError) {
-      console.log("✨ Square API 응답 성공(직렬화 불가)");
+      console.log("✨ Stripe API 응답 성공(직렬화 불가)");
     }
     
     const savedCardId = cardResult.card.id;
@@ -972,7 +962,7 @@ router.post('/card-save', verifyToken, async (req, res) => {
       console.error("❌ DB 저장 오류:", dbError);
       res.status(500).json({ 
         success: false, 
-        message: "Card was created in Square but failed to save in database.",
+        message: "Card was created in Stripe but failed to save in database.",
         cardId: savedCardId
       });
     }

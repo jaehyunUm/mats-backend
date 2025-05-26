@@ -141,7 +141,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
   // Square 계정 정보 확인
   const [ownerInfo] = await db.query(
-    "SELECT square_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+    "SELECT stripe_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
     [dojang_code]
   );
 
@@ -149,7 +149,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: "No Square account connected for this dojang." });
   }
 
-  const ownerAccessToken = ownerInfo[0].square_access_token;
+  const ownerAccessToken = ownerInfo[0].stripe_access_token;
   const locationId = ownerInfo[0].location_id;
 
   const squareClient = createSquareClientWithToken(ownerAccessToken);
