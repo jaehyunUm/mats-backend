@@ -33,19 +33,20 @@ const normalizeBrandName = (brand) => {
     }
   
     try {
-      // ✅ 도장 오너의 Square Access Token 가져오기
+      // ✅ 도장 오너의 Stripe Access Token 가져오기
       const [ownerRow] = await db.query(
-        "SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
+        "SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
         [dojang_code]
       );
   
-      if (!ownerRow.length || !ownerRow[0].stripe_access_token) {
-        return res.status(400).json({ success: false, message: "Dojang owner has not connected Square OAuth" });
+      if (!ownerRow.length || !ownerRow[0].stripe_access_token || !ownerRow[0].stripe_account_id) {
+        return res.status(400).json({ success: false, message: "Dojang owner has not connected Stripe OAuth" });
       }
   
-      const ownerAccessToken = ownerRow[0].stripe_access_token;
-      const squareClient = createSquareClientWithToken(ownerAccessToken);
-      const customersApi = squareClient.customersApi;
+      const stripeAccessToken = ownerRow[0].stripe_access_token;
+      const stripeAccountId = ownerRow[0].stripe_account_id;
+      const Stripe = require('stripe');
+      const stripe = new Stripe(stripeAccessToken);
   
       // ✅ 먼저 DB에서 해당 이메일로 등록된 customer_id 있는지 확인
       const [existing] = await db.query(
@@ -54,19 +55,18 @@ const normalizeBrandName = (brand) => {
       );
   
       if (existing.length > 0 && existing[0].customer_id) {
-        console.log("✅ Existing customer found, skipping Square creation:", existing[0].customer_id);
+        console.log("✅ Existing customer found, skipping Stripe creation:", existing[0].customer_id);
         return res.status(200).json({ success: true, customerId: existing[0].customer_id });
       }
   
-      // ✅ Square 고객 생성
-      const { result: customerResult } = await customersApi.createCustomer({
-        givenName: cardholderName.split(" ")[0],
-        familyName: cardholderName.split(" ").slice(1).join(" ") || "Unknown",
-        emailAddress: email,
+      // ✅ Stripe 고객 생성
+      const customer = await stripe.customers.create({
+        name: cardholderName,
+        email: email,
         metadata: { dojang_code },
       });
   
-      const customerId = customerResult.customer.id;
+      const customerId = customer.id;
   
       // ✅ DB 업데이트
       await db.query(
@@ -76,8 +76,8 @@ const normalizeBrandName = (brand) => {
   
       res.status(200).json({ success: true, customerId });
     } catch (error) {
-      console.error("❌ Error creating customer:", error);
-      res.status(500).json({ success: false, message: "Failed to create customer." });
+      console.error("❌ Error creating customer (Stripe):", error);
+      res.status(500).json({ success: false, message: "Failed to create customer (Stripe)." });
     }
   });
   
@@ -85,93 +85,104 @@ const normalizeBrandName = (brand) => {
 
 
   router.post('/card/save', verifyToken, async (req, res) => {
-    const { cardToken, customerId, ownerId, billingInfo, payment_policy_agreed } = req.body;
+    const { paymentMethodId, parentId, ownerId, billingInfo, payment_policy_agreed } = req.body;
     const { id: userId, dojang_code } = req.user;
-    const parentId = userId; // ✅ 부모 ID로 수정
-  
-    if (!cardToken || !customerId || !billingInfo) {
-        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    // parentId는 프론트에서 오면 사용, 없으면 userId 사용
+    const parent_id = parentId || userId;
+
+    if (!paymentMethodId || !billingInfo) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
-  
+
     const { cardholderName, addressLine1, locality, administrativeDistrictLevel1, postalCode, country } = billingInfo;
-  
     if (!cardholderName || !addressLine1 || !locality || !administrativeDistrictLevel1 || !postalCode || !country) {
-        return res.status(400).json({ success: false, message: 'Missing required billing info fields' });
+      return res.status(400).json({ success: false, message: 'Missing required billing info fields' });
     }
-  
+
     try {
+      // 1. 도장 오너의 Stripe Access Token 가져오기
       const [ownerRow] = await db.query(
-        "SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?",
+        "SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
         [dojang_code]
       );
-      
-      if (!ownerRow.length || !ownerRow[0].stripe_access_token) {
-          return res.status(400).json({ success: false, message: "Dojang owner has not connected Square OAuth" });
+      if (!ownerRow.length || !ownerRow[0].stripe_access_token || !ownerRow[0].stripe_account_id) {
+        return res.status(400).json({ success: false, message: "Dojang owner has not connected Stripe OAuth" });
       }
-      const ownerAccessToken = ownerRow[0].stripe_access_token;
-  
-      const squareClient = createSquareClientWithToken(ownerAccessToken);
-      const cardsApi = squareClient.cardsApi;
-  
-      const { result: cardResult } = await cardsApi.createCard({
-          idempotencyKey: uuidv4(),
-          sourceId: cardToken,
-          card: {
-              cardholderName: billingInfo.cardholderName,
-              billingAddress: {
-                  addressLine1: billingInfo.addressLine1,
-                  locality: billingInfo.locality,
-                  administrativeDistrictLevel1: billingInfo.administrativeDistrictLevel1,
-                  postalCode: billingInfo.postalCode,
-                  country: billingInfo.country,
-              },
-              customerId,
-          },
+      const stripeAccessToken = ownerRow[0].stripe_access_token;
+      const stripeAccountId = ownerRow[0].stripe_account_id;
+
+      // 2. Stripe SDK 인스턴스 생성 (Connected Account)
+      const Stripe = require('stripe');
+      const stripe = new Stripe(stripeAccessToken);
+
+      // 3. paymentMethod를 해당 오너(도장)의 Stripe 계정의 customer에 attach
+      //    (customerId는 프론트에서 오거나, DB에서 찾아야 함)
+      let customerId = req.body.customerId;
+      if (!customerId) {
+        // parents 테이블에서 parent_id로 customer_id 찾기
+        const [parentRow] = await db.query(
+          'SELECT customer_id FROM parents WHERE id = ? AND dojang_code = ?',
+          [parent_id, dojang_code]
+        );
+        if (!parentRow.length || !parentRow[0].customer_id) {
+          return res.status(400).json({ success: false, message: 'No Stripe customer found for this parent.' });
+        }
+        customerId = parentRow[0].customer_id;
+      }
+
+      // 4. paymentMethod attach
+      await stripe.paymentMethods.attach(paymentMethodId, {
+        customer: customerId,
       });
-  
-      const savedCardId = cardResult.card.id;
-      const expiration = `${cardResult.card.expMonth}/${cardResult.card.expYear}`;
-      const lastFour = cardResult.card.last4;
-      const cardBrand = cardResult.card.cardBrand;
-  
-      // ✅ 동의 정보 포함하여 저장
+
+      // 5. paymentMethod를 default로 설정 (선택사항)
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      });
+
+      // 6. 카드 정보 조회
+      const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+      const card = paymentMethod.card;
+      const expiration = `${card.exp_month}/${card.exp_year}`;
+      const lastFour = card.last4;
+      const cardBrand = card.brand;
+
+      // 7. DB에 저장
       const query = `
-      INSERT INTO saved_cards (
+        INSERT INTO saved_cards (
+          parent_id,
+          card_name,
+          expiration,
+          card_token,
+          card_id,
+          card_brand,
+          last_four,
+          dojang_code,
+          customer_id,
+          payment_policy_agreed,
+          payment_policy_agreed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      const queryParams = [
         parent_id,
-        card_name,
+        cardholderName,
         expiration,
-        card_token,
-        card_id,
-        card_brand,
-        last_four,
+        paymentMethodId,
+        paymentMethodId,
+        cardBrand,
+        lastFour,
         dojang_code,
-        customer_id,
-        payment_policy_agreed,
-        payment_policy_agreed_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `;
-  
-  const queryParams = [
-      parentId,
-      cardholderName,
-      expiration,
-      cardToken,
-      savedCardId,
-      cardBrand,
-      lastFour,
-      dojang_code,
-      customerId,
-      payment_policy_agreed ? 1 : 0,
-      payment_policy_agreed ? new Date() : null
-  ];
-  
+        customerId,
+        payment_policy_agreed ? 1 : 0,
+        payment_policy_agreed ? new Date() : null
+      ];
       await db.execute(query, queryParams);
-  
-      res.status(200).json({ success: true, cardId: savedCardId });
+
+      res.status(200).json({ success: true, cardId: paymentMethodId });
     } catch (error) {
-        console.error("❌ ERROR saving card:", error);
-        res.status(500).json({ success: false, message: "Failed to save card." });
+      console.error("❌ ERROR saving card (Stripe):", error);
+      res.status(500).json({ success: false, message: "Failed to save card (Stripe)." });
     }
   });
 
