@@ -465,26 +465,30 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     }
 
     // Stripe 결제 처리
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amountValue * 100),
-      currency,
-      customer: customer_id,
-      payment_method: cardId,
-      off_session: true,
-      confirm: true,
-      metadata: {
-        student_id,
-        parent_id,
-        dojang_code,
-        program_id: program.id,
-        mainPaymentId,
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: Math.round(amountValue * 100),
+        currency,
+        customer: customer_id,
+        payment_method: cardId,
+        off_session: true,
+        confirm: true,
+        metadata: {
+          student_id,
+          parent_id,
+          dojang_code,
+          program_id: program.id,
+          mainPaymentId,
+        },
+        on_behalf_of: stripeAccountId,
+        transfer_data: {
+          destination: stripeAccountId,
+        },
       },
-      idempotencyKey: finalIdempotencyKey,
-      on_behalf_of: stripeAccountId,
-      transfer_data: {
-        destination: stripeAccountId,
-      },
-    });
+      {
+        idempotencyKey: finalIdempotencyKey,
+      }
+    );
 
     if (paymentIntent && paymentIntent.status === "succeeded") {
       // 결제 성공 후 DB 상태 업데이트
