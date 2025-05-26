@@ -70,24 +70,26 @@ router.get('/bank-account/callback', async (req, res) => {
 
     // 딥링크로 앱으로 복귀
    // 딥링크 대신 HTML 페이지 응답
-res.send(`
-  <html>
-    <head>
-      <title>Stripe 연결 완료</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        body { font-family: sans-serif; text-align: center; padding: 50px; }
-        h2 { color: #2ecc71; }
-        a { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #007aff; color: white; text-decoration: none; border-radius: 5px; }
-      </style>
-    </head>
-    <body>
-      <h2>✅ Stripe 연결이 완료되었습니다!</h2>
-      <p>계속하려면 아래 버튼을 눌러 앱으로 돌아가세요.</p>
-      <a href="mats://stripe-connect-success">앱으로 돌아가기</a>
-    </body>
-  </html>
-`);
+   res.send(`
+    <html>
+      <head>
+        <title>Stripe Connection Complete</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { font-family: sans-serif; text-align: center; padding: 50px; }
+          h2 { color: #2ecc71; }
+          button { padding: 10px 20px; background-color: #007aff; color: white; border: none; border-radius: 5px; font-size: 16px; }
+        </style>
+      </head>
+      <body>
+        <h2>✅ Stripe connection completed!</h2>
+        <p>Tap the button below to return to the app.</p>
+        <button onclick="window.ReactNativeWebView.postMessage('mats://stripe-connect-success')">Return to App</button>
+      </body>
+    </html>
+  `);
+  
+  
 
   } catch (error) {
     console.error('❌ Stripe OAuth Error:', error);
