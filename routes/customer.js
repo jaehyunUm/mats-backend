@@ -134,6 +134,11 @@ const normalizeBrandName = (brand) => {
         
         customerId = parentRow[0].customer_id;
       }
+
+      console.log("paymentMethodId:", paymentMethodId);
+console.log("customerId:", customerId);
+console.log("stripeAccountId:", stripeAccountId);
+
       
       // 4. paymentMethod를 Connected Account의 customer에 attach
       await stripe.paymentMethods.attach(
