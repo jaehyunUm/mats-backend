@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { client, customersApi, cardsApi, createSquareClientWithToken} = require('../modules/stripeClient');
+const { client} = require('../modules/stripeClient');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db'); // DB 모듈 확인
 const verifyToken = require('../middleware/verifyToken');
@@ -59,20 +59,22 @@ const normalizeBrandName = (brand) => {
         return res.status(200).json({ success: true, customerId: existing[0].customer_id });
       }
   
-      // ✅ Stripe 고객 생성
+      console.log("🔍 Stripe customer create 요청:", { name: cardholderName, email });
       const customer = await stripe.customers.create({
         name: cardholderName,
         email: email,
         metadata: { dojang_code },
       });
+      console.log("✅ Stripe customer 생성 완료:", customer.id);
   
       const customerId = customer.id;
   
-      // ✅ DB 업데이트
+      console.log("🔍 DB 업데이트 시도:", { customerId, email, dojang_code });
       await db.query(
         `UPDATE parents SET customer_id = ? WHERE email = ? AND dojang_code = ?`,
         [customerId, email, dojang_code]
       );
+      console.log("✅ DB 업데이트 완료");
   
       res.status(200).json({ success: true, customerId });
     } catch (error) {
@@ -203,7 +205,6 @@ const normalizeBrandName = (brand) => {
   
       const dojang_code = user.dojang_code;
 
-
       if (parentId && ownerId) {
         query = 'SELECT * FROM saved_cards WHERE (parent_id = ? OR owner_id = ?) AND dojang_code = ?';
         params = [parentId, ownerId, dojang_code];
@@ -220,38 +221,35 @@ const normalizeBrandName = (brand) => {
       if (!cards.length) {
         return res.json({ success: true, cards: [] });
       }
-  
+
+      // Stripe로 카드 정보 enrich (선택, 없으면 DB 정보만 반환)
+      // 아래는 DB 정보만 반환하는 버전
+      return res.json({ success: true, cards });
+
+      /*
+      // Stripe에서 카드 brand, last4 등 최신 정보 가져오려면 아래처럼 Stripe SDK 사용 가능
+      const [ownerRow] = await db.query(
+        'SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?',
+        [dojang_code]
+      );
+      if (!ownerRow.length) throw new Error('No Stripe token found for this dojang');
+      const stripeAccessToken = ownerRow[0].stripe_access_token;
+      const Stripe = require('stripe');
+      const stripe = new Stripe(stripeAccessToken);
       const cardDetails = await Promise.all(cards.map(async (card) => {
         try {
-          // 도장 오너의 Square Access Token 가져오기
-          const [ownerRow] = await db.query(
-            'SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?',
-            [card.dojang_code]
-          );
-          if (!ownerRow.length) throw new Error('No token found for this dojang');
-      
-          // 해당 오너 토큰으로 Square client 생성
-          const squareClient = createSquareClientWithToken(ownerRow[0].stripe_access_token);
-      
-          // 그 client로 카드 정보 요청
-          const { result } = await squareClient.cardsApi.retrieveCard(card.card_id);
-      
+          const paymentMethod = await stripe.paymentMethods.retrieve(card.card_id);
           return {
             ...card,
-            brand: normalizeBrandName(result.card.cardBrand),
-            last4: result.card.last4,
+            brand: paymentMethod.card.brand,
+            last4: paymentMethod.card.last4,
           };
         } catch (error) {
-          if (error.statusCode === 404) {
-            console.warn(`🔸 Card not found in Square: ${card.card_id}`);
-          } else {
-            console.error(`❌ Error retrieving card ${card.card_id}:`, error);
-          }
-          return { ...card, brand: "Unknown", last4: "****" };
+          return { ...card, brand: 'Unknown', last4: '****' };
         }
       }));
-  
       return res.json({ success: true, cards: cardDetails });
+      */
     } catch (err) {
       console.error('❌ ERROR fetching cards:', err);
       return res.status(500).json({ success: false, message: 'Failed to fetch cards' });
