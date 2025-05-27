@@ -136,11 +136,11 @@ const normalizeBrandName = (brand) => {
       }
       
       // 4. paymentMethod를 Connected Account의 customer에 attach
-      await stripe.paymentMethods.attach(paymentMethodId, {
-        customer: customerId,
-      }, {
-        stripeAccount: stripeAccountId  // Connected Account 지정
-      });
+      await stripe.paymentMethods.attach(
+        paymentMethodId,
+        { customer: customerId },
+        { stripeAccount: stripeAccountId }
+      );
       
       // 5. paymentMethod를 default로 설정 (선택사항)
       await stripe.customers.update(customerId, {
