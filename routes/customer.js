@@ -87,6 +87,8 @@ const normalizeBrandName = (brand) => {
 
 
   router.post('/card/save', verifyToken, async (req, res) => {
+    console.log('🔹 백엔드에서 받은 paymentMethodId:', req.body.paymentMethodId);
+  
     const { paymentMethodId, parentId, ownerId, billingInfo, payment_policy_agreed } = req.body;
     const { id: userId, dojang_code } = req.user;
     
