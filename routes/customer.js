@@ -89,36 +89,37 @@ const normalizeBrandName = (brand) => {
   router.post('/card/save', verifyToken, async (req, res) => {
     const { paymentMethodId, parentId, ownerId, billingInfo, payment_policy_agreed } = req.body;
     const { id: userId, dojang_code } = req.user;
+    
     // parentId는 프론트에서 오면 사용, 없으면 userId 사용
     const parent_id = parentId || userId;
-
+    
     if (!paymentMethodId || !billingInfo) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
-
+    
     const { cardholderName, addressLine1, locality, administrativeDistrictLevel1, postalCode, country } = billingInfo;
     if (!cardholderName || !addressLine1 || !locality || !administrativeDistrictLevel1 || !postalCode || !country) {
       return res.status(400).json({ success: false, message: 'Missing required billing info fields' });
     }
-
+    
     try {
-      // 1. 도장 오너의 Stripe Access Token 가져오기
+      // 1. 도장 오너의 Stripe Account ID 가져오기
       const [ownerRow] = await db.query(
         "SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
         [dojang_code]
       );
-      if (!ownerRow.length || !ownerRow[0].stripe_access_token || !ownerRow[0].stripe_account_id) {
+      
+      if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
         return res.status(400).json({ success: false, message: "Dojang owner has not connected Stripe OAuth" });
       }
-      const stripeAccessToken = ownerRow[0].stripe_access_token;
+      
       const stripeAccountId = ownerRow[0].stripe_account_id;
-
-      // 2. Stripe SDK 인스턴스 생성 (Connected Account)
+      
+      // 2. 플랫폼 기본 Stripe 키로 인스턴스 생성
       const Stripe = require('stripe');
-      const stripe = new Stripe(stripeAccessToken);
-
-      // 3. paymentMethod를 해당 오너(도장)의 Stripe 계정의 customer에 attach
-      //    (customerId는 프론트에서 오거나, DB에서 찾아야 함)
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); // 플랫폼 기본 키 사용
+      
+      // 3. customerId 찾기
       let customerId = req.body.customerId;
       if (!customerId) {
         // parents 테이블에서 parent_id로 customer_id 찾기
@@ -126,30 +127,47 @@ const normalizeBrandName = (brand) => {
           'SELECT customer_id FROM parents WHERE id = ? AND dojang_code = ?',
           [parent_id, dojang_code]
         );
+        
         if (!parentRow.length || !parentRow[0].customer_id) {
           return res.status(400).json({ success: false, message: 'No Stripe customer found for this parent.' });
         }
+        
         customerId = parentRow[0].customer_id;
       }
-
-      // 4. paymentMethod attach
+      
+      // 4. paymentMethod를 Connected Account의 customer에 attach
       await stripe.paymentMethods.attach(paymentMethodId, {
         customer: customerId,
+      }, {
+        stripeAccount: stripeAccountId  // Connected Account 지정
       });
-
+      
       // 5. paymentMethod를 default로 설정 (선택사항)
       await stripe.customers.update(customerId, {
         invoice_settings: { default_payment_method: paymentMethodId },
+      }, {
+        stripeAccount: stripeAccountId  // Connected Account 지정
       });
-
+      
       // 6. 카드 정보 조회
-      const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+      const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId, {
+        stripeAccount: stripeAccountId  // Connected Account 지정
+      });
+      
+      // 7. PaymentMethod 타입 확인
+      if (!paymentMethod.type || paymentMethod.type !== 'card') {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid payment method type. Only card payments are supported.' 
+        });
+      }
+      
       const card = paymentMethod.card;
       const expiration = `${card.exp_month}/${card.exp_year}`;
       const lastFour = card.last4;
       const cardBrand = card.brand;
-
-      // 7. DB에 저장
+      
+      // 8. DB에 저장
       const query = `
         INSERT INTO saved_cards (
           parent_id,
@@ -166,6 +184,7 @@ const normalizeBrandName = (brand) => {
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
+      
       const queryParams = [
         parent_id,
         cardholderName,
@@ -179,12 +198,33 @@ const normalizeBrandName = (brand) => {
         payment_policy_agreed ? 1 : 0,
         payment_policy_agreed ? new Date() : null
       ];
+      
       await db.execute(query, queryParams);
-
-      res.status(200).json({ success: true, cardId: paymentMethodId });
+      
+      res.status(200).json({ 
+        success: true, 
+        cardId: paymentMethodId,
+        message: 'Card saved successfully!'
+      });
+      
     } catch (error) {
       console.error("❌ ERROR saving card (Stripe):", error);
-      res.status(500).json({ success: false, message: "Failed to save card (Stripe)." });
+      
+      // Stripe 에러 메시지를 더 구체적으로 처리
+      let errorMessage = "Failed to save card.";
+      if (error.type === 'StripeCardError') {
+        errorMessage = error.message;
+      } else if (error.code === 'resource_missing') {
+        errorMessage = "Payment method not found. Please try creating a new payment method.";
+      } else if (error.code === 'payment_method_unactivated') {
+        errorMessage = "Payment method is not activated. Please contact support.";
+      }
+      
+      res.status(500).json({ 
+        success: false, 
+        message: errorMessage,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
