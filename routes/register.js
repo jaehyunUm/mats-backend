@@ -138,6 +138,16 @@ router.post('/process-payment', verifyToken, async (req, res) => {
 
   const stripeAccessToken = ownerInfo[0].stripe_access_token;
   const stripeAccountId = ownerInfo[0].stripe_account_id;
+
+  // 플랫폼 계정 ID가 들어가면 안 됨 (예: 환경변수 STRIPE_ACCOUNT_ID 등과 비교)
+  if (!stripeAccountId || stripeAccountId === process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid Stripe Connected Account. Please reconnect Stripe as a dojang owner.",
+      error: "Connected Account ID is missing or is the platform account."
+    });
+  }
+
   const stripe = require("../modules/stripeClient").createStripeClientWithKey(stripeAccessToken);
 
   // 트랜잭션 시작
@@ -463,15 +473,28 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.warn("⚠️ 알 수 없는 결제 유형이 감지되었습니다:", paymentType);
     }
 
-    // Stripe 결제 처리
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+    // 도장 오너의 Stripe Account ID를 DB에서 조회
+    const [ownerInfo] = await db.query(
+      "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
+      [dojang_code]
+    );
+    if (!ownerInfo.length) {
+      return res.status(400).json({ success: false, message: "No Stripe account connected for this dojang." });
+    }
+    const stripeAccountId = ownerInfo[0].stripe_account_id;
+    
     const paymentIntent = await stripe.paymentIntents.create(
       {
-        amount: Math.round(amountValue * 100),
-        currency,
+        amount: Math.round(amountValue * 100), // 결제금액 (단위: 센트)
+        currency: 'usd',
         customer: customer_id,
         payment_method: cardId,
-        off_session: true,
         confirm: true,
+        off_session: true,
+        on_behalf_of: stripeAccountId, // 도장 오너의 커넥티드 계정 ID
+        transfer_data: { destination: stripeAccountId },
         metadata: {
           student_id,
           parent_id,
@@ -479,16 +502,12 @@ router.post('/process-payment', verifyToken, async (req, res) => {
           program_id: program.id,
           mainPaymentId,
         },
-        on_behalf_of: stripeAccountId,
-        transfer_data: {
-          destination: stripeAccountId,
-        },
       },
       {
-        idempotencyKey: finalIdempotencyKey,
-        stripeAccount: stripeAccountId,  // ✅ 반드시 필요!
+        stripeAccount: stripeAccountId, // 반드시 커넥티드 계정 ID!
       }
     );
+    
 
     if (paymentIntent && paymentIntent.status === "succeeded") {
       // 결제 성공 후 DB 상태 업데이트
