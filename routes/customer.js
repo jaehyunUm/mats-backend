@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { client} = require('../modules/stripeClient');
+const { client, createSetupIntentForConnectedAccount} = require('../modules/stripeClient');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db'); // DB 모듈 확인
 const verifyToken = require('../middleware/verifyToken');
@@ -23,6 +23,15 @@ const normalizeBrandName = (brand) => {
 };
   
 
+  router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
+    const { customerId, stripeAccountId } = req.body;
+  try {
+    const setupIntent = await createSetupIntentForConnectedAccount(customerId, stripeAccountId);
+    res.json({ clientSecret: setupIntent.client_secret });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to create SetupIntent' });
+  }
+});
 
   router.post('/customer/create', verifyToken, async (req, res) => {
     const { email, cardholderName } = req.body;

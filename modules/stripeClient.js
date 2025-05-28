@@ -1,4 +1,3 @@
-// squareClient.js
 const stripe = require('stripe');
 require('dotenv').config();
 const crypto = require("crypto");
@@ -82,6 +81,26 @@ const checkStripeScopes = async (accessToken) => {
   }
 };
 
+// Connected Account용 SetupIntent 생성
+const createSetupIntentForConnectedAccount = async (customerId, stripeAccountId) => {
+  try {
+    const setupIntent = await client.setupIntents.create(
+      {
+        customer: customerId,
+        usage: 'off_session',
+      },
+      {
+        stripeAccount: stripeAccountId,
+      }
+    );
+    console.log("✅ SetupIntent created for Connected Account:", setupIntent.id);
+    return setupIntent;
+  } catch (error) {
+    console.error("❌ Error creating SetupIntent for Connected Account:", error);
+    throw error;
+  }
+};
+
 // 필요한 Stripe API 모듈 추출
 const { accounts, customers, paymentMethods, subscriptions, charges } = client;
 
@@ -97,4 +116,5 @@ module.exports = {
   generateOAuthLink,
   checkStripeScopes,
   createStripeClientWithKey,
+  createSetupIntentForConnectedAccount,
 };
