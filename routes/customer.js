@@ -53,7 +53,15 @@ router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
     });
     const setupIntent = await createSetupIntentForConnectedAccount(customerId, stripeAccountId);
     console.log("✅ SetupIntent created:", setupIntent.id);
-    res.json({ clientSecret: setupIntent.client_secret });
+    console.log("✅ Client Secret:", setupIntent.client_secret);
+    
+    // 응답 형식 수정
+    res.json({ 
+      success: true,
+      clientSecret: setupIntent.client_secret,
+      setupIntentId: setupIntent.id,
+      status: setupIntent.status
+    });
   } catch (err) {
     console.error('❌ [SetupIntent] Failed to create SetupIntent:', err);
     console.error('❌ [SetupIntent] Error details:', {
@@ -154,7 +162,7 @@ router.post('/customer/create', verifyToken, async (req, res) => {
     }
     
     try {
-      // 1. 도장 오너의 Stripe Account ID 가져오기
+      // 1. 도장 오너의 Stripe Account ID 가져오기 (프론트에서 stripeAccountId를 받지 않고, dojang_code로만 조회)
       const [ownerRow] = await db.query(
         "SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
         [dojang_code]
