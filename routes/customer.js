@@ -24,13 +24,25 @@ const normalizeBrandName = (brand) => {
   
 
 router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
-  const { customerId, stripeAccountId } = req.body;
-  console.log('🔍 [SetupIntent] Received customerId:', customerId, 'stripeAccountId:', stripeAccountId);
+  const { customerId } = req.body;
+  const { dojang_code } = req.user;
+
   try {
-    // Stripe의 eventual consistency 문제 방지: 1초 대기
+    // 1. 도장 오너의 Stripe Account ID 조회
+    const [ownerRow] = await db.query(
+      "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
+      [dojang_code]
+    );
+    if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
+      return res.status(400).json({ success: false, message: "Stripe not connected" });
+    }
+    const stripeAccountId = ownerRow[0].stripe_account_id;
+
+    // 2. Stripe의 eventual consistency 문제 방지: 1초 대기
     await new Promise(r => setTimeout(r, 1000));
+
+    // 3. SetupIntent 생성
     const setupIntent = await createSetupIntentForConnectedAccount(customerId, stripeAccountId);
-    console.log('✅ [SetupIntent] Created for customer:', customerId, 'in account:', stripeAccountId, 'clientSecret:', setupIntent.client_secret);
     res.json({ clientSecret: setupIntent.client_secret });
   } catch (err) {
     console.error('❌ [SetupIntent] Failed to create SetupIntent:', err);
