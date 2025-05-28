@@ -33,64 +33,64 @@ const normalizeBrandName = (brand) => {
   }
 });
 
-  router.post('/customer/create', verifyToken, async (req, res) => {
-    const { email, cardholderName } = req.body;
-    const { dojang_code } = req.user;
-  
-    if (!email || !cardholderName) {
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // 플랫폼 키로 초기화
+
+router.post('/customer/create', verifyToken, async (req, res) => {
+  const { email, cardholderName } = req.body;
+  const { dojang_code } = req.user;
+
+  if (!email || !cardholderName) {
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+
+  try {
+    // ✅ 도장 오너의 Stripe 계정 ID 가져오기
+    const [ownerRow] = await db.query(
+      "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
+      [dojang_code]
+    );
+
+    if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
+      return res.status(400).json({ success: false, message: "Stripe not connected" });
     }
-  
-    try {
-      // ✅ 도장 오너의 Stripe Access Token 가져오기
-      const [ownerRow] = await db.query(
-        "SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
-        [dojang_code]
-      );
-  
-      if (!ownerRow.length || !ownerRow[0].stripe_access_token || !ownerRow[0].stripe_account_id) {
-        return res.status(400).json({ success: false, message: "Dojang owner has not connected Stripe OAuth" });
-      }
-  
-      const stripeAccessToken = ownerRow[0].stripe_access_token;
-      const stripeAccountId = ownerRow[0].stripe_account_id;
-      const Stripe = require('stripe');
-      const stripe = new Stripe(stripeAccessToken);
-  
-      // ✅ 먼저 DB에서 해당 이메일로 등록된 customer_id 있는지 확인
-      const [existing] = await db.query(
-        `SELECT customer_id FROM parents WHERE email = ? AND dojang_code = ? AND customer_id IS NOT NULL`,
-        [email, dojang_code]
-      );
-  
-      if (existing.length > 0 && existing[0].customer_id) {
-        console.log("✅ Existing customer found, skipping Stripe creation:", existing[0].customer_id);
-        return res.status(200).json({ success: true, customerId: existing[0].customer_id });
-      }
-  
-      console.log("🔍 Stripe customer create 요청:", { name: cardholderName, email });
-      const customer = await stripe.customers.create({
-        name: cardholderName,
-        email: email,
-        metadata: { dojang_code },
-      });
-      console.log("✅ Stripe customer 생성 완료:", customer.id);
-  
-      const customerId = customer.id;
-  
-      console.log("🔍 DB 업데이트 시도:", { customerId, email, dojang_code });
-      await db.query(
-        `UPDATE parents SET customer_id = ? WHERE email = ? AND dojang_code = ?`,
-        [customerId, email, dojang_code]
-      );
-      console.log("✅ DB 업데이트 완료");
-  
-      res.status(200).json({ success: true, customerId });
-    } catch (error) {
-      console.error("❌ Error creating customer (Stripe):", error);
-      res.status(500).json({ success: false, message: "Failed to create customer (Stripe)." });
+
+    const stripeAccountId = ownerRow[0].stripe_account_id;
+
+    // ✅ 이미 존재하는 customer 체크
+    const [existing] = await db.query(
+      `SELECT customer_id FROM parents WHERE email = ? AND dojang_code = ? AND customer_id IS NOT NULL`,
+      [email, dojang_code]
+    );
+
+    if (existing.length > 0 && existing[0].customer_id) {
+      console.log("✅ Existing customer:", existing[0].customer_id);
+      return res.status(200).json({ success: true, customerId: existing[0].customer_id });
     }
-  });
+
+    // ✅ 연결된 계정에서 customer 생성
+    const customer = await stripe.customers.create({
+      name: cardholderName,
+      email,
+      metadata: { dojang_code },
+    }, {
+      stripeAccount: stripeAccountId  // ⬅️ 핵심: 연결된 계정 지정
+    });
+
+    console.log("✅ Created connected customer:", customer.id);
+
+    // ✅ DB 저장
+    await db.query(
+      `UPDATE parents SET customer_id = ? WHERE email = ? AND dojang_code = ?`,
+      [customer.id, email, dojang_code]
+    );
+
+    return res.status(200).json({ success: true, customerId: customer.id });
+  } catch (error) {
+    console.error("❌ Error creating customer in connected account:", error);
+    return res.status(500).json({ success: false, message: "Failed to create customer" });
+  }
+});
+
   
   
 
