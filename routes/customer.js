@@ -33,10 +33,12 @@ router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
       "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
       [dojang_code]
     );
+    console.log("🔍 [Debug] ownerRow:", ownerRow);
     if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
       return res.status(400).json({ success: false, message: "Stripe not connected" });
     }
     const stripeAccountId = ownerRow[0].stripe_account_id;
+    console.log("🔍 [Debug] Retrieved stripeAccountId:", stripeAccountId);
 
     // 2. Stripe의 eventual consistency 문제 방지: 1초 대기
     await new Promise(r => setTimeout(r, 1000));
