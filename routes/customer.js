@@ -371,177 +371,100 @@ console.log("stripeAccountId:", stripeAccountId);
     }
   });
   
-  
-  
-  
-  
-  
-router.get("/card/details/:cardId", verifyToken, async (req, res) => {
-    const { cardId } = req.params;
-  
-    if (!cardId) {
-        console.error("Card ID is missing in the request.")
-      return res.status(400).json({ success: false, message: "Card ID is required." });
-    }
-    console.log("Fetching card details for Card ID:", cardId);
 
-    try {
-      const [card] = await db.query(
-        "SELECT card_name, expiration, card_id FROM saved_cards WHERE card_id = ? AND parent_id = ?",
-        [cardId, req.parentId]
-      );
   
-      if (!card) {
-        return res.status(404).json({ success: false, message: "Card not found." });
-      }
-  
-      // Square API를 통해 추가 카드 세부 정보 가져오기
-      try {
-        const { result } = await client.cardsApi.retrieveCard(card.card_id);
-        console.log("Square API Response:", result.card);
-
-       
-        return res.status(200).json({
-          success: true,
-          card: {
-            ...card,
-            brand: normalizeBrandName(result.card.cardBrand),
-            last4: result.card.last4,
-          },
-        });
-      } catch (error) {
-        console.error(`Failed to fetch card details from Square API for card ID ${cardId}:`, error);
-        return res.status(500).json({ success: false, message: "Failed to fetch card details." });
-      }
-    } catch (error) {
-      console.error("Error fetching card details:", error);
-      res.status(500).json({ success: false, message: "Failed to fetch card details." });
-    }
-  });
-  
-  // ✅ 카드 삭제 API
+  // ✅ Stripe 카드 삭제 API (부모/학생)
   router.delete("/cards/:card_id", verifyToken, async (req, res) => {
     const { card_id } = req.params;
     const { id: parentId, dojang_code } = req.user;
-  
+
     try {
-      // ✅ Square OAuth Access Token 가져오기
-      const [ownerRow] = await db.query("SELECT stripe_access_token FROM owner_bank_accounts WHERE dojang_code = ?", [dojang_code]);
-      if (!ownerRow.length || !ownerRow[0].stripe_access_token) {
-        return res.status(400).json({ success: false, message: "Dojang owner has not connected Square OAuth" });
+      // 1. 도장 오너의 Stripe Account ID 가져오기
+      const [ownerRow] = await db.query("SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?", [dojang_code]);
+      if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
+        return res.status(400).json({ success: false, message: "Dojang owner has not connected Stripe" });
       }
-      const squareAccessToken = ownerRow[0].stripe_access_token;
-  
+      const stripeAccountId = ownerRow[0].stripe_account_id;
 
-     // ✅ Square 카드 삭제 요청
-const deleteResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}`, {
-  method: "DELETE",
-  headers: {
-    "Authorization": `Bearer ${squareAccessToken}`,
-    "Content-Type": "application/json",
-  },
-});
+      // 2. saved_cards에서 customer_id 조회
+      const [cardRow] = await db.query("SELECT customer_id FROM saved_cards WHERE card_id = ? AND parent_id = ?", [card_id, parentId]);
+      if (!cardRow.length) {
+        return res.status(404).json({ success: false, message: "Card not found in database" });
+      }
+      const customerId = cardRow[0].customer_id;
 
-const responseData = await deleteResponse.json();
-console.log("🔹 Square API Response:", responseData);
+      // 3. Stripe에서 paymentMethod detach
+      const Stripe = require('stripe');
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      try {
+        await stripe.paymentMethods.detach(card_id, { stripeAccount: stripeAccountId });
+      } catch (err) {
+        // 이미 detach된 경우 무시
+        if (err.code !== 'resource_missing') {
+          console.error("❌ Stripe detach error:", err);
+          return res.status(400).json({ success: false, message: "Failed to detach card in Stripe", stripeError: err.message });
+        }
+      }
 
-// 🔁 카드가 이미 없어도 DB에서는 삭제 진행
-if (!deleteResponse.ok && deleteResponse.status !== 404) {
-  return res.status(400).json({
-    success: false,
-    message: "Failed to delete card from Square",
-    squareError: responseData,
-  });
-}
-
-  
-      // ✅ 데이터베이스에서도 삭제
+      // 4. DB에서 삭제
       const deleteQuery = "DELETE FROM saved_cards WHERE card_id = ? AND parent_id = ?";
       const [result] = await db.query(deleteQuery, [card_id, parentId]);
-  
       if (result.affectedRows === 0) {
         return res.status(404).json({ success: false, message: "Card not found in database" });
       }
-  
-      res.json({ success: true, message: "Card deleted successfully" });
+      res.json({ success: true, message: "Card deleted successfully (Stripe)" });
     } catch (error) {
-      console.error("❌ Error deleting card:", error);
+      console.error("❌ Error deleting card (Stripe):", error);
       res.status(500).json({ success: false, message: "Internal server error" });
     }
   });
-  
-  
+
+  // ✅ Stripe 카드 삭제 API (오너)
   router.delete("/owner-cards/:card_id", verifyToken, async (req, res) => {
     const { card_id } = req.params;
-    const { owner_id } = req.body; // ✅ 프론트엔드에서 보낸 owner_id 가져오기
-  
+    const { owner_id } = req.body; // 프론트엔드에서 보낸 owner_id 가져오기
+    const { dojang_code } = req.user;
+
     if (!owner_id) {
       return res.status(400).json({ success: false, message: "Missing owner ID in request body" });
     }
-  
+
     try {
-      console.log("🛠 Deleting card with ID:", card_id, "for Owner ID:", owner_id);
-  
-      // 1️⃣ ✅ DB에서 카드가 owner_id에 속해 있는지 확인
-      const [rows] = await db.query(
-        "SELECT customer_id FROM saved_cards WHERE card_id = ? AND owner_id = ?",
-        [card_id, owner_id]
-      );
-  
-      if (rows.length === 0) {
+      // 1. 도장 오너의 Stripe Account ID 가져오기
+      const [ownerRow] = await db.query("SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?", [dojang_code]);
+      if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
+        return res.status(400).json({ success: false, message: "Dojang owner has not connected Stripe" });
+      }
+      const stripeAccountId = ownerRow[0].stripe_account_id;
+
+      // 2. saved_cards에서 customer_id 조회
+      const [cardRow] = await db.query("SELECT customer_id FROM saved_cards WHERE card_id = ? AND owner_id = ?", [card_id, owner_id]);
+      if (!cardRow.length) {
         return res.status(404).json({ success: false, message: "Card not found for this owner" });
       }
-  
-      const { customer_id } = rows[0];
-  
-      // 2️⃣ ✅ Square API에서 카드 존재 여부 확인
-      const checkCardResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`,
-          "Content-Type": "application/json",
-        },
-      });
-  
-      const cardData = await checkCardResponse.json();
-      console.log("🔹 Square API Card Lookup Response:", cardData);
-  
-      if (!checkCardResponse.ok) {
-        return res.status(400).json({ success: false, message: "Card not found in Square", squareError: cardData });
+      const customerId = cardRow[0].customer_id;
+
+      // 3. Stripe에서 paymentMethod detach
+      const Stripe = require('stripe');
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      try {
+        await stripe.paymentMethods.detach(card_id, { stripeAccount: stripeAccountId });
+      } catch (err) {
+        if (err.code !== 'resource_missing') {
+          console.error("❌ Stripe detach error:", err);
+          return res.status(400).json({ success: false, message: "Failed to detach card in Stripe", stripeError: err.message });
+        }
       }
-  
-      const disableResponse = await fetch(`https://connect.squareup.com/v2/cards/${card_id}/disable`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`,
-          "Content-Type": "application/json",
-        },
-      });
-      
-      const responseData = await disableResponse.json();
-      console.log("🔹 Square API Disable Response:", responseData);
-      
-      if (!disableResponse.ok) {
-        return res.status(400).json({ success: false, message: "Failed to disable card in Square", squareError: responseData });
+
+      // 4. DB에서 삭제
+      const deleteQuery = "DELETE FROM saved_cards WHERE card_id = ? AND owner_id = ?";
+      const [result] = await db.query(deleteQuery, [card_id, owner_id]);
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: "Card not found in database" });
       }
-      
-  
-     // 4️⃣ ✅ MySQL에서 카드 삭제
-const deleteQuery = "DELETE FROM saved_cards WHERE card_id = ? AND owner_id = ?";
-const [result] = await db.query(deleteQuery, [card_id, owner_id]);
-
-console.log("🗑️ Deleting card from DB:", card_id, "for Owner ID:", owner_id); // ✅ 로그 추가
-
-if (result.affectedRows === 0) {
-  console.error("❌ Card not found in database, unable to delete:", card_id);
-  return res.status(404).json({ success: false, message: "Card not found in database" });
-}
-
-console.log("✅ Card successfully deleted from database:", card_id);
-
-      res.json({ success: true, message: "Card deleted successfully" });
+      res.json({ success: true, message: "Card deleted successfully (Stripe)" });
     } catch (error) {
-      console.error("❌ Error deleting card:", error);
+      console.error("❌ Error deleting card (Stripe):", error);
       res.status(500).json({ success: false, message: "Internal server error" });
     }
   });
