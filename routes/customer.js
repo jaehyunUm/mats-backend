@@ -116,6 +116,8 @@ router.post('/customer/create', verifyToken, async (req, res) => {
     }
 
     // ✅ 연결된 계정에서 customer 생성
+    const Stripe = require('stripe');
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); // 여기서 Secret Key 필요!
     const customer = await stripe.customers.create({
       name: cardholderName,
       email,
@@ -140,13 +142,22 @@ router.post('/customer/create', verifyToken, async (req, res) => {
 });
 
   
-  
+
+router.get('/stripe/account-id', verifyToken, async (req, res) => {
+  const { dojang_code } = req.user;  // 또는 query에서 받으면 req.query.dojang_code
+  const [row] = await db.query(
+    'SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?',
+    [dojang_code]
+  );
+  if (!row.length) return res.status(404).json({ success: false, message: 'Not found' });
+  res.json({ success: true, stripeAccountId: row[0].stripe_account_id });
+});
 
 
   router.post('/card/save', verifyToken, async (req, res) => {
     console.log('🔹 백엔드에서 받은 paymentMethodId:', req.body.paymentMethodId);
   
-    const { paymentMethodId, parentId, ownerId, billingInfo, payment_policy_agreed } = req.body;
+    const { paymentMethodId, parentId, billingInfo, payment_policy_agreed } = req.body;
     const { id: userId, dojang_code } = req.user;
     
     // parentId는 프론트에서 오면 사용, 없으면 userId 사용
