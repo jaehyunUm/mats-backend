@@ -23,17 +23,20 @@ const normalizeBrandName = (brand) => {
 };
   
 
-  router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
-    const { customerId, stripeAccountId } = req.body;
+router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
+  const { customerId, stripeAccountId } = req.body;
+  console.log('🔍 [SetupIntent] Received customerId:', customerId, 'stripeAccountId:', stripeAccountId);
   try {
+    // Stripe의 eventual consistency 문제 방지: 1초 대기
+    await new Promise(r => setTimeout(r, 1000));
     const setupIntent = await createSetupIntentForConnectedAccount(customerId, stripeAccountId);
+    console.log('✅ [SetupIntent] Created for customer:', customerId, 'in account:', stripeAccountId, 'clientSecret:', setupIntent.client_secret);
     res.json({ clientSecret: setupIntent.client_secret });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to create SetupIntent' });
+    console.error('❌ [SetupIntent] Failed to create SetupIntent:', err);
+    res.status(500).json({ success: false, message: 'Failed to create SetupIntent', error: err.message, stripeError: err });
   }
 });
-
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // 플랫폼 키로 초기화
 
 router.post('/customer/create', verifyToken, async (req, res) => {
   const { email, cardholderName } = req.body;
