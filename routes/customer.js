@@ -28,6 +28,9 @@ router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   try {
+    console.log("🔍 [SetupIntent] Received customerId:", customerId);
+    console.log("🔍 [SetupIntent] Received dojang_code:", dojang_code);
+
     // 1. 도장 오너의 Stripe Account ID 조회
     const [ownerRow] = await db.query(
       "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
@@ -44,11 +47,31 @@ router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
     await new Promise(r => setTimeout(r, 1000));
 
     // 3. SetupIntent 생성
+    console.log("🔍 [SetupIntent] Creating SetupIntent with:", {
+      customerId,
+      stripeAccountId
+    });
     const setupIntent = await createSetupIntentForConnectedAccount(customerId, stripeAccountId);
+    console.log("✅ SetupIntent created:", setupIntent.id);
     res.json({ clientSecret: setupIntent.client_secret });
   } catch (err) {
     console.error('❌ [SetupIntent] Failed to create SetupIntent:', err);
-    res.status(500).json({ success: false, message: 'Failed to create SetupIntent', error: err.message, stripeError: err });
+    console.error('❌ [SetupIntent] Error details:', {
+      type: err.type,
+      code: err.code,
+      message: err.message,
+      raw: err.raw
+    });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create SetupIntent', 
+      error: err.message,
+      stripeError: {
+        type: err.type,
+        code: err.code,
+        message: err.message
+      }
+    });
   }
 });
 
