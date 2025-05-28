@@ -2,10 +2,8 @@ const stripe = require('stripe');
 require('dotenv').config();
 const crypto = require("crypto");
 
-// Stripe 클라이언트 초기화
-const client = stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2023-10-16',
-});
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);  // 플랫폼 계정 키
+
 
 const createStripeClientWithKey = (secretKey) => {
   return stripe(secretKey, {
@@ -84,19 +82,19 @@ const checkStripeScopes = async (accessToken) => {
 // Connected Account용 SetupIntent 생성
 const createSetupIntentForConnectedAccount = async (customerId, stripeAccountId) => {
   try {
-    const setupIntent = await client.setupIntents.create(
+    const setupIntent = await stripe.setupIntents.create(
       {
         customer: customerId,
         usage: 'off_session',
       },
       {
-        stripeAccount: stripeAccountId,
+        stripeAccount: stripeAccountId,  // Connected Account 지정
       }
     );
-    console.log("✅ SetupIntent created for Connected Account:", setupIntent.id);
+    console.log("✅ SetupIntent created:", setupIntent.id);
     return setupIntent;
   } catch (error) {
-    console.error("❌ Error creating SetupIntent for Connected Account:", error);
+    console.error("❌ Failed to create SetupIntent:", error.message);
     throw error;
   }
 };
