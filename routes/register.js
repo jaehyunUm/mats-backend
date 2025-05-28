@@ -486,6 +486,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       },
       {
         idempotencyKey: finalIdempotencyKey,
+        stripeAccount: stripeAccountId,  // ✅ 반드시 필요!
       }
     );
 
