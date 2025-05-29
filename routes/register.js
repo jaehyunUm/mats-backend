@@ -3,9 +3,7 @@ const db = require('../db'); // 데이터베이스 연결 파일
 const router = express.Router();
 const uuidv4 = require('uuid').v4;
 const verifyToken = require('../middleware/verifyToken');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-  
 router.post("/register-student", verifyToken, async (req, res) => {
   try {
     const { first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id } = req.body;
@@ -147,8 +145,6 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       error: "Connected Account ID is missing or is the platform account."
     });
   }
-
-  const stripe = require("../modules/stripeClient").createStripeClientWithKey(stripeAccessToken);
 
   // 트랜잭션 시작
   let connection;
@@ -473,7 +469,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       console.warn("⚠️ 알 수 없는 결제 유형이 감지되었습니다:", paymentType);
     }
 
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+   
 
     // 도장 오너의 Stripe Account ID를 DB에서 조회
     const [ownerInfo] = await db.query(
@@ -489,7 +485,9 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     }
     const stripeAccountId = ownerInfo[0].stripe_account_id;
   
-    // Stripe 결제
+
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+   
     const paymentIntent = await stripe.paymentIntents.create(
       {
         amount: Math.round(amountValue * 100),

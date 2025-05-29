@@ -7,12 +7,7 @@ const platformStripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2023-10-16',
 });
 
-// ✅ Connected Account 전용 인스턴스를 만들 수 있도록 함수
-const createStripeClientWithKey = (secretKey) => {
-  return new Stripe(secretKey, {
-    apiVersion: '2023-10-16',
-  });
-};
+
 
 const generateOAuthLink = (redirectUri, dojangCode) => {
   const clientId = process.env.STRIPE_CLIENT_ID;
@@ -93,7 +88,7 @@ const createSetupIntentForConnectedAccount = async (customerId, stripeAccountId)
 
 module.exports = {
   platformStripe,
-  createStripeClientWithKey,
+
   generateOAuthLink,
   refreshStripeAccessToken,
   checkStripeScopes,
