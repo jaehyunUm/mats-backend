@@ -3,6 +3,7 @@ const db = require('../db'); // 데이터베이스 연결 파일
 const router = express.Router();
 const uuidv4 = require('uuid').v4;
 const verifyToken = require('../middleware/verifyToken');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
   
 router.post("/register-student", verifyToken, async (req, res) => {
@@ -128,10 +129,9 @@ router.post('/process-payment', verifyToken, async (req, res) => {
 
   // Stripe 계정 정보 확인
   const [ownerInfo] = await db.query(
-    "SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
+    "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
     [dojang_code]
   );
-
   if (!ownerInfo.length) {
     return res.status(400).json({ success: false, message: "No Stripe account connected for this dojang." });
   }
@@ -480,31 +480,30 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
       [dojang_code]
     );
-    if (!ownerInfo.length) {
-      return res.status(400).json({ success: false, message: "No Stripe account connected for this dojang." });
+    if (!ownerInfo.length || !ownerInfo[0].stripe_account_id || ownerInfo[0].stripe_account_id === process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Stripe Connected Account. Please reconnect Stripe as a dojang owner.",
+        error: "Connected Account ID is missing or is the platform account."
+      });
     }
     const stripeAccountId = ownerInfo[0].stripe_account_id;
-    
+  
+    // Stripe 결제
     const paymentIntent = await stripe.paymentIntents.create(
       {
-        amount: Math.round(amountValue * 100), // 결제금액 (단위: 센트)
+        amount: Math.round(amountValue * 100),
         currency: 'usd',
         customer: customer_id,
         payment_method: cardId,
         confirm: true,
         off_session: true,
-        on_behalf_of: stripeAccountId, // 도장 오너의 커넥티드 계정 ID
+        on_behalf_of: stripeAccountId,
         transfer_data: { destination: stripeAccountId },
-        metadata: {
-          student_id,
-          parent_id,
-          dojang_code,
-          program_id: program.id,
-          mainPaymentId,
-        },
+        metadata: { /* ... */ }
       },
       {
-        stripeAccount: stripeAccountId, // 반드시 커넥티드 계정 ID!
+        stripeAccount: stripeAccountId
       }
     );
     
