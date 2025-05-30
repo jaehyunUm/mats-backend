@@ -472,7 +472,6 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       payment_method: cardId,
       confirm: true,
       off_session: true,
-      transfer_data: { destination: connectedAccountId },
       metadata: { /* ... */ }
     },
     {
