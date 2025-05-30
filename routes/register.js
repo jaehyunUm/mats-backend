@@ -471,39 +471,34 @@ router.post('/process-payment', verifyToken, async (req, res) => {
 
    
 
-    // 도장 오너의 Stripe Account ID를 DB에서 조회
-    const [ownerInfo] = await db.query(
-      "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
-      [dojang_code]
-    );
-    if (!ownerInfo.length || !ownerInfo[0].stripe_account_id || ownerInfo[0].stripe_account_id === process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid Stripe Connected Account. Please reconnect Stripe as a dojang owner.",
-        error: "Connected Account ID is missing or is the platform account."
-      });
-    }
-    const stripeAccountId = ownerInfo[0].stripe_account_id;
-  
+    // DB에서 stripe_account_id 조회
+  const [rows] = await db.execute(
+    'SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?',
+    [dojang_code]
+  );
 
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-   
-    const paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: Math.round(amountValue * 100),
-        currency: 'usd',
-        customer: customer_id,
-        payment_method: cardId,
-        confirm: true,
-        off_session: true,
-        on_behalf_of: stripeAccountId,
-        transfer_data: { destination: stripeAccountId },
-        metadata: { /* ... */ }
-      },
-      {
-        stripeAccount: stripeAccountId
-      }
-    );
+  if (rows.length === 0) {
+    return res.status(400).json({ success: false, message: 'No connected Stripe account found.' });
+  }
+
+  const connectedAccountId = rows[0].stripe_account_id;
+
+  // Stripe 결제
+  const paymentIntent = await stripe.paymentIntents.create(
+    {
+      amount: Math.round(amountValue * 100),
+      currency: 'usd',
+      customer: customer_id,
+      payment_method: cardId,
+      confirm: true,
+      off_session: true,
+      transfer_data: { destination: connectedAccountId },
+      metadata: { /* ... */ }
+    },
+    {
+      stripeAccount: connectedAccountId
+    }
+  );
     
 
     if (paymentIntent && paymentIntent.status === "succeeded") {
