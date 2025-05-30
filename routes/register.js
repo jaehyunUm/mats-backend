@@ -126,27 +126,6 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: "Dojang code is missing from the request" });
   }
 
-  // Stripe 계정 정보 확인
-  const [ownerInfo] = await db.query(
-    "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
-    [dojang_code]
-  );
-  if (!ownerInfo.length) {
-    return res.status(400).json({ success: false, message: "No Stripe account connected for this dojang." });
-  }
-
-  const stripeAccessToken = ownerInfo[0].stripe_access_token;
-  const stripeAccountId = ownerInfo[0].stripe_account_id;
-
-  // 플랫폼 계정 ID가 들어가면 안 됨 (예: 환경변수 STRIPE_ACCOUNT_ID 등과 비교)
-  if (!stripeAccountId || stripeAccountId === process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid Stripe Connected Account. Please reconnect Stripe as a dojang owner.",
-      error: "Connected Account ID is missing or is the platform account."
-    });
-  }
-
   // 트랜잭션 시작
   let connection;
   try {
