@@ -3,6 +3,7 @@ const db = require('../db'); // 데이터베이스 연결 파일
 const router = express.Router();
 const uuidv4 = require('uuid').v4;
 const verifyToken = require('../middleware/verifyToken');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 router.post("/register-student", verifyToken, async (req, res) => {
   try {
