@@ -88,7 +88,6 @@ const createSetupIntentForConnectedAccount = async (customerId, stripeAccountId)
 
 module.exports = {
   platformStripe,
-
   generateOAuthLink,
   refreshStripeAccessToken,
   checkStripeScopes,
