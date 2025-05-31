@@ -45,33 +45,27 @@ router.post('/payment', verifyToken, async (req, res) => {
       card_id
     });
 
-    // ✅ Stripe 결제 생성
-    const paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: Math.round(amountValue * 100), // 센트 단위로 변환
-        currency: 'usd',
-        customer: customer_id,
-        payment_method: card_id,
-        confirm: true,
-        off_session: true,
-        transfer_data: { 
-          destination: connectedAccountId 
-        },
-        metadata: {
-          student_id: student_id.toString(),
-          parent_id: parent_id ? parent_id.toString() : '',
-          dojang_code,
-          item_id: itemId.toString(),
-          size,
-          quantity: quantity.toString(),
-          payment_type: 'item_purchase'
-        }
-      },
-      {
-        stripeAccount: connectedAccountId,
-        idempotencyKey // Stripe 헤더로 전달
+    // ✅ 도장 오너 계정에서 직접 결제 처리 (Direct Charge)
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amountValue * 100), // 센트 단위로 변환
+      currency: 'usd',
+      customer: customer_id,
+      payment_method: card_id,
+      confirm: true,
+      off_session: true,
+      metadata: {
+        student_id: student_id.toString(),
+        parent_id: parent_id ? parent_id.toString() : '',
+        dojang_code,
+        item_id: itemId.toString(),
+        size,
+        quantity: quantity.toString(),
+        payment_type: 'item_purchase'
       }
-    );
+    }, {
+      stripeAccount: connectedAccountId, // 도장 오너 계정에서 직접 처리
+      idempotencyKey
+    });
 
     // 결제 상태 확인
     if (!paymentIntent || paymentIntent.status !== 'succeeded') {
