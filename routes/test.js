@@ -182,35 +182,40 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     const mainPaymentId = uuidv4();
     const finalIdempotencyKey = idempotencyKey || uuidv4();
 
-    // 테스트 비용 저장 (test_payments 테이블)
+    // 테스트 비용 저장 (test_payments 테이블) - 임시 source_id로 저장
     const testFeeValue = '0.01'; // 테스트 비용을 0.01로 고정
+    const tempSourceId = `temp_${Date.now()}_${mainPaymentId}`;
     
     console.log("🛠️ DEBUG: Saving test payment record:", {
       amount: testFeeValue,
-      dojang_code
+      dojang_code,
+      tempSourceId
     });
 
     await connection.query(`
       INSERT INTO test_payments (
         student_id, amount, status, 
         dojang_code, idempotency_key, source_id, parent_id, card_id,
-        payment_method, currency
-      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, 'card', ?)
+        payment_method, currency, payment_date
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, 'card', ?, NOW())
     `, [
       student_id,
       testFeeValue,
       dojang_code,
       finalIdempotencyKey,
-      paymentMethodId,
+      tempSourceId, // 임시 ID로 저장 후 나중에 Stripe Payment Intent ID로 업데이트
       parent_id,
       paymentMethodId,
       currency
     ]);
-    console.log("✅ Test payment record inserted");
+    console.log("✅ Test payment record inserted with temp source_id:", tempSourceId);
+
+    // 아이템(보드) 처리를 위한 임시 레코드 배열
+    let boardTempIds = [];
 
     // 아이템(보드) 처리 (item_payments 테이블)
     if (boards && boards.length > 0) {
-      console.log("🧵 Processing board purchase:", boards);
+      console.log("🧵 Processing board purchases:", boards);
       for (const board of boards) {
         const itemId = board.id;
         const { size, quantity } = board;
@@ -236,11 +241,15 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
         `, [quantity, itemId, size]);
 
+        // 보드별 임시 ID 생성
+        const boardTempId = `temp_board_${itemId}_${Date.now()}`;
+        boardTempIds.push(boardTempId);
+
         // 보드 구매 정보 저장 (item_payments 테이블)
         await connection.query(`
           INSERT INTO item_payments 
-          (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?)
+          (student_id, item_id, size, quantity, amount, idempotency_key, source_id, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?)
         `, [
           student_id,
           itemId,
@@ -248,6 +257,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           quantity,
           board.price || 0,
           `board-${itemId}-${Date.now()}`,
+          boardTempId, // 임시 source_id
           'card',
           currency,
           dojang_code,
@@ -255,7 +265,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           paymentMethodId
         ]);
       }
-      console.log("✅ Board purchase processed");
+      console.log("✅ Board purchases processed with temp source_ids");
     }
 
     // Stripe 결제 처리 (연결된 계정으로 직접 결제)
@@ -276,58 +286,98 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       stripeAccount: connectedAccountId
     };
 
-    console.log("Requesting payment with data:", JSON.stringify(paymentIntentData, null, 2));
-    console.log("Stripe options:", stripeOptions);
+    console.log("🔄 Requesting payment with data:", JSON.stringify(paymentIntentData, null, 2));
+    console.log("🔄 Stripe options:", stripeOptions);
 
     const paymentIntent = await stripe.paymentIntents.create(
       paymentIntentData,
       stripeOptions
     );
 
+    console.log("💳 Stripe 응답:", {
+      id: paymentIntent.id,
+      status: paymentIntent.status,
+      amount: paymentIntent.amount
+    });
+
     if (paymentIntent && paymentIntent.status === "succeeded") {
-      console.log("✅ Payment completed successfully. Stripe payment ID:", paymentIntent.id);
+      console.log("✅ Payment completed successfully. Stripe Payment Intent ID:", paymentIntent.id);
 
-      // 테스트 결제 상태 업데이트
-      await connection.query(`
-        UPDATE test_payments SET status = 'completed', stripe_payment_id = ? WHERE source_id = ?
-      `, [paymentIntent.id, paymentMethodId]);
+      // 1. 테스트 결제 상태 및 source_id 업데이트
+      const [testUpdateResult] = await connection.query(`
+        UPDATE test_payments 
+        SET status = 'completed', source_id = ? 
+        WHERE source_id = ? AND student_id = ? AND dojang_code = ?
+      `, [paymentIntent.id, tempSourceId, student_id, dojang_code]);
 
-      // 아이템 결제 상태 업데이트
-      if (boards && boards.length > 0) {
-        await connection.query(`
-          UPDATE item_payments SET status = 'completed', stripe_payment_id = ?
-          WHERE student_id = ? AND status = 'pending'
-        `, [paymentIntent.id, student_id]);
+      console.log("✅ Test payment updated:", testUpdateResult.affectedRows, "rows");
+
+      // 2. 아이템 결제 상태 및 source_id 업데이트
+      if (boards && boards.length > 0 && boardTempIds.length > 0) {
+        for (const boardTempId of boardTempIds) {
+          const [itemUpdateResult] = await connection.query(`
+            UPDATE item_payments 
+            SET status = 'completed', source_id = ?
+            WHERE source_id = ? AND student_id = ? AND dojang_code = ?
+          `, [paymentIntent.id, boardTempId, student_id, dojang_code]);
+          
+          console.log(`✅ Item payment updated for temp_id ${boardTempId}:`, itemUpdateResult.affectedRows, "rows");
+        }
       }
 
       // 트랜잭션 커밋
       await connection.commit();
 
+      console.log("🎉 Transaction committed successfully");
+
       return res.status(200).json({ 
         success: true, 
         message: "Payment successful and data saved",
         payment_id: mainPaymentId,
-        stripe_payment_id: paymentIntent.id
+        stripe_payment_intent_id: paymentIntent.id,
+        amount_charged: paymentIntent.amount,
+        currency: paymentIntent.currency
       });
+
     } else {
-      throw new Error(`Payment not completed by Stripe. Status: ${paymentIntent.status}`);
+      const errorMsg = `Payment not completed by Stripe. Status: ${paymentIntent.status}`;
+      console.error("❌", errorMsg);
+      throw new Error(errorMsg);
     }
 
   } catch (error) {
+    console.error("❌ Error during payment processing:", error.message);
+    console.error("❌ Error stack:", error.stack);
+
     // 트랜잭션 롤백
     if (connection) {
-      await connection.rollback();
+      try {
+        await connection.rollback();
+        console.log("🔄 Transaction rolled back");
+      } catch (rollbackError) {
+        console.error("❌ Error during rollback:", rollbackError.message);
+      }
     }
-    console.error("❌ Error processing payment:", error);
-    return res.status(500).json({ 
+
+    // 에러 응답 로깅
+    const errorResponse = { 
       success: false, 
       message: "Error processing payment", 
       error: error.message 
-    });
+    };
+    console.log("❌ 오류 응답 원본:", JSON.stringify(errorResponse));
+
+    return res.status(500).json(errorResponse);
+
   } finally {
     // 연결 해제 보장
     if (connection) {
-      connection.release();
+      try {
+        connection.release();
+        console.log("🔌 Database connection released");
+      } catch (releaseError) {
+        console.error("❌ Error releasing connection:", releaseError.message);
+      }
     }
   }
 });
