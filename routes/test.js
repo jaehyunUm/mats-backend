@@ -183,11 +183,13 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     const finalIdempotencyKey = idempotencyKey || uuidv4();
 
     // 테스트 비용 저장 (test_payments 테이블) - 임시 source_id로 저장
-    const testFeeValue = '0.01'; // 테스트 비용을 0.01로 고정
+    // 실제 결제 금액을 달러 단위로 변환 (Stripe는 센트 단위로 처리)
+    const testFeeValue = (amountValue / 100).toFixed(2); // 센트를 달러로 변환
     const tempSourceId = `temp_${Date.now()}_${mainPaymentId}`;
     
     console.log("🛠️ DEBUG: Saving test payment record:", {
       amount: testFeeValue,
+      amountValue: amountValue,
       dojang_code,
       tempSourceId
     });
