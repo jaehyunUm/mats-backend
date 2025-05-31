@@ -108,7 +108,8 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
   console.log("받은 결제 요청 데이터:", req.body);
 
   const {
-    payment_method_id, // Stripe Payment Method ID
+    card_id, // 프론트엔드에서 card_id로 보냄
+    payment_method_id, // Stripe Payment Method ID (card_id와 동일)
     student_id,
     amount,
     idempotencyKey,
@@ -117,6 +118,9 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     customer_id,
     boards // 보드 데이터
   } = req.body;
+
+  // card_id 또는 payment_method_id 중 하나를 사용
+  const paymentMethodId = payment_method_id || card_id;
 
   // amount 정수화 및 유효성 검사
   const amountValue = parseFloat(amount);
@@ -128,7 +132,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     amountValue <= 0 ||
     !currency ||
     !parent_id ||
-    !payment_method_id
+    !paymentMethodId
   ) {
     console.error("❌ ERROR: Missing required fields in request body", req.body);
     return res.status(400).json({ success: false, message: "Missing or invalid fields in request body" });
@@ -151,6 +155,8 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
   const connectedAccountId = ownerInfo[0].stripe_account_id;
 
+  // 메인 Stripe 클라이언트 사용
+  const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
   // 트랜잭션 시작
   let connection;
@@ -195,9 +201,9 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       testFeeValue,
       dojang_code,
       finalIdempotencyKey,
-      payment_method_id,
+      paymentMethodId,
       parent_id,
-      payment_method_id,
+      paymentMethodId,
       currency
     ]);
     console.log("✅ Test payment record inserted");
@@ -246,7 +252,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           currency,
           dojang_code,
           parent_id,
-          payment_method_id
+          paymentMethodId
         ]);
       }
       console.log("✅ Board purchase processed");
@@ -254,9 +260,9 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
     // Stripe 결제 처리 (연결된 계정으로 직접 결제)
     const paymentIntentData = {
-      amount: Math.round(amountValue * 100), // Stripe는 센트 단위
+      amount: Math.round(amountValue), // 프론트엔드에서 이미 센트 단위로 변환됨
       currency: currency.toLowerCase(),
-      payment_method: payment_method_id,
+      payment_method: paymentMethodId,
       customer: customer_id,
       confirm: true,
       automatic_payment_methods: {
@@ -284,7 +290,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       // 테스트 결제 상태 업데이트
       await connection.query(`
         UPDATE test_payments SET status = 'completed', stripe_payment_id = ? WHERE source_id = ?
-      `, [paymentIntent.id, payment_method_id]);
+      `, [paymentIntent.id, paymentMethodId]);
 
       // 아이템 결제 상태 업데이트
       if (boards && boards.length > 0) {
