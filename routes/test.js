@@ -108,20 +108,20 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
   console.log("받은 결제 요청 데이터:", req.body);
 
   const {
-    card_id,
+    card_id,          // Stripe payment_method ID
     student_id,
     amount,
     idempotencyKey,
     currency,
     parent_id,
-    customer_id,
-    boards // 보드 데이터
+    customer_id,      // Stripe customer ID
+    boards            // 보드(상품) 정보
   } = req.body;
 
-  // amount 정수화 및 유효성 검사
+  // 금액 체크
   const amountValue = parseFloat(amount);
 
-  // 필수 필드 검증
+  // 필수 필드 체크
   if (
     !student_id ||
     isNaN(amountValue) ||
@@ -134,26 +134,23 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: "Missing or invalid fields in request body" });
   }
 
+  // 도장코드 추출
   const { dojang_code } = req.user;
   if (!dojang_code) {
     return res.status(400).json({ success: false, message: "Dojang code is missing from the request" });
   }
 
-  // Square 계정 정보 확인
+  // Stripe Connected Account ID 가져오기
   const [ownerInfo] = await db.query(
-    "SELECT stripe_access_token, location_id FROM owner_bank_accounts WHERE dojang_code = ?",
+    "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
     [dojang_code]
   );
 
-  if (!ownerInfo.length) {
-    return res.status(400).json({ success: false, message: "No Square account connected for this dojang." });
+  if (!ownerInfo.length || !ownerInfo[0].stripe_account_id) {
+    return res.status(400).json({ success: false, message: "No Stripe connected account found for this dojang." });
   }
 
-  const ownerAccessToken = ownerInfo[0].stripe_access_token;
-  const locationId = ownerInfo[0].location_id;
-
-  const squareClient = createSquareClientWithToken(ownerAccessToken);
-  const paymentsApi = squareClient.paymentsApi;
+  const connectedAccountId = ownerInfo[0].stripe_account_id;
 
   // 트랜잭션 시작
   let connection;
@@ -161,41 +158,29 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    // 학생 정보 확인
+    // 학생 정보 체크
     const [existingStudent] = await connection.query(`
       SELECT id FROM students WHERE id = ? AND dojang_code = ?
     `, [student_id, dojang_code]);
-
     if (!existingStudent.length) {
-      console.error("❌ Student not found");
       await connection.rollback();
       connection.release();
       return res.status(400).json({ success: false, message: "Student not found" });
     }
 
-    console.log("✅ Student ID confirmed:", student_id);
-
-    // 결제 ID 및 idempotencyKey 생성
+    // 결제 ID/idempotencyKey 생성
     const mainPaymentId = uuidv4();
     const finalIdempotencyKey = idempotencyKey || uuidv4();
 
-    // 테스트 비용 저장 (test_payments 테이블)
-    const testFeeValue = '0.01'; // 테스트 비용을 0.01로 고정
-    
-    console.log("🛠️ DEBUG: Saving test payment record:", {
-      amount: testFeeValue,
-      dojang_code
-    });
-
+    // 결제 내역 DB 저장(선입력, pending)
     await connection.query(`
       INSERT INTO test_payments (
-        student_id, amount, status, 
-        dojang_code, idempotency_key, source_id, parent_id, card_id,
-        payment_method, currency
+        student_id, amount, status, dojang_code, idempotency_key, source_id,
+        parent_id, card_id, payment_method, currency
       ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, 'card', ?)
     `, [
       student_id,
-      testFeeValue,
+      amountValue,
       dojang_code,
       finalIdempotencyKey,
       card_id,
@@ -203,15 +188,11 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       card_id,
       currency
     ]);
-    console.log("✅ Test payment record inserted");
 
-    // 아이템(보드) 처리 (item_payments 테이블)
+    // 상품(보드) 처리 (item_payments)
     if (boards && boards.length > 0) {
-      console.log("🧵 Processing board purchase:", boards);
       for (const board of boards) {
-        const itemId = board.id;
-        const { size, quantity } = board;
-
+        const { id: itemId, size, quantity, price } = board;
         if (!itemId || !size || !quantity || quantity <= 0) {
           throw new Error("Invalid board data: missing required fields or invalid quantity");
         }
@@ -220,20 +201,16 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
         const [stockCheck] = await connection.query(`
           SELECT quantity FROM item_sizes WHERE item_id = ? AND size = ?
         `, [itemId, size]);
-
         if (stockCheck.length === 0 || stockCheck[0].quantity < quantity) {
-          const availableQuantity = stockCheck.length > 0 ? stockCheck[0].quantity : 0;
-          const errorMsg = `Insufficient stock for board (ID: ${itemId}, Size: ${size}). Requested: ${quantity}, Available: ${availableQuantity}`;
-          console.error("❌ " + errorMsg);
-          throw new Error(errorMsg);
+          throw new Error(`Insufficient stock for board (ID: ${itemId}, Size: ${size}). Requested: ${quantity}, Available: ${stockCheck.length > 0 ? stockCheck[0].quantity : 0}`);
         }
 
-        // 재고 업데이트
+        // 재고 차감
         await connection.query(`
           UPDATE item_sizes SET quantity = quantity - ? WHERE item_id = ? AND size = ?
         `, [quantity, itemId, size]);
 
-        // 보드 구매 정보 저장 (item_payments 테이블)
+        // 구매내역 기록
         await connection.query(`
           INSERT INTO item_payments 
           (student_id, item_id, size, quantity, amount, idempotency_key, payment_method, currency, payment_date, status, dojang_code, parent_id, card_id)
@@ -243,7 +220,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           itemId,
           size,
           quantity,
-          board.price || 0,
+          price || 0,
           `board-${itemId}-${Date.now()}`,
           'card',
           currency,
@@ -252,71 +229,59 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           card_id
         ]);
       }
-      console.log("✅ Board purchase processed");
     }
 
-    // Square 결제 처리
-    const paymentBody = {
-      sourceId: card_id,
-      amountMoney: {
-        amount: amountValue, // 프론트엔드에서 보낸 금액을 그대로 사용
-        currency,
-      },
-      idempotencyKey: finalIdempotencyKey,
-      locationId: locationId,
-      customerId: customer_id,
-    };
-
-    console.log("Requesting payment with body:", JSON.stringify(paymentBody, null, 2));
-
-    const { result } = await paymentsApi.createPayment(paymentBody);
-
-    if (result && result.payment && result.payment.status === "COMPLETED") {
-      console.log("✅ Payment completed successfully. Square payment ID:", result.payment.id);
-
-      // 테스트 결제 상태 업데이트
-      await connection.query(`
-        UPDATE test_payments SET status = 'completed' WHERE card_id = ?
-      `, [card_id]);
-
-      // 아이템 결제 상태 업데이트
-      if (boards && boards.length > 0) {
-        await connection.query(`
-          UPDATE item_payments SET status = 'completed' 
-          WHERE student_id = ? AND status = 'pending'
-        `, [student_id]);
+    // Stripe 결제 요청 (destination charge)
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amountValue * 100),    // Stripe는 센트 단위
+      currency: currency,
+      customer: customer_id,                    // Stripe Customer ID
+      payment_method: card_id,                  // Stripe Payment Method ID
+      confirm: true,
+      off_session: true,
+      transfer_data: { destination: connectedAccountId }, // 도장 오너로 직접 정산
+      metadata: {
+        dojang_code,
+        student_id,
+        parent_id
       }
+    }, {
+      // **주의**: 두 번째 인자(옵션)는 사용하지 않는다! (stripeAccount: ... X)
+    });
 
-      // 트랜잭션 커밋
+    // 결제 성공 처리
+    if (paymentIntent && paymentIntent.status === "succeeded") {
+      await connection.query(
+        `UPDATE test_payments SET status = 'completed' WHERE card_id = ?`,
+        [card_id]
+      );
+      if (boards && boards.length > 0) {
+        await connection.query(
+          `UPDATE item_payments SET status = 'completed' WHERE student_id = ? AND status = 'pending'`,
+          [student_id]
+        );
+      }
       await connection.commit();
-
-      return res.status(200).json({ 
-        success: true, 
+      return res.status(200).json({
+        success: true,
         message: "Payment successful and data saved",
         payment_id: mainPaymentId
       });
     } else {
-      throw new Error("Payment not completed by Square");
+      throw new Error("Payment not completed by Stripe");
     }
-
   } catch (error) {
-    // 트랜잭션 롤백
-    if (connection) {
-      await connection.rollback();
-    }
-    console.error("❌ Error processing payment:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Error processing payment", 
-      error: error.message 
+    if (connection) await connection.rollback();
+    return res.status(500).json({
+      success: false,
+      message: "Error processing payment",
+      error: error.message
     });
   } finally {
-    // 연결 해제 보장
-    if (connection) {
-      connection.release();
-    }
+    if (connection) connection.release();
   }
 });
+
 
 
 
