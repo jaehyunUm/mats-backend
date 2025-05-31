@@ -314,18 +314,6 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
       console.log("✅ Test payment updated:", testUpdateResult.affectedRows, "rows");
 
-      // 2. 아이템 결제 상태 및 source_id 업데이트
-      if (boards && boards.length > 0 && boardTempIds.length > 0) {
-        for (const boardTempId of boardTempIds) {
-          const [itemUpdateResult] = await connection.query(`
-            UPDATE item_payments 
-            SET status = 'completed', source_id = ?
-            WHERE source_id = ? AND student_id = ? AND dojang_code = ?
-          `, [paymentIntent.id, boardTempId, student_id, dojang_code]);
-          
-          console.log(`✅ Item payment updated for temp_id ${boardTempId}:`, itemUpdateResult.affectedRows, "rows");
-        }
-      }
 
       // 트랜잭션 커밋
       await connection.commit();
