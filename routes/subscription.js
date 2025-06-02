@@ -526,328 +526,156 @@ router.get("/customer/cards/:customerId", verifyToken, async (req, res) => {
 });
 
 
-router.post("/customer-create", verifyToken, async (req, res) => {
+router.post("/owner/customer/create", verifyToken, async (req, res) => {
   const { email, cardholderName } = req.body;
-  
+  const { id: ownerId, dojang_code } = req.user;
+
   if (!email || !cardholderName) {
     return res.status(400).json({ success: false, message: "Missing required fields" });
   }
-  
+
   try {
-    console.log("📢 DEBUG: Checking for existing customer with email:", email);
-    
-    // 기존 고객 검색
-    const searchResponse = await customersApi.searchCustomers({
-      query: {
-        filter: {
-          email_address: {
-            exact: email
-          }
-        }
-      }
-    });
-    
-    // 검색 결과 확인
-    if (searchResponse.result.customers && searchResponse.result.customers.length > 0) {
-      // 이름도 확인
-      const existingCustomers = searchResponse.result.customers;
-      console.log(`📢 DEBUG: Found ${existingCustomers.length} customer(s) with email: ${email}`);
-      
-      for (const customer of existingCustomers) {
-        const existingFullName = `${customer.givenName || ''} ${customer.familyName || ''}`.trim();
-        console.log(`📢 DEBUG: Comparing names - Existing: "${existingFullName}", Requested: "${cardholderName}"`);
-        
-        // 이름 유사도 검사 (대소문자 무시, 공백 정규화)
-        const normalizedExistingName = existingFullName.toLowerCase().replace(/\s+/g, ' ');
-        const normalizedRequestedName = cardholderName.toLowerCase().replace(/\s+/g, ' ');
-        
-        if (normalizedExistingName === normalizedRequestedName ||
-            normalizedExistingName.includes(normalizedRequestedName) ||
-            normalizedRequestedName.includes(normalizedExistingName)) {
-          console.log("✅ Found matching existing customer:", customer.id);
-          return res.status(200).json({ 
-            success: true, 
-            customerId: customer.id, 
-            message: "Using existing customer" 
-          });
-        }
-      }
-      
-      console.log("📢 DEBUG: Email matches but name doesn't match, creating new customer");
-    } else {
-      console.log("📢 DEBUG: No existing customer found with this email");
+    // Stripe 연결 계정 정보 가져오기
+    const [ownerRow] = await db.query(
+      "SELECT stripe_account_id, stripe_customer_id FROM owners WHERE id = ? AND dojang_code = ?",
+      [ownerId, dojang_code]
+    );
+
+    if (!ownerRow.length) {
+      return res.status(400).json({ success: false, message: "Owner not found" });
     }
-    
-    // 새 고객 생성
-    console.log("📢 DEBUG: Creating new customer for email:", email);
-    const [firstName, ...lastNameParts] = cardholderName.split(" ");
-    const lastName = lastNameParts.join(" ") || "Unknown";
-    console.log("📢 DEBUG: First Name:", firstName);
-    console.log("📢 DEBUG: Last Name:", lastName);
-    
-    // Square API로 고객 생성
-    const response = await customersApi.createCustomer({
-      givenName: firstName,
-      familyName: lastName,
-      emailAddress: email
+
+    if (ownerRow[0].stripe_customer_id) {
+      return res.status(200).json({
+        success: true,
+        customerId: ownerRow[0].stripe_customer_id,
+        message: "Existing customer returned"
+      });
+    }
+
+    const stripeAccountId = ownerRow[0].stripe_account_id;
+    if (!stripeAccountId) {
+      return res.status(400).json({ success: false, message: "Stripe account not connected" });
+    }
+
+    // Stripe 고객 생성
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    const customer = await stripe.customers.create({
+      name: cardholderName,
+      email,
+      metadata: { dojang_code, role: "owner" }
+    }, {
+      stripeAccount: stripeAccountId
     });
-    
-    console.log("✅ Customer created successfully:", response.result.customer.id);
-    res.status(200).json({ success: true, customerId: response.result.customer.id });
+
+    // DB에 저장
+    await db.query(
+      "UPDATE owners SET stripe_customer_id = ? WHERE id = ? AND dojang_code = ?",
+      [customer.id, ownerId, dojang_code]
+    );
+
+    res.status(200).json({
+      success: true,
+      customerId: customer.id,
+      message: "Stripe customer created"
+    });
+
   } catch (error) {
-    console.error("❌ ERROR:", error);
-    
-    // 오류 세부 정보 로깅
-    if (error.errors) {
-      console.error("❌ Stripe API Error Details:", JSON.stringify(error.errors));
-    }
-    
-    res.status(500).json({ success: false, message: "Failed to create customer", error: error.message });
+    console.error("❌ Error creating Stripe customer:", error);
+    res.status(500).json({ success: false, message: "Failed to create Stripe customer", error: error.message });
   }
 });
+
 
 router.post('/card-save', verifyToken, async (req, res) => {
-  // JSON.stringify에 BigInt 처리 기능 추가 (전역 처리)
-  if (!JSON._stringify) {
-    JSON._stringify = JSON.stringify;
-    JSON.stringify = function(obj, replacer, space) {
-      return JSON._stringify(obj, function(key, value) {
-        if (typeof value === 'bigint') {
-          return value.toString();
-        }
-        return (replacer ? replacer(key, value) : value);
-      }, space);
-    };
-    console.log("✅ JSON.stringify가 BigInt를 처리하도록 수정됨");
+  const { paymentMethodId, customerId, billingInfo, payment_policy_agreed } = req.body;
+  const { id: ownerId, dojang_code } = req.user;
+
+  if (!paymentMethodId || !customerId || !billingInfo || !ownerId) {
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
-  // 요청 수신 시점 로깅
-  console.log("✨ API 요청 수신: /card-save");
-  console.log("✨ 요청 본문:", JSON.stringify(req.body));
-  console.log("✨ 요청 헤더:", JSON.stringify(req.headers));
-  
-  const { nonce, customerId, ownerId, billingInfo, payment_policy_agreed } = req.body;
-  const cardToken = nonce;
-  
-  // 사용자 정보 로깅
-  console.log("✨ 인증된 사용자:", JSON.stringify(req.user));
-  const { dojang_code } = req.user; // 토큰에서 도장코드
-  
-  // 필수 필드 검증
-  if (!ownerId) {
-    console.log("❌ 오류: Owner ID 누락");
-    return res.status(400).json({ success: false, message: "Owner ID is required." });
-  }
-  
-  if (!cardToken) {
-    console.log("❌ 오류: cardToken(nonce) 누락");
-    return res.status(400).json({ success: false, message: "Card token is required." });
-  }
-  
-  if (!customerId) {
-    console.log("❌ 오류: customerId 누락");
-    return res.status(400).json({ success: false, message: "Customer ID is required." });
-  }
-  
-  if (!billingInfo) {
-    console.log("❌ 오류: billingInfo 누락");
-    return res.status(400).json({ success: false, message: "Billing info is required." });
-  }
-  
-  // 청구 정보 로깅 및 검증
-  console.log("✨ 청구 정보:", JSON.stringify(billingInfo));
-  const { cardholderName, addressLine1, locality, administrativeDistrictLevel1, postalCode, country } = billingInfo;
-  
+  const {
+    cardholderName,
+    addressLine1,
+    locality,
+    administrativeDistrictLevel1,
+    postalCode,
+    country
+  } = billingInfo;
+
   if (!cardholderName || !addressLine1 || !locality || !administrativeDistrictLevel1 || !postalCode || !country) {
-    console.log("❌ 오류: 청구 정보 필드 누락");
-    console.log("✨ cardholderName:", cardholderName);
-    console.log("✨ addressLine1:", addressLine1);
-    console.log("✨ locality:", locality);
-    console.log("✨ administrativeDistrictLevel1:", administrativeDistrictLevel1);
-    console.log("✨ postalCode:", postalCode);
-    console.log("✨ country:", country);
-    return res.status(400).json({ success: false, message: "Missing required billing info fields." });
+    return res.status(400).json({ success: false, message: 'Missing billing address info' });
   }
-  
+
   try {
-    console.log("✨ Stripe API 호출 준비");
-    const ownerAccessToken = process.env.stripe_access_token_PRODUCTION;
-    if (!ownerAccessToken) {
-      console.log("❌ 오류: Stripe Access Token 설정 누락");
-      return res.status(500).json({ success: false, message: "Stripe Access Token is not configured." });
-    }
-    
-    // Stripe API 환경 정보 로깅
-    console.log("✨ Stripe API 환경:", process.env.NODE_ENV);
-    console.log("✨ Stripe API 모드:", process.env.SQUARE_ENVIRONMENT || "설정 없음");
-    
-    console.log("✨ 카드 생성 요청:", JSON.stringify({
-      idempotencyKey: "UUID 생성됨",
-      sourceId: cardToken,
-      cardholderName,
-      customerId
-    }));
-    
-    // Stripe API 호출 - 내부 try-catch로 감싸기
-    console.time("Stripe API 호출 시간");
-    let cardResult;
-    try {
-      const response = await cardsApi.createCard({
-        idempotencyKey: uuidv4(),
-        sourceId: cardToken,
-        card: {
-          cardholderName,
-          billingAddress: {
-            addressLine1,
-            locality,
-            administrativeDistrictLevel1,
-            postalCode,
-            country,
-          },
-          customerId,
-        },
-      });
-      cardResult = response.result;
-      console.timeEnd("Stripe API 호출 시간");
-    } catch (stripeError) {
-      console.error("❌ Stripe API 호출 오류:", stripeError);
-      console.error("❌ Stripe 오류 메시지:", stripeError.message);
-      console.error("❌ Stripe 오류 상세:", stripeError.errors || "상세 정보 없음");
-      try {
-        console.error("❌ Stripe 응답 전체:", JSON.stringify(stripeError.response || {}));
-      } catch (jsonError) {
-        console.error("❌ Stripe 응답(직렬화 불가):", stripeError.response);
-      }
-      return res.status(400).json({
-        success: false,
-        message: "Failed to save card. Stripe API Error",
-        stripeError: stripeError.message,
-        details: stripeError.errors || []
-      });
-    }
-    
-    // Stripe API 응답 확인 - cardResult가 유효한지 확인
-    if (!cardResult) {
-      console.log("❌ 오류: Stripe API 응답 없음");
-      return res.status(400).json({
-        success: false,
-        message: "Failed to save card. No response from Stripe API."
-      });
-    }
-    
-    if (cardResult.errors) {
-      try {
-        console.error('❌ Stripe API 오류:', JSON.stringify(cardResult.errors));
-      } catch (jsonError) {
-        console.error('❌ Stripe API 오류(직렬화 불가):', cardResult.errors);
-      }
-      return res.status(400).json({
-        success: false,
-        message: "Failed to save card. Stripe API Error",
-        stripeError: cardResult.errors
-      });
-    }
-    
-    // 카드 정보 로깅
-    try {
-      console.log("✨ Stripe API 응답 성공:", JSON.stringify({
-        cardId: cardResult.card.id,
-        cardBrand: cardResult.card.cardBrand,
-        last4: cardResult.card.last4,
-        expMonth: cardResult.card.expMonth,
-        expYear: cardResult.card.expYear
-      }));
-    } catch (jsonError) {
-      console.log("✨ Stripe API 응답 성공(직렬화 불가)");
-    }
-    
-    const savedCardId = cardResult.card.id;
-    const expiration = `${cardResult.card.expMonth}/${cardResult.card.expYear}`;
-    const lastFour = cardResult.card.last4;
-    const cardBrand = cardResult.card.cardBrand;
-    
-    // DB 저장 준비
-    console.log("✨ DB 저장 준비");
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+    // 카드 attach (플랫폼 계정에)
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+
+    // 기본 결제 수단 설정
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    // 카드 정보 가져오기
+    const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const card = paymentMethod.card;
+
+    const expiration = `${card.exp_month}/${card.exp_year}`;
+    const lastFour = card.last4;
+    const cardBrand = card.brand;
+
+    // DB 저장
     const query = `
-      INSERT INTO saved_cards (owner_id, card_name, expiration, card_token, card_id, card_brand, last_four, dojang_code, customer_id, payment_policy_agreed, payment_policy_agreed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO saved_cards (
+        owner_id,
+        card_name,
+        expiration,
+        card_token,
+        card_id,
+        card_brand,
+        last_four,
+        dojang_code,
+        customer_id,
+        payment_policy_agreed,
+        payment_policy_agreed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    
+
     const queryParams = [
-      ownerId, // 오너 ID
+      ownerId,
       cardholderName,
       expiration,
-      cardToken,
-      savedCardId,
+      paymentMethodId,
+      paymentMethodId,
       cardBrand,
       lastFour,
-      dojang_code || null,
+      dojang_code,
       customerId,
-      payment_policy_agreed ? 1 : 0, // 동의 여부 저장
-      payment_policy_agreed ? new Date() : null // 동의 시간
+      payment_policy_agreed ? 1 : 0,
+      payment_policy_agreed ? new Date() : null
     ];
 
-    // 안전한 로깅을 위한 헬퍼 함수
-    const safeLog = (message, data) => {
-      try {
-        console.log(message, JSON.stringify(data));
-      } catch (error) {
-        console.log(message, "(직렬화 불가)");
-        // 개별 필드 로깅 시도
-        for (const [key, value] of Object.entries(data)) {
-          try {
-            console.log(`${message} - ${key}:`, JSON.stringify(value));
-          } catch (e) {
-            console.log(`${message} - ${key}: (직렬화 불가)`);
-          }
-        }
-      }
-    };
-    
-    // 쿼리 파라미터 로깅 (민감 정보 제외)
-    safeLog("✨ DB 쿼리 파라미터:", {
-      ownerId,
-      cardName: cardholderName,
-      expiration,
-      cardId: savedCardId,
-      cardBrand,
-      lastFour,
-      dojang_code: dojang_code || null,
-      customerId,
-      payment_policy_agreed: payment_policy_agreed ? 1 : 0,
-      payment_policy_agreed_at: payment_policy_agreed ? new Date() : null
+    await db.execute(query, queryParams);
+
+    return res.status(200).json({
+      success: true,
+      cardId: paymentMethodId,
+      message: "Card saved successfully."
     });
-    
-    // DB 저장
-    console.time("DB 저장 시간");
-    try {
-      await db.execute(query, queryParams);
-      console.timeEnd("DB 저장 시간");
-      console.log("✅ 카드 저장 완료:", savedCardId);
-      res.status(200).json({ success: true, cardId: savedCardId });
-    } catch (dbError) {
-      console.error("❌ DB 저장 오류:", dbError);
-      res.status(500).json({ 
-        success: false, 
-        message: "Card was created in Stripe but failed to save in database.",
-        cardId: savedCardId
-      });
-    }
   } catch (error) {
-    try {
-      console.error("❌ 카드 저장 오류:", error);
-      console.error("❌ 오류 세부 정보:", JSON.stringify({
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      }));
-    } catch (jsonError) {
-      console.error("❌ 카드 저장 오류(직렬화 불가):", error.message || "Unknown error");
-    }
-    
-    res.status(500).json({ success: false, message: "Failed to save card." });
+    console.error("❌ Stripe card save error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to save card.",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
+
+
 
 // Apple IAP receipt verification endpoint
 router.post('/verify-receipt', verifyToken, async (req, res) => {
