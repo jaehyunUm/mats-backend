@@ -1,12 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-const verifySubscription = require('../middleware/verifySubscription');
 const verifyToken = require('../middleware/verifyToken');
 const { cardsApi, customersApi, subscriptionsApi, locationId , squareClient} = require('../modules/stripeClient'); // ✅ Square API 가져오기
 const { v4: uuidv4 } = require("uuid");
 const { createOrderTemplate } = require('./createOrderTemplate'); 
-const { Client } = require('square'); // ✅ Square SDK Client 가져오기
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 
 
@@ -435,162 +434,30 @@ router.get("/stripe/status", verifyToken, async (req, res) => {
 });
   
 
-  
-  
+router.get('/stripe/plans', async (req, res) => {
+  try {
+    const products = await stripe.products.list({ active: true });
+    const prices = await stripe.prices.list({ active: true });
 
-
-router.get("/square/plans", async (req, res) => {
-    try {
-        console.log("📢 DEBUG: Fetching Square Subscription Plans...");
-        const response = await fetch("https://connect.squareup.com/v2/catalog/search", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`
-            },
-            body: JSON.stringify({
-                object_types: ["ITEM", "SUBSCRIPTION_PLAN"]
-            })
-        });
-
-        const data = await response.json();
-        console.log("📢 DEBUG: Square API Raw Response:", JSON.stringify(data, null, 2));
-
-         // ✅ 🔥 [디버깅 코드 추가] 🔥 Square API 전체 응답 확인
-         console.log("📢 DEBUG: Full Square API Response:", JSON.stringify(data.objects, null, 2));
-
-         // ✅ Subscription Plan ID 로그 확인
-         data.objects.filter(obj => obj.type === "SUBSCRIPTION_PLAN").forEach(plan => {
-            console.log(`📢 DEBUG: Plan - ID: ${plan.id}, Name: ${plan.subscription_plan_data.name}, 
-                is_deleted: ${plan.is_deleted}, present_at_all_locations: ${plan.present_at_all_locations}, 
-                location_ids: ${JSON.stringify(plan.subscription_plan_data.location_ids)}`);
-        });
-        
- 
-         // ✅ Subscription Plan의 Variations 로그 확인
-         data.objects
-             .filter(plan => plan.type === "SUBSCRIPTION_PLAN")
-             .forEach(plan => {
-                 console.log(`📢 DEBUG: Plan ${plan.subscription_plan_data.name} Variations:`, 
-                     JSON.stringify(plan.subscription_plan_data.subscription_plan_variations, null, 2)
-                 );
-             });
- 
-
-        // ✅ 서비스(ITEM) 필터링 및 가격 정보 추출
-        const items = data.objects
-            .filter(item => item.type === "ITEM" && item.is_deleted === false)
-            .map(item => ({
-                id: item.id,
-                name: item.item_data.name,
-                description: item.item_data.description || "No description available",
-                variations: item.item_data.variations.map(variation => ({
-                    id: variation.id,
-                    name: variation.item_variation_data.name,
-                    price: variation.item_variation_data.price_money?.amount || 0,
-                    currency: variation.item_variation_data.price_money?.currency || "USD",
-                    subscription_plan_ids: variation.item_variation_data.subscription_plan_ids || []
-                }))
-            }));
-
-
-        // ✅ 활성화된 구독 플랜(SUBSCRIPTION_PLAN)만 필터링
-        const plans = data.objects
-        .filter(plan => 
-            plan.type === "SUBSCRIPTION_PLAN" &&
-            !plan.is_deleted &&  
-            (!!plan.present_at_all_locations || (plan.subscription_plan_data.location_ids && plan.subscription_plan_data.location_ids.length > 0))
-        )
-        .map(plan => {
-            const variations = (plan.subscription_plan_data.subscription_plan_variations || [])
-                .filter(variation => 
-                    !variation.is_deleted &&
-                    (!!variation.present_at_all_locations || (variation.location_ids && variation.location_ids.length > 0))
-                )
-                .map(variation => {
-                    let priceInfo = variation.subscription_plan_variation_data?.phases?.[0]?.pricing?.price_money || { amount: 0, currency: "USD" };
-    
-                    if (priceInfo.amount === 0) {
-                        const relatedItem = items.find(item =>
-                            item.variations.some(variation => variation.subscription_plan_ids.includes(plan.id))
-                        );
-    
-                        if (relatedItem) {
-                            const relatedVariation = relatedItem.variations.find(variation => variation.subscription_plan_ids.includes(plan.id));
-                            if (relatedVariation) {
-                                priceInfo = { amount: relatedVariation.price, currency: relatedVariation.currency };
-                            }
-                        }
-                    }
-    
-                    return {
-                        id: variation.id,
-                        name: variation.subscription_plan_variation_data?.name || "Unnamed Variation",
-                        price: priceInfo.amount,
-                        currency: priceInfo.currency
-                    };
-                });
-    
-            return {
-                id: plan.id,
-                name: plan.subscription_plan_data?.name || "Unnamed Plan",
-                variations: variations
-            };
-        })
-        .filter(plan => plan.variations.length > 0);
-
-   // ✅ ORDER_TEMPLATE 데이터 필터링
-   const orderTemplates = data.objects
-   .filter(obj => obj.type === "ORDER_TEMPLATE")
-   .map(template => ({
-       id: template.id,
-       name: template.order_template_data?.name || "Unnamed Order Template",
-       line_items: template.order_template_data?.line_items || []
-   }));
-
-// ✅ 디버깅 로그 추가
-console.log("📢 DEBUG: Final Plans:", JSON.stringify(plans, null, 2));
-console.log("📢 DEBUG: Final Items:", JSON.stringify(items, null, 2));
-console.log("📢 DEBUG: Final Order Templates:", JSON.stringify(orderTemplates, null, 2));       
-    
-    // ✅ 디버깅 로그 추가 (최종 필터링된 구독 플랜 확인)
-    plans.forEach(plan => {
-        console.log(`📢 DEBUG: Final Plan - ID: ${plan.id}, Name: ${plan.name}, Variations:`, JSON.stringify(plan.variations, null, 2));
+    const items = products.data.map((product) => {
+      const price = prices.data.find((p) => p.product === product.id);
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: price?.unit_amount || 0,
+        priceId: price?.id,
+        interval: price?.recurring?.interval,
+      };
     });
 
-
-    
-    
-        // ✅ ITEM과 SUBSCRIPTION_PLAN 연결
-        const enrichedPlans = plans.map(plan => {
-            const relatedItems = items.filter(item =>
-                item.variations.some(variation => variation.subscription_plan_ids.includes(plan.id))
-            );
-
-            return {
-                ...plan,
-                relatedItems: relatedItems.map(item => ({
-                    id: item.id,
-                    name: item.name,
-                    description: item.description,
-                    price: item.variations[0]?.price || 0,
-                    currency: item.variations[0]?.currency || "USD"
-                }))
-            };
-        });
-
-        console.log("✅ Enriched Active Subscription Plans:", JSON.stringify(enrichedPlans, null, 2));
-        res.status(200).json({ 
-            items: items, 
-            subscriptionPlans: data.objects.filter(obj => obj.type === "SUBSCRIPTION_PLAN"), // ✅ 구독 플랜만 반환
-            orderTemplates // ✅ 추가된 ORDER_TEMPLATE 데이터
-       
-        });
-    } catch (error) {
-        console.error("❌ ERROR fetching Square plans:", error);
-        res.status(500).json({ success: false, message: "Failed to fetch Square plans" });
-    }
+    res.json({ items });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
 });
+  
 
 
 router.get("/customer/:ownerId" ,verifyToken,  async (req, res) => {
