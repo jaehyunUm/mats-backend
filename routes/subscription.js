@@ -528,50 +528,47 @@ router.get("/customer/cards/:customerId", verifyToken, async (req, res) => {
 
 router.post("/owner/customer/create", verifyToken, async (req, res) => {
   const { email, cardholderName } = req.body;
-  const { id: ownerId, dojang_code } = req.user;
+  const { id: ownerId, dojang_code, role } = req.user;
 
   if (!email || !cardholderName) {
     return res.status(400).json({ success: false, message: "Missing required fields" });
   }
 
+  if (role !== 'owner') {
+    return res.status(403).json({ success: false, message: "Only owners can create Stripe customers." });
+  }
+
   try {
-    // Stripe 연결 계정 정보 가져오기
-    const [ownerRow] = await db.query(
-      "SELECT stripe_account_id, stripe_customer_id FROM owners WHERE id = ? AND dojang_code = ?",
-      [ownerId, dojang_code]
+    // ✅ users 테이블에서 기존 Stripe customer_id 확인
+    const [userRow] = await db.query(
+      "SELECT customer_id FROM users WHERE id = ? AND role = 'owner'",
+      [ownerId]
     );
 
-    if (!ownerRow.length) {
-      return res.status(400).json({ success: false, message: "Owner not found" });
+    if (!userRow.length) {
+      return res.status(400).json({ success: false, message: "Owner not found in users table" });
     }
 
-    if (ownerRow[0].stripe_customer_id) {
+    if (userRow[0].customer_id) {
       return res.status(200).json({
         success: true,
-        customerId: ownerRow[0].stripe_customer_id,
+        customerId: userRow[0].customer_id,
         message: "Existing customer returned"
       });
     }
 
-    const stripeAccountId = ownerRow[0].stripe_account_id;
-    if (!stripeAccountId) {
-      return res.status(400).json({ success: false, message: "Stripe account not connected" });
-    }
-
-    // Stripe 고객 생성
+    // ✅ Stripe 플랫폼 계정에 customer 생성
     const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
     const customer = await stripe.customers.create({
       name: cardholderName,
       email,
       metadata: { dojang_code, role: "owner" }
-    }, {
-      stripeAccount: stripeAccountId
     });
 
-    // DB에 저장
+    // ✅ users 테이블에 customer_id 저장
     await db.query(
-      "UPDATE owners SET stripe_customer_id = ? WHERE id = ? AND dojang_code = ?",
-      [customer.id, ownerId, dojang_code]
+      "UPDATE users SET customer_id = ? WHERE id = ? AND role = 'owner'",
+      [customer.id, ownerId]
     );
 
     res.status(200).json({
@@ -582,7 +579,11 @@ router.post("/owner/customer/create", verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error("❌ Error creating Stripe customer:", error);
-    res.status(500).json({ success: false, message: "Failed to create Stripe customer", error: error.message });
+    res.status(500).json({
+      success: false,
+      message: "Failed to create Stripe customer",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
