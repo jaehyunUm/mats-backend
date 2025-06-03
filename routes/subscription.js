@@ -119,6 +119,9 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
   
 router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
   try {
+    // 디버깅: 실제로 받은 데이터 출력
+    console.log("🔍 [Stripe Subscription] req.body:", req.body);
+
     const {
       customerId,
       paymentMethodId,
