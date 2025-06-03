@@ -119,14 +119,18 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
   
 router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
   try {
-    // 디버깅: 실제로 받은 데이터 출력
-    console.log("🔍 [Stripe Subscription] req.body:", req.body);
+    const { paymentMethodId, planId } = req.body;
+    const userId = req.user.id; // 토큰에서 추출
 
-    const {
-      customerId,
-      paymentMethodId,
-      planId,
-    } = req.body;
+    // DB에서 customer_id 조회
+    const [rows] = await db.query(
+      "SELECT customer_id FROM users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+    if (!rows || rows.length === 0 || !rows[0].customer_id) {
+      return res.status(400).json({ success: false, message: "Stripe customer_id not found for this user" });
+    }
+    const customerId = rows[0].customer_id;
 
     // 필수값 체크
     if (!customerId || !paymentMethodId || !planId) {
@@ -140,8 +144,6 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
       default_payment_method: paymentMethodId,
       expand: ['latest_invoice.payment_intent'],
     });
-
-    // DB 저장 등 추가 로직 필요시 여기에
 
     res.status(200).json({
       success: true,
