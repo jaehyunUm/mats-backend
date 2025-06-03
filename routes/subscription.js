@@ -564,7 +564,7 @@ router.post("/owner/customer/create", verifyToken, async (req, res) => {
     // ✅ users 테이블에 customer_id 저장
     await db.query(
       "UPDATE users SET customer_id = ? WHERE id = ? AND role = 'owner'",
-      [customer.id, ownerId]
+      [customer.id]
     );
 
     res.status(200).json({
