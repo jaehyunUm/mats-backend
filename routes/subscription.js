@@ -75,34 +75,6 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
 
   
 
-// 클라이언트 코드
-const fetchSubscriptions = async () => {
-  try {
-    const storedUserData = await AsyncStorage.getItem("userData");
-    if (!storedUserData) {
-      Alert.alert("Error", "User data not found. Please log in again.");
-      navigation.navigate("Login");
-      return;
-    }
-    
-    const userData = JSON.parse(storedUserData);
-    console.log('✅ userData:', userData);
-    
-    const response = await fetchWithAuth(`https://mats-backend.onrender.com/api/subscription/list?userId=${userData.id}`);
-    console.log('❌ API response:', response);
-    
-    if (response.success) {
-      setSubscriptions(response.subscriptions);
-    } else {
-      Alert.alert("Error", response.message || "Failed to load subscriptions.");
-    }
-  } catch (error) {
-    console.log('❌ Fetch Error:', error);
-    Alert.alert("Error", "An error occurred while fetching subscriptions.");
-  } finally {
-    setLoading(false);
-  }
-};
 
 // 서버 라우터 코드
 router.get('/subscription/list', verifyToken, async (req, res) => {
@@ -146,130 +118,40 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
 });
   
 router.post("/subscription", verifyToken, async (req, res) => {
-  const { v4: uuidv4 } = require('uuid');
-
   try {
-    // 1. 먼저 req.body에서 값 추출
     const {
-      quantity = "1",
-      name = "Dojang Subscription Item",
-      price,
-      currency = "USD",
-      user_id,  // 클라이언트에서 보낸 user_id
       customerId,
-      planVariationId,
-      card_id,
-      start_date,
-      location_id
+      paymentMethodId,
+      planId,
     } = req.body;
-    
-    // 2. req.user에서 인증된 사용자 정보 가져오기
-    const { id: tokenUserId, dojang_code } = req.user;
-    
-    // 3. 클라이언트에서 보낸 user_id 또는 토큰의 id 사용
-    const userId = user_id || tokenUserId;
-    
-    // 4. 필수 필드 검증
-    if (!userId || !customerId || !planVariationId || !card_id || !start_date || !location_id || !dojang_code) {
-      // 누락된 필드 상세 정보 로깅
-      const requiredFields = {
-        userId, customerId, planVariationId, card_id, start_date, location_id, dojang_code
-      };
-      
-      const missingFields = Object.entries(requiredFields)
-        .filter(([key, value]) => !value)
-        .map(([key]) => key);
-      
-      console.error(`❌ ERROR: Missing required fields: ${missingFields.join(', ')}`);
-      return res.status(400).json({ 
-        success: false, 
-        message: "Missing required fields", 
-        missingFields 
-      });
+
+    // 필수값 체크
+    if (!customerId || !paymentMethodId || !planId) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
-      // 3️⃣ 먼저 'Order Template'(DRAFT 주문) 생성
-      console.log("📢 DEBUG: Creating DRAFT Order (template)...");
-      const orderTemplateResult = await createOrderTemplate(quantity, name, price, currency);
-      const orderTemplateId = orderTemplateResult.order?.id;
-  
-      if (!orderTemplateId) {
-        console.error("❌ ERROR: Failed to get orderTemplateId.");
-        return res.status(400).json({ success: false, message: "Failed to create Order Template." });
-      }
-  
-      console.log("📢 DEBUG: Created Order Template ID:", orderTemplateId);
-  
-      // 4️⃣ RELATIVE 가격 구독에서 phases[].order_template_id 로 사용
-      const idempotencyKey = uuidv4();  // ✅ 올바른 선언 방식
-      const subscriptionPayload = {
-        idempotency_key: idempotencyKey,
-        location_id: location_id,
-        plan_variation_id: planVariationId,
-        customer_id: customerId,
-        start_date: start_date,
-        card_id: card_id,
-        phases: [
-          {
-            ordinal: 1,
-            order_template_id: orderTemplateId
-          }
-        ]
-      };
-  
-      console.log("📢 DEBUG: Creating Subscription with Payload:", subscriptionPayload);
-  
-      // 5️⃣ Square Subscriptions API 호출
-      const subscriptionResponse = await fetch("https://connect.squareup.com/v2/subscriptions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`
-        },
-        body: JSON.stringify(subscriptionPayload)
-      });
-  
-      const subscriptionData = await subscriptionResponse.json();
-      console.log("📢 DEBUG: Subscription API Response:", JSON.stringify(subscriptionData, null, 2));
-  
-      if (!subscriptionResponse.ok || !subscriptionData.subscription || !subscriptionData.subscription.id) {
-        console.error("❌ ERROR: Failed to create Subscription.", subscriptionData);
-        return res.status(subscriptionResponse.status).json(subscriptionData);
-      }
-  
- // ✅ Square에서 받은 구독 정보 저장
- const subscriptionId = subscriptionData.subscription.id;
- const nextBillingDate = subscriptionData.subscription.charged_through_date;
 
- console.log("✅ DEBUG: Saving subscription data to database...");
+    // Stripe 구독 생성
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: planId }],
+      default_payment_method: paymentMethodId,
+      expand: ['latest_invoice.payment_intent'],
+    });
 
- // 6️⃣ 데이터베이스에 저장 (도장 코드 포함)
- await db.query(
-    `INSERT INTO subscriptions (user_id, customer_id, subscription_id, status, next_billing_date, dojang_code)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE status = ?, next_billing_date = ?, dojang_code = ?`,
-    [
-      userId,
-      customerId,
-      subscriptionId,
-      "ACTIVE",
-      nextBillingDate,
-      dojang_code,
-      "ACTIVE",
-      nextBillingDate,
-      dojang_code
-    ]
-  );
+    // DB 저장 등 추가 로직 필요시 여기에
 
-
- console.log("✅ DEBUG: Subscription saved successfully!");
-
-      // 6️⃣ 최종 응답
-      res.status(200).json({ success: true, subscriptionId: subscriptionData.subscription.id, nextBillingDate });
-    } catch (error) {
-      console.error("❌ ERROR creating Subscription:", error);
-      res.status(500).json({ success: false, message: "Error creating Subscription", error });
-    }
-  });
+    res.status(200).json({
+      success: true,
+      subscriptionId: subscription.id,
+      status: subscription.status,
+      current_period_end: subscription.current_period_end,
+      latest_invoice: subscription.latest_invoice,
+    });
+  } catch (error) {
+    console.error("❌ ERROR creating Stripe Subscription:", error);
+    res.status(500).json({ success: false, message: "Error creating Stripe Subscription", error: error.message });
+  }
+});
 
   router.get("/update-subscription", verifyToken, async (req, res) => {
     try {
