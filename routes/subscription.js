@@ -526,66 +526,48 @@ router.get("/customer/cards/:customerId", verifyToken, async (req, res) => {
 });
 
 
-router.post("/owner/customer/create", verifyToken, async (req, res) => {
+router.post('/owner/customer/create', verifyToken, async (req, res) => {
   const { email, cardholderName } = req.body;
-  const { id, dojang_code, role } = req.user;
 
   if (!email || !cardholderName) {
-    return res.status(400).json({ success: false, message: "Missing required fields" });
-  }
-
-  if (role !== 'owner') {
-    return res.status(403).json({ success: false, message: "Only owners can do this" });
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
   try {
-    // ✅ users 테이블에서 기존 Stripe customer_id 확인
-    const [userRow] = await db.query(
-      "SELECT customer_id FROM users WHERE id = ? AND role = 'owner'",
-      [ownerId]
+    const Stripe = require('stripe');
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); // 플랫폼 계정용 키
+
+    // 먼저 기존 고객 확인
+    const [existing] = await db.query(
+      `SELECT customer_id FROM users WHERE email = ? AND customer_id IS NOT NULL`,
+      [email]
     );
 
-    if (!userRow.length) {
-      return res.status(400).json({ success: false, message: "Owner not found in users table" });
+    if (existing.length > 0) {
+      return res.status(200).json({ success: true, customerId: existing[0].customer_id });
     }
 
-    if (userRow[0].customer_id) {
-      return res.status(200).json({
-        success: true,
-        customerId: userRow[0].customer_id,
-        message: "Existing customer returned"
-      });
-    }
-
-    // ✅ Stripe 플랫폼 계정에 customer 생성
-    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    // Stripe 고객 생성 (플랫폼 계정에 저장됨)
     const customer = await stripe.customers.create({
       name: cardholderName,
       email,
-      metadata: { dojang_code, role: "owner" }
+      metadata: { role: 'owner' }
     });
 
-    // ✅ users 테이블에 customer_id 저장
+    // DB 저장
     await db.query(
-      "UPDATE users SET customer_id = ? WHERE id = ? AND role = 'owner'",
-      [customer.id]
+      `UPDATE users SET customer_id = ? WHERE email = ?`,
+      [customer.id, email]
     );
 
-    res.status(200).json({
-      success: true,
-      customerId: customer.id,
-      message: "Stripe customer created"
-    });
+    return res.status(200).json({ success: true, customerId: customer.id });
 
   } catch (error) {
     console.error("❌ Error creating Stripe customer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to create Stripe customer",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    return res.status(500).json({ success: false, message: "Failed to create Stripe customer" });
   }
 });
+
 
 
 router.post('/card-save', verifyToken, async (req, res) => {
