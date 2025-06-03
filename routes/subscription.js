@@ -117,7 +117,7 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
   }
 });
   
-router.post("/subscription", verifyToken, async (req, res) => {
+router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
   try {
     const {
       customerId,
