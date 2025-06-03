@@ -568,7 +568,38 @@ router.post('/owner/customer/create', verifyToken, async (req, res) => {
   }
 });
 
+router.post('/stripe/setup/intent', verifyToken, async (req, res) => {
+  const { customerId } = req.body;
 
+  if (!customerId) {
+    return res.status(400).json({ success: false, message: "Missing customerId" });
+  }
+
+  try {
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      usage: 'off_session'
+    });
+
+    console.log("✅ [Platform] SetupIntent created:", setupIntent.id);
+
+    res.json({
+      success: true,
+      clientSecret: setupIntent.client_secret,
+      setupIntentId: setupIntent.id,
+      status: setupIntent.status
+    });
+  } catch (err) {
+    console.error('❌ [SetupIntent] Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create SetupIntent',
+      error: err.message
+    });
+  }
+});
 
 router.post('/card-save', verifyToken, async (req, res) => {
   const { paymentMethodId, customerId, billingInfo, payment_policy_agreed } = req.body;
