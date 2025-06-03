@@ -528,10 +528,14 @@ router.get("/customer/cards/:customerId", verifyToken, async (req, res) => {
 
 router.post("/owner/customer/create", verifyToken, async (req, res) => {
   const { email, cardholderName } = req.body;
-  const { dojang_code } = req.user;
+  const { id, dojang_code, role } = req.user;
 
   if (!email || !cardholderName) {
     return res.status(400).json({ success: false, message: "Missing required fields" });
+  }
+
+  if (role !== 'owner') {
+    return res.status(403).json({ success: false, message: "Only owners can do this" });
   }
 
   try {
