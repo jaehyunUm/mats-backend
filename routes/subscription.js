@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const verifyToken = require('../middleware/verifyToken');
-const { cardsApi, platformStripe} = require('../modules/stripeClient'); // ✅ Square API 가져오기
+const { cardsApi} = require('../modules/stripeClient'); // ✅ Square API 가져오기
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 
@@ -17,7 +17,8 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
 
   try {
     // ✅ 1️⃣ Stripe API 호출 → 구독 취소
-    const deletedSubscription = await platformStripe.subscriptions.del(subscriptionId);
+   // 이 코드로 대체
+const deletedSubscription = await stripe.subscriptions.del(subscriptionId);
 
     // ✅ 2️⃣ 해당 owner_bank_accounts 행 삭제
     if (dojang_code) {
