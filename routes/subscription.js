@@ -17,8 +17,7 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
 
   try {
     // ✅ 1️⃣ Stripe API 호출 → 구독 취소
-   // 이 코드로 대체
-const deletedSubscription = await stripe.subscriptions.del(subscriptionId);
+    const deletedSubscription = await stripe.subscriptions.cancel(subscriptionId);
 
     // ✅ 2️⃣ 해당 owner_bank_accounts 행 삭제
     if (dojang_code) {
