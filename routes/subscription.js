@@ -16,26 +16,34 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
   }
 
   try {
-    // ✅ 1️⃣ Stripe API 호출 → 구독 취소
+    // 1. 구독 취소
     const deletedSubscription = await stripe.subscriptions.cancel(subscriptionId);
 
-    // ✅ 2️⃣ 해당 owner_bank_accounts 행 삭제
-    if (dojang_code) {
-      await db.query(
-        'DELETE FROM owner_bank_accounts WHERE dojang_code = ?',
-        [dojang_code]
-      );
+    // 2. Stripe Connect 계정 삭제
+    const [account] = await db.query(
+      'SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?',
+      [dojang_code]
+    );
+    
+    if (account && account.stripe_account_id) {
+      await stripe.accounts.del(account.stripe_account_id);
     }
+
+    // 3. DB에서 계정 정보 삭제
+    await db.query(
+      'DELETE FROM owner_bank_accounts WHERE dojang_code = ?',
+      [dojang_code]
+    );
 
     res.status(200).json({
       success: true,
-      message: 'Stripe subscription cancelled and owner bank account deleted.',
+      message: 'Subscription and Stripe Connect account cancelled successfully.',
       subscription: deletedSubscription,
     });
 
   } catch (error) {
     console.error('❌ Stripe Cancel Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to cancel subscription.' });
+    res.status(500).json({ success: false, message: 'Failed to cancel subscription and account.' });
   }
 });
 

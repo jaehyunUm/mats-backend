@@ -54,6 +54,7 @@ router.get('/bank-account/callback', async (req, res) => {
     // 3️⃣ 해당 계정에서 구독 조회
     let status = 'inactive';
     let nextBillingDate = null;
+    let subscriptionId = null;
 
     // ❗ 관리형 구독 ID를 플랫폼이 알고 있어야 함 (보통 dojang_code로 저장되어 있거나, 리스트 중 첫 번째 사용)
     const subscriptions = await platformStripe.subscriptions.list({
@@ -65,6 +66,7 @@ router.get('/bank-account/callback', async (req, res) => {
       const subscription = subscriptions.data[0];
       status = subscription.status;
       nextBillingDate = new Date(subscription.current_period_end * 1000);
+      subscriptionId = subscription.id;  // 구독 ID 저장
     }
 
     // 4️⃣ owner_bank_accounts에 저장 또는 업데이트
@@ -75,16 +77,18 @@ router.get('/bank-account/callback', async (req, res) => {
         stripe_account_id, 
         refresh_token,
         status,
-        next_billing_date
+        next_billing_date,
+        subscription_id
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE 
         stripe_access_token = VALUES(stripe_access_token),
         stripe_account_id = VALUES(stripe_account_id),
         refresh_token = VALUES(refresh_token),
         status = VALUES(status),
-        next_billing_date = VALUES(next_billing_date);
-    `, [dojang_code, access_token, stripe_user_id, refresh_token, status, nextBillingDate]);
+        next_billing_date = VALUES(next_billing_date),
+        subscription_id = VALUES(subscription_id);
+    `, [dojang_code, access_token, stripe_user_id, refresh_token, status, nextBillingDate, subscriptionId]);
 
     console.log("✅ Bank account + subscription data saved");
 
