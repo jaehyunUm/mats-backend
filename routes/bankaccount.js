@@ -40,7 +40,7 @@ router.get('/bank-account/callback', async (req, res) => {
   }
 
   try {
-    // Stripe OAuth 토큰 교환
+    // 1️⃣ Stripe OAuth 토큰 요청
     const response = await platformStripe.oauth.token({
       grant_type: 'authorization_code',
       code: code,
@@ -48,59 +48,78 @@ router.get('/bank-account/callback', async (req, res) => {
 
     const { access_token, refresh_token, stripe_user_id } = response;
 
-    // Stripe 계정 정보 가져오기
+    // 2️⃣ Stripe 계정 정보 가져오기 (선택 사항)
     const account = await platformStripe.accounts.retrieve(stripe_user_id);
 
-    // DB에 저장
+    // 3️⃣ 해당 계정에서 구독 조회
+    let status = 'inactive';
+    let nextBillingDate = null;
+
+    // ❗ 관리형 구독 ID를 플랫폼이 알고 있어야 함 (보통 dojang_code로 저장되어 있거나, 리스트 중 첫 번째 사용)
+    const subscriptions = await platformStripe.subscriptions.list({
+      limit: 1,
+      status: 'all',
+    });
+
+    if (subscriptions.data.length > 0) {
+      const subscription = subscriptions.data[0];
+      status = subscription.status;
+      nextBillingDate = new Date(subscription.current_period_end * 1000);
+    }
+
+    // 4️⃣ owner_bank_accounts에 저장 또는 업데이트
     await db.query(`
       INSERT INTO owner_bank_accounts (
         dojang_code, 
         stripe_access_token, 
         stripe_account_id, 
-        refresh_token
+        refresh_token,
+        status,
+        next_billing_date
       )
-      VALUES (?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE 
         stripe_access_token = VALUES(stripe_access_token),
         stripe_account_id = VALUES(stripe_account_id),
-        refresh_token = VALUES(refresh_token);
-    `, [dojang_code, access_token, stripe_user_id, refresh_token]);
+        refresh_token = VALUES(refresh_token),
+        status = VALUES(status),
+        next_billing_date = VALUES(next_billing_date);
+    `, [dojang_code, access_token, stripe_user_id, refresh_token, status, nextBillingDate]);
 
-    console.log("✅ Stripe Connect Data Successfully Stored in Database");
+    console.log("✅ Bank account + subscription data saved");
 
-
-   res.send(`
-    <html>
-      <head>
-        <title>Stripe Connection Complete</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { font-family: sans-serif; text-align: center; padding: 50px; }
-          h2 { color: #2ecc71; }
-        </style>
-      </head>
-      <body>
-        <h2>✅ Stripe connection completed!</h2>
-        <p>Returning to the app...</p>
-        <script>
-          setTimeout(function() {
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage('mats://stripe-connect-success');
-            } else {
-              window.location = 'mats://stripe-connect-success';
-            }
-          }, 500);
-        </script>
-      </body>
-    </html>
-  `);
-  
-  
+    // 5️⃣ 앱으로 리디렉션
+    res.send(`
+      <html>
+        <head>
+          <title>Stripe Connection Complete</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: sans-serif; text-align: center; padding: 50px; }
+            h2 { color: #2ecc71; }
+          </style>
+        </head>
+        <body>
+          <h2>✅ Stripe connection completed!</h2>
+          <p>Returning to the app...</p>
+          <script>
+            setTimeout(function() {
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage('mats://stripe-connect-success');
+              } else {
+                window.location = 'mats://stripe-connect-success';
+              }
+            }, 500);
+          </script>
+        </body>
+      </html>
+    `);
 
   } catch (error) {
     console.error('❌ Stripe OAuth Error:', error);
     res.status(500).json({ success: false, message: 'Failed to connect Stripe account' });
   }
 });
+
 
 module.exports = router;

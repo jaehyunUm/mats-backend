@@ -215,31 +215,37 @@ router.get('/subscription/status', verifyToken, async (req, res) => {
 router.get("/subscription-status", verifyToken, async (req, res) => {
   try {
     const { dojang_code } = req.user;
-    
-    // user_id 조건 제거, 도장 코드만으로 조회
+
+    // DB에서 Stripe subscription_id만 가져옴
     const [rows] = await db.query(
-      "SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
+      "SELECT subscription_id FROM subscriptions WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
       [dojang_code]
     );
-    
-    if (rows.length === 0) {
-      return res.status(200).json({ 
-        success: true, 
-        status: "Inactive", 
+
+    if (rows.length === 0 || !rows[0].subscription_id) {
+      return res.status(200).json({
+        success: true,
+        status: "Inactive",
         subscriptionId: null,
-        nextBillingDate: null 
+        nextBillingDate: null
       });
     }
-    
-    const { subscription_id, status, next_billing_date } = rows[0];
+
+    const { subscription_id } = rows[0];
+
+    // Stripe에서 구독 정보 조회
+    const subscription = await stripe.subscriptions.retrieve(subscription_id);
+
     res.json({
       success: true,
-      subscriptionId: subscription_id,
-      status,
-      nextBillingDate: next_billing_date,
+      subscriptionId: subscription.id,
+      status: subscription.status, // active, canceled 등
+      nextBillingDate: subscription.current_period_end
+        ? new Date(subscription.current_period_end * 1000)
+        : null,
     });
   } catch (error) {
-    console.error("❌ Error fetching subscription status:", error);
+    console.error("❌ Error fetching subscription status from Stripe:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
