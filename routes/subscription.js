@@ -179,76 +179,39 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
     }
   });
   
-
-// ✅ 구독 상태 조회 API
-router.get('/subscription/status', verifyToken, async (req, res) => {
-    const { dojang_code } = req.user;
-  
-    if (!dojang_code) {
-      return res.status(400).json({ success: false, message: 'Dojang code is required.' });
-    }
-  
+  router.get("/subscription-status", verifyToken, async (req, res) => {
     try {
-      const [subscriptions] = await db.query(
-        'SELECT status, next_billing_date FROM subscriptions WHERE dojang_code = ? ORDER BY next_billing_date DESC LIMIT 1',
+      const { dojang_code } = req.user;
+  
+      // owner_bank_accounts 테이블에서 구독 상태와 다음 결제일 조회
+      const [rows] = await db.query(
+        "SELECT status, next_billing_date FROM owner_bank_accounts WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
         [dojang_code]
       );
   
-      if (!subscriptions || subscriptions.length === 0) {
-        return res.status(404).json({ success: false, message: 'No subscription found.' });
+      if (rows.length === 0) {
+        return res.status(200).json({
+          success: true,
+          status: "Inactive",
+          subscriptionId: null,
+          nextBillingDate: null
+        });
       }
   
-      const subscription = subscriptions[0];
-      res.status(200).json({
+      const { status, next_billing_date } = rows[0];
+  
+      res.json({
         success: true,
-        status: subscription.status,
-        next_billing_date: subscription.next_billing_date,
+        subscriptionId: null, // subscription_id는 더 이상 사용하지 않음
+        status,
+        nextBillingDate: next_billing_date,
       });
     } catch (error) {
-      console.error('❌ Error fetching subscription status:', error);
-      res.status(500).json({ success: false, message: 'Error fetching subscription status.' });
+      console.error("❌ Error fetching subscription status from DB:", error);
+      res.status(500).json({ success: false, message: "Server error" });
     }
   });
-
-
-// 📌 ✅ 구독 상태 조회 API
-router.get("/subscription-status", verifyToken, async (req, res) => {
-  try {
-    const { dojang_code } = req.user;
-
-    // DB에서 Stripe subscription_id만 가져옴
-    const [rows] = await db.query(
-      "SELECT subscription_id FROM subscriptions WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
-      [dojang_code]
-    );
-
-    if (rows.length === 0 || !rows[0].subscription_id) {
-      return res.status(200).json({
-        success: true,
-        status: "Inactive",
-        subscriptionId: null,
-        nextBillingDate: null
-      });
-    }
-
-    const { subscription_id } = rows[0];
-
-    // Stripe에서 구독 정보 조회
-    const subscription = await stripe.subscriptions.retrieve(subscription_id);
-
-    res.json({
-      success: true,
-      subscriptionId: subscription.id,
-      status: subscription.status, // active, canceled 등
-      nextBillingDate: subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000)
-        : null,
-    });
-  } catch (error) {
-    console.error("❌ Error fetching subscription status from Stripe:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
+  
 
 // 📌 Stripe 계정 상태 체크 API
 router.get("/stripe/status", verifyToken, async (req, res) => {
