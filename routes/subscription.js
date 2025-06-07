@@ -20,22 +20,23 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
 
     // ✅ 2️⃣ 도장 코드 확인
     const [rows] = await db.query(
-      'SELECT dojang_code FROM owner_bank_accounts WHERE stripe_account_id = (SELECT stripe_account_id FROM owner_bank_accounts WHERE stripe_access_token IS NOT NULL AND status = "active" LIMIT 1)'
+      'SELECT dojang_code FROM owner_bank_accounts WHERE stripe_account_id = (SELECT stripe_account_id FROM owner_bank_accounts WHERE stripe_access_token IS NOT NULL AND status = "active" AND stripe_account_id = ? LIMIT 1)',
+      [subscriptionId]
     );
 
     const dojang_code = rows[0]?.dojang_code;
 
-    // ✅ 3️⃣ 해당 owner_bank_accounts 상태를 inactive 로 업데이트
+    // ✅ 3️⃣ 해당 owner_bank_accounts 행 삭제
     if (dojang_code) {
       await db.query(
-        'UPDATE owner_bank_accounts SET status = ? WHERE dojang_code = ?',
-        ['inactive', dojang_code]
+        'DELETE FROM owner_bank_accounts WHERE dojang_code = ?',
+        [dojang_code]
       );
     }
 
     res.status(200).json({
       success: true,
-      message: 'Stripe subscription cancelled and status updated.',
+      message: 'Stripe subscription cancelled and owner bank account deleted.',
       subscription: deletedSubscription,
     });
 
@@ -44,6 +45,7 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to cancel subscription.' });
   }
 });
+
 
 
 // 서버 라우터 코드
