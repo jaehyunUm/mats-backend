@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
-const stripeClient = require('../modules/stripeClient');
+const { platformStripe } = require('../modules/stripeClient');
 require('dotenv').config();
 
 // 환경 변수 로깅 추가
@@ -41,7 +41,7 @@ router.get('/bank-account/callback', async (req, res) => {
 
   try {
     // Stripe OAuth 토큰 교환
-    const response = await stripeClient.client.oauth.token({
+    const response = await platformStripe.oauth.token({
       grant_type: 'authorization_code',
       code: code,
     });
@@ -49,7 +49,7 @@ router.get('/bank-account/callback', async (req, res) => {
     const { access_token, refresh_token, stripe_user_id } = response;
 
     // Stripe 계정 정보 가져오기
-    const account = await stripeClient.client.accounts.retrieve(stripe_user_id);
+    const account = await platformStripe.accounts.retrieve(stripe_user_id);
 
     // DB에 저장
     await db.query(`
