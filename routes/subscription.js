@@ -343,21 +343,34 @@ router.get("/stripe/status", verifyToken, async (req, res) => {
 router.get('/stripe/plans', async (req, res) => {
   try {
     const products = await stripe.products.list({ active: true });
+
+    // 모든 가격 가져오기
     const prices = await stripe.prices.list({
       active: true,
       expand: ['data.product']
     });
 
-    const items = prices.data.map((price) => {
-      return {
-        id: price.product.id,
-        name: price.product.name,
-        description: price.product.description,
-        price: price.unit_amount,
-        priceId: price.id,
-        interval: price.recurring?.interval,
-      };
-    });
+    // 하나의 Product당 가장 최근 Price만 추출
+    const latestPricePerProduct = {};
+
+    for (const price of prices.data) {
+      const productId = price.product.id;
+      if (
+        !latestPricePerProduct[productId] ||
+        new Date(price.created * 1000) > new Date(latestPricePerProduct[productId].created * 1000)
+      ) {
+        latestPricePerProduct[productId] = price;
+      }
+    }
+
+    const items = Object.values(latestPricePerProduct).map((price) => ({
+      id: price.product.id,
+      name: price.product.name,
+      description: price.product.description,
+      price: price.unit_amount / 100,
+      priceId: price.id,
+      interval: price.recurring?.interval,
+    }));
 
     res.json({ items });
   } catch (error) {
