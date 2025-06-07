@@ -8,26 +8,26 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
-  const { subscriptionId } = req.body;
   const { dojang_code } = req.user;
 
-  if (!subscriptionId) {
-    return res.status(400).json({ success: false, message: 'Subscription ID is required.' });
-  }
-
   try {
-    // 1. 구독 취소
-    const deletedSubscription = await stripe.subscriptions.cancel(subscriptionId);
-
-    // 2. Stripe Connect 계정 삭제
-    const [account] = await db.query(
-      'SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?',
+    // 1. DB에서 구독 ID 조회
+    const [rows] = await db.query(
+      'SELECT subscription_id FROM owner_bank_accounts WHERE dojang_code = ?',
       [dojang_code]
     );
-    
-    if (account && account.stripe_account_id) {
-      await stripe.accounts.del(account.stripe_account_id);
+
+    if (!rows || rows.length === 0 || !rows[0].subscription_id) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No subscription found for this dojang' 
+      });
     }
+
+    const subscriptionId = rows[0].subscription_id;
+
+    // 2. 구독 취소
+    const deletedSubscription = await stripe.subscriptions.cancel(subscriptionId);
 
     // 3. DB에서 계정 정보 삭제
     await db.query(
@@ -37,13 +37,13 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Subscription and Stripe Connect account cancelled successfully.',
+      message: 'Subscription cancelled successfully.',
       subscription: deletedSubscription,
     });
 
   } catch (error) {
     console.error('❌ Stripe Cancel Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to cancel subscription and account.' });
+    res.status(500).json({ success: false, message: 'Failed to cancel subscription.' });
   }
 });
 
