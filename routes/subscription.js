@@ -48,37 +48,38 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
 
 // 서버 라우터 코드
 router.get('/subscription/list', verifyToken, async (req, res) => {
-  const { dojang_code } = req.user; // 도장코드를 req.user에서 가져오기
-  console.log('🔑 도장 코드:', dojang_code); // 도장 코드 확인
-  
-  // ✅ 도장 코드 유효성 검사
+  const { dojang_code } = req.user;
+  console.log('🔑 도장 코드:', dojang_code);
+
   if (!dojang_code) {
     return res.status(400).json({ success: false, message: 'Dojang code is required' });
   }
-  
+
   try {
-    // ✅ 해당 도장의 구독 목록을 데이터베이스에서 가져오기 (user_id 조건 없이)
     const [subscriptions] = await db.query(
-      'SELECT subscription_id, status, next_billing_date FROM subscriptions WHERE dojang_code = ?',
+      `SELECT 
+         stripe_account_id AS subscription_id, 
+         status, 
+         next_billing_date 
+       FROM owner_bank_accounts 
+       WHERE dojang_code = ?`,
       [dojang_code]
     );
-    
-    // ✅ 구독 정보가 없는 경우 (200 응답 코드로 처리)
+
     if (!subscriptions || subscriptions.length === 0) {
       return res.status(200).json({
         success: true,
         subscriptions: [],
-        message: 'No subscriptions found for this dojang',
+        message: 'No subscription records found for this dojang',
       });
     }
-    
-    // ✅ 구독 목록 반환
+
     res.status(200).json({
       success: true,
       subscriptions,
     });
   } catch (error) {
-    console.error('❌ Error fetching subscriptions:', error);
+    console.error('❌ Error fetching subscriptions from owner_bank_accounts:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching subscriptions',
@@ -86,6 +87,7 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
     });
   }
 });
+
   
 router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
   try {
