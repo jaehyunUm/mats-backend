@@ -128,29 +128,6 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
   }
 });
 
-router.post('ios/subscription/create', verifyToken, async (req, res) => {
-  try {
-    const { subscription_id, status, next_billing_date } = req.body;
-    const { id: user_id, dojang_code } = req.user; // 토큰에서 추출됨
-
-    if (!subscription_id || !status) {
-      return res.status(400).json({ message: 'subscription_id and status are required.' });
-    }
-
-    const query = `
-      INSERT INTO subscriptions (user_id, subscription_id, status, next_billing_date, dojang_code)
-      VALUES (?, ?, ?, ?, ?)
-    `;
-
-    await db.query(query, [user_id, subscription_id, status, next_billing_date || null, dojang_code]);
-
-    return res.status(200).json({ message: 'Subscription saved successfully.' });
-  } catch (error) {
-    console.error('❌ Failed to save subscription:', error);
-    return res.status(500).json({ message: 'Internal server error.' });
-  }
-});
-
   router.get("/update-subscription", verifyToken, async (req, res) => {
     try {
       const { dojang_code } = req.user;
