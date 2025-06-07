@@ -77,16 +77,7 @@ router.post('/signup', async (req, res) => {
   }
 });
 
-router.delete('/delete-account', verifyToken, async (req, res) => {
-  const userId = req.user.id;
 
-  try {
-    await db.query('DELETE FROM users WHERE id = ?', [userId]);
-    res.json({ message: 'Account deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ message: 'Error deleting account' });
-  }
-});
 
 
 

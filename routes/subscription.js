@@ -2,9 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const verifyToken = require('../middleware/verifyToken');
-const { cardsApi, customersApi, subscriptionsApi, locationId , squareClient} = require('../modules/stripeClient'); // ✅ Square API 가져오기
-const { v4: uuidv4 } = require("uuid");
-const { createOrderTemplate } = require('./createOrderTemplate'); 
+const { cardsApi} = require('../modules/stripeClient'); // ✅ Square API 가져오기
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 
@@ -72,8 +70,6 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
       });
   }
 });
-
-  
 
 
 // 서버 라우터 코드
@@ -696,6 +692,17 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       success: false,
       message: 'Error verifying receipt'
     });
+  }
+});
+
+router.delete('/delete-account', verifyToken, async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    await db.query('DELETE FROM users WHERE id = ?', [userId]);
+    res.json({ message: 'Account deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Error deleting account' });
   }
 });
 
