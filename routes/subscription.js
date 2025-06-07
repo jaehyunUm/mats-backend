@@ -343,26 +343,29 @@ router.get("/stripe/status", verifyToken, async (req, res) => {
 router.get('/stripe/plans', async (req, res) => {
   try {
     const products = await stripe.products.list({ active: true });
-    const prices = await stripe.prices.list({ active: true });
+    const prices = await stripe.prices.list({
+      active: true,
+      expand: ['data.product']
+    });
 
-    const items = products.data.map((product) => {
-      const price = prices.data.find((p) => p.product === product.id);
+    const items = prices.data.map((price) => {
       return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        price: price?.unit_amount || 0,
-        priceId: price?.id,
-        interval: price?.recurring?.interval,
+        id: price.product.id,
+        name: price.product.name,
+        description: price.product.description,
+        price: price.unit_amount,
+        priceId: price.id,
+        interval: price.recurring?.interval,
       };
     });
 
     res.json({ items });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Stripe Plans Fetch Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
   
 
 
