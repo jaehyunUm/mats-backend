@@ -367,7 +367,7 @@ router.get('/stripe/plans', async (req, res) => {
       id: price.product.id,
       name: price.product.name,
       description: price.product.description,
-      price: price.unit_amount / 100,
+      price: price.unit_amount,
       priceId: price.id,
       interval: price.recurring?.interval,
     }));
