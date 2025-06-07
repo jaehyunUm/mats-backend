@@ -50,17 +50,17 @@ router.post('/login', async (req, res) => {
         console.log('🟢 DEBUG: subscriptionStatus set to trial');
       } else {
         const [subscriptions] = await db.query(
-          'SELECT status FROM owner_bank_accounts WHERE dojang_code = ? ORDER BY next_billing_date DESC LIMIT 1',
+          'SELECT status FROM owner_bank_accounts WHERE dojang_code = ? ORDER BY created_at DESC LIMIT 1',
           [user.dojang_code]
         );
-    
-        console.log('🟢 DEBUG: owner_bank_accounts record from DB:', accounts);
-
-        if (!accounts || accounts.length === 0) {
+        
+        console.log('🟢 DEBUG: owner_bank_accounts record from DB:', subscriptions);
+        
+        if (!subscriptions || subscriptions.length === 0) {
           subscriptionStatus = 'no_subscription';
           console.log('🟢 DEBUG: subscriptionStatus set to no_subscription');
-        } else if (accounts[0].status !== 'active') {
-          subscriptionStatus = accounts[0].status.toLowerCase();
+        } else if (subscriptions[0].status !== 'active') {
+          subscriptionStatus = subscriptions[0].status.toLowerCase();
           console.log(`🟢 DEBUG: subscriptionStatus set to ${subscriptionStatus}`);
         } else {
           subscriptionStatus = 'active';
