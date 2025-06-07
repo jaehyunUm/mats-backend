@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const verifyToken = require('../middleware/verifyToken');
-const { cardsApi} = require('../modules/stripeClient'); // ✅ Square API 가져오기
+const { cardsApi, platformStripe} = require('../modules/stripeClient'); // ✅ Square API 가져오기
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 
@@ -11,63 +11,37 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { subscriptionId } = req.body;
 
   if (!subscriptionId) {
-      return res.status(400).json({ success: false, message: 'Subscription ID is required.' });
+    return res.status(400).json({ success: false, message: 'Subscription ID is required.' });
   }
 
   try {
-      // ✅ 1️⃣ Square API 호출 → 구독 취소 요청
-      const response = await fetch(`https://connect.squareup.com/v2/subscriptions/${subscriptionId}/cancel`, {
-          method: 'POST',
-          headers: {
-              'Authorization': `Bearer ${process.env.stripe_access_token_PRODUCTION}`, // Square API 토큰
-              'Content-Type': 'application/json',
-          },
-      });
+    // ✅ 1️⃣ Stripe API 호출 → 구독 취소
+    const deletedSubscription = await platformStripe.subscriptions.del(subscriptionId);
 
-      const data = await response.json();
+    // ✅ 2️⃣ 도장 코드 확인
+    const [rows] = await db.query(
+      'SELECT dojang_code FROM owner_bank_accounts WHERE stripe_account_id = (SELECT stripe_account_id FROM owner_bank_accounts WHERE stripe_access_token IS NOT NULL AND status = "active" LIMIT 1)'
+    );
 
-      // ✅ 2️⃣ Square API 응답이 실패했을 경우
-      if (!response.ok) {
-          console.error('❌ Square API Error:', data);
-          return res.status(response.status).json({ success: false, message: 'Failed to cancel subscription with Square API' });
-      }
+    const dojang_code = rows[0]?.dojang_code;
 
-      // ✅ 3️⃣ 구독 정보에서 도장 코드 가져오기
-      const [subscription] = await db.query(
-          'SELECT dojang_code FROM subscriptions WHERE subscription_id = ?',
-          [subscriptionId]
-      );
-
-      if (!subscription || subscription.length === 0) {
-          return res.status(404).json({ success: false, message: 'Subscription not found.' });
-      }
-
-      const dojang_code = subscription[0].dojang_code;
-
-      // ✅ 4️⃣ 구독 정보 삭제
+    // ✅ 3️⃣ 해당 owner_bank_accounts 상태를 inactive 로 업데이트
+    if (dojang_code) {
       await db.query(
-          'DELETE FROM subscriptions WHERE subscription_id = ?',
-          [subscriptionId]
+        'UPDATE owner_bank_accounts SET status = ? WHERE dojang_code = ?',
+        ['inactive', dojang_code]
       );
+    }
 
-      // ✅ 5️⃣ 해당 도장 코드에 연결된 은행 계좌 정보 삭제
-      await db.query(
-          'DELETE FROM owner_bank_accounts WHERE dojang_code = ?',
-          [dojang_code]
-      );
-
-      // ✅ 6️⃣ 최종 응답 반환
-      res.status(200).json({
-          success: true,
-          message: 'Subscription and associated bank account deleted successfully.',
-      });
+    res.status(200).json({
+      success: true,
+      message: 'Stripe subscription cancelled and status updated.',
+      subscription: deletedSubscription,
+    });
 
   } catch (error) {
-      console.error('❌ Error cancelling subscription:', error);
-      res.status(500).json({
-          success: false,
-          message: 'An error occurred while cancelling the subscription.',
-      });
+    console.error('❌ Stripe Cancel Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to cancel subscription.' });
   }
 });
 
