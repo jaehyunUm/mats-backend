@@ -9,6 +9,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { subscriptionId } = req.body;
+  const { dojang_code } = req.user;
 
   if (!subscriptionId) {
     return res.status(400).json({ success: false, message: 'Subscription ID is required.' });
@@ -18,15 +19,7 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
     // ✅ 1️⃣ Stripe API 호출 → 구독 취소
     const deletedSubscription = await platformStripe.subscriptions.del(subscriptionId);
 
-    // ✅ 2️⃣ 도장 코드 확인
-    const [rows] = await db.query(
-      'SELECT dojang_code FROM owner_bank_accounts WHERE stripe_account_id = (SELECT stripe_account_id FROM owner_bank_accounts WHERE stripe_access_token IS NOT NULL AND status = "active" AND stripe_account_id = ? LIMIT 1)',
-      [subscriptionId]
-    );
-
-    const dojang_code = rows[0]?.dojang_code;
-
-    // ✅ 3️⃣ 해당 owner_bank_accounts 행 삭제
+    // ✅ 2️⃣ 해당 owner_bank_accounts 행 삭제
     if (dojang_code) {
       await db.query(
         'DELETE FROM owner_bank_accounts WHERE dojang_code = ?',
@@ -45,6 +38,7 @@ router.post('/subscription/cancel', verifyToken, async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to cancel subscription.' });
   }
 });
+
 
 
 
