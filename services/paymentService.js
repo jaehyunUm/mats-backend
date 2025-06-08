@@ -162,3 +162,8 @@ const processPaymentForSubscription = async (subscription) => {
       return { success: false, error: 'Internal server error' };
     }
   };
+
+module.exports = { 
+  processPaymentForSubscription,
+  createNotification
+};
