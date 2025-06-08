@@ -151,32 +151,29 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
       }
       
       const subscriptionId = subscriptions[0].subscription_id;
-      
-      // ✅ Square에서 최신 구독 정보 가져오기
-      const response = await fetch(`https://connect.squareup.com/v2/subscriptions/${subscriptionId}`, {
-        method: "GET",
-        headers: {
-          "Square-Version": "2024-01-18",
-          "Authorization": `Bearer ${process.env.stripe_access_token_PRODUCTION}`,
-          "Content-Type": "application/json",
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok || !data.subscription) {
-        console.error("❌ Square API error:", data);
-        return res.status(400).json({ success: false, message: "Failed to fetch subscription data", details: data });
+
+      // ✅ Stripe에서 최신 구독 정보 가져오기
+      const Stripe = require('stripe');
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      let stripeSub;
+      try {
+        stripeSub = await stripe.subscriptions.retrieve(subscriptionId);
+      } catch (err) {
+        console.error("❌ Stripe API error:", err);
+        return res.status(400).json({ success: false, message: "Failed to fetch subscription data", details: err.message });
       }
-      
-      const nextBillingDate = data.subscription.charged_through_date;
-      
+
+      // next_billing_date는 Unix timestamp(초)로 제공됨
+      const nextBillingDate = stripeSub.current_period_end
+        ? new Date(stripeSub.current_period_end * 1000).toISOString().split('T')[0]
+        : null;
+
       // ✅ DB 업데이트 - 도장 코드로만 조건 지정
       await db.query(
         "UPDATE subscriptions SET next_billing_date = ? WHERE dojang_code = ? AND subscription_id = ?",
         [nextBillingDate, dojang_code, subscriptionId]
       );
-      
+
       res.json({ success: true, nextBillingDate });
     } catch (error) {
       console.error("❌ ERROR updating subscription:", error);
