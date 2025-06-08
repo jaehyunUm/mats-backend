@@ -69,3 +69,8 @@ cron.schedule('0 12 * * *', () => {
     console.error("❌ Error running scheduled subscription job:", error);
   }
 });
+
+// 함수 export 추가
+module.exports = {
+  processSubscriptions
+};
