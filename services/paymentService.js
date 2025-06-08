@@ -82,8 +82,9 @@ const processPaymentForSubscription = async (subscription) => {
         return { success: false, error: 'Invalid program fee' };
       }
   
-      // 5. 결제 시도
-      const paymentIntent = await stripe.paymentIntents.create({
+      const isPlatformAccount = !stripeAccountId || stripeAccountId === '본인 Stripe 계정 ID';
+  
+      const paymentIntentParams = {
         amount: Math.round(fee * 100),
         currency: "USD",
         customer: subscription.customer_id,
@@ -97,13 +98,17 @@ const processPaymentForSubscription = async (subscription) => {
           dojang_code: subscription.dojang_code,
           program_id: subscription.program_id,
         },
-        on_behalf_of: stripeAccountId,
-        transfer_data: {
-          destination: stripeAccountId,
-        },
-      }, {
-        idempotencyKey: subscription.idempotency_key || uuidv4(),
-      });
+      };
+  
+      if (stripeAccountId) {
+        paymentIntentParams.on_behalf_of = stripeAccountId;
+      }
+  
+      // 5. 결제 시도
+      const paymentIntent = await stripe.paymentIntents.create(
+        paymentIntentParams,
+        { idempotencyKey: subscription.idempotency_key || uuidv4() }
+      );
   
       if (paymentIntent.status !== 'succeeded') {
         await handleFailure(connection, subscription, `⚠️ 결제 실패: ${studentName}님의 ${programName} 프로그램 결제($${fee})가 실패했습니다.`);
