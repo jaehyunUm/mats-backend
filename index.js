@@ -148,8 +148,6 @@ const studentManagementRoutes = require('./routes/studentmanagement'); // studen
 app.use('/api', studentManagementRoutes);
 const customerRoutes = require('./routes/customer'); // customer.js 파일 경로
 app.use('/api', customerRoutes);
-const updatePayment = require('./schedulers/updatepayment');
-app.use('/api', updatePayment);
 const myclassRoutes = require('./routes/myclass'); // myclass.js 라우터 가져오기
 app.use('/api', myclassRoutes); // '/api/myclass' 경로 연결
 const notificationRoutes = require('./routes/Notifications'); // notification.js 라우터 가져오기
