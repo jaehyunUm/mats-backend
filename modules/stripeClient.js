@@ -86,8 +86,17 @@ const createSetupIntentForConnectedAccount = async (customerId, stripeAccountId)
   }
 };
 
+// stripeClient 객체 생성
+const stripeClient = {
+  generateOAuthLink,
+  refreshStripeAccessToken,
+  checkStripeScopes,
+  createSetupIntentForConnectedAccount,
+};
+
 module.exports = {
   platformStripe,
+  stripeClient,  // stripeClient 객체 export
   generateOAuthLink,
   refreshStripeAccessToken,
   checkStripeScopes,

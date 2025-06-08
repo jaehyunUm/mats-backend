@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
-const { platformStripe } = require('../modules/stripeClient');
+const { platformStripe, stripeClient } = require('../modules/stripeClient');
 require('dotenv').config();
 
 // 환경 변수 로깅 추가
