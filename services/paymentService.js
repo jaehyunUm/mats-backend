@@ -3,6 +3,7 @@ const { createStripeClientWithKey } = require('../modules/stripeClient');
 const db = require('../db');
 const uuidv4 = require('uuid').v4;
 const dayjs = require('dayjs');
+const process = require('process');
 
 // 알림 생성 함수
 const createNotification = async (dojangCode, message, connection) => {
@@ -82,7 +83,7 @@ const processPaymentForSubscription = async (subscription) => {
         return { success: false, error: 'Invalid program fee' };
       }
   
-      const isPlatformAccount = !stripeAccountId || stripeAccountId === '본인 Stripe 계정 ID';
+      const platformAccountId = process.env.STRIPE_PLATFORM_ACCOUNT_ID;
   
       const paymentIntentParams = {
         amount: Math.round(fee * 100),
