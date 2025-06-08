@@ -6,6 +6,7 @@ const cors = require('cors');
 const app = express();
 const server = http.createServer(app);
 
+
 // ✅ CORS 설정
 const whitelist = ['http://localhost:3000', null, undefined, `http://192.168.12.144:4000`];
 

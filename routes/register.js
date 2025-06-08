@@ -498,7 +498,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       if (paymentType === "monthly_pay") {
         await connection.query(`
           UPDATE monthly_payments 
-          SET payment_status = 'completed', status = 'completed', 
+          SET payment_status = 'pending', status = 'completed', 
               last_payment_date = payment_date
           WHERE payment_id = ?
         `, [mainPaymentId]);

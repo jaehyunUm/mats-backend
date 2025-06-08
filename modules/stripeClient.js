@@ -2,6 +2,13 @@ const Stripe = require('stripe');
 require('dotenv').config();
 const crypto = require("crypto");
 
+
+const createStripeClientWithKey = (accessToken) => {
+  return new Stripe(accessToken, {
+    apiVersion: '2023-10-16',
+  });
+};
+
 // ✅ 플랫폼 Stripe 인스턴스
 const platformStripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2023-10-16',
@@ -101,4 +108,5 @@ module.exports = {
   refreshStripeAccessToken,
   checkStripeScopes,
   createSetupIntentForConnectedAccount,
+  createStripeClientWithKey,
 };

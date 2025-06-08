@@ -4,6 +4,19 @@ const db = require("../db");
 const verifyToken = require('../middleware/verifyToken');
 const { cardsApi} = require('../modules/stripeClient'); // ✅ Square API 가져오기
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { processSubscriptions } = require('../schedulers/subscriptionScheduler');
+
+
+router.post('/trigger-subscription-check', async (req, res) => {
+    try {
+      const result = await processSubscriptions();
+      res.status(200).json({ success: true, message: 'Subscription check completed', result });
+    } catch (error) {
+      console.error('❌ Subscription trigger error:', error);
+      res.status(500).json({ success: false, message: 'Subscription check failed' });
+    }
+  });
+  
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
