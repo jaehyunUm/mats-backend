@@ -3,8 +3,6 @@ const { createStripeClientWithKey } = require('../modules/stripeClient');
 const db = require('../db');
 const uuidv4 = require('uuid').v4;
 const dayjs = require('dayjs');
-const { createNotification } = require('./paymentService');
-
 
 // 알림 생성 함수
 const createNotification = async (dojangCode, message, connection) => {
