@@ -85,30 +85,27 @@ const processPaymentForSubscription = async (subscription) => {
   
       const platformAccountId = process.env.STRIPE_PLATFORM_ACCOUNT_ID;
   
-      const paymentIntentParams = {
-        amount: Math.round(fee * 100),
-        currency: "USD",
-        customer: subscription.customer_id,
-        payment_method: subscription.source_id,
-        off_session: true,
-        confirm: true,
-        metadata: {
-          subscription_id: subscription.id,
-          student_id: subscription.student_id,
-          parent_id: subscription.parent_id,
-          dojang_code: subscription.dojang_code,
-          program_id: subscription.program_id,
-        },
-      };
-  
-      if (stripeAccountId) {
-        paymentIntentParams.on_behalf_of = stripeAccountId;
-      }
-  
       // 5. 결제 시도
       const paymentIntent = await stripe.paymentIntents.create(
-        paymentIntentParams,
-        { idempotencyKey: subscription.idempotency_key || uuidv4() }
+        {
+          amount: Math.round(fee * 100),
+          currency: "USD",
+          customer: subscription.customer_id,
+          payment_method: subscription.source_id,
+          off_session: true,
+          confirm: true,
+          metadata: {
+            subscription_id: subscription.id,
+            student_id: subscription.student_id,
+            parent_id: subscription.parent_id,
+            dojang_code: subscription.dojang_code,
+            program_id: subscription.program_id,
+          },
+        },
+        {
+          idempotencyKey: subscription.idempotency_key || uuidv4(),
+          stripeAccount: stripeAccountId
+        }
       );
   
       if (paymentIntent.status !== 'succeeded') {
@@ -157,37 +154,11 @@ const processPaymentForSubscription = async (subscription) => {
       await connection.commit();
       console.log(`✅ Payment successful. Next payment scheduled on ${correctedNextDate}`);
       return { success: true };
-  
     } catch (error) {
-      console.error(`❌ Error processing payment for subscription ID: ${subscription.id}`, error.message);
-  
       if (transactionStarted) {
-        try {
-          await connection.rollback();
-        } catch (rollbackError) {
-          console.error("❌ Rollback failed:", rollbackError);
-        }
+        await connection.rollback();
       }
-  
-      await handleFailure(connection, subscription, `🔴 System Error: ${error.message}`);
-      return { success: false, error: error.message };
-    } finally {
-      connection.release();
+      console.error(`❌ Failed to process payment:`, error);
+      return { success: false, error: 'Internal server error' };
     }
   };
-  
-  // 실패 처리 공통 함수
-  async function handleFailure(connection, subscription, message) {
-    try {
-      await connection.query(`UPDATE monthly_payments SET payment_status = 'failed' WHERE id = ?`, [subscription.id]);
-      await createNotification(subscription.dojang_code, message, connection);
-    } catch (error) {
-      console.error('❌ Failed to handle failure:', error.message);
-    }
-  }
-  
-
-module.exports = { 
-    processPaymentForSubscription,
-    createNotification
-};
