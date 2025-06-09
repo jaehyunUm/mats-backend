@@ -158,7 +158,8 @@ const growthRoutes = require('./routes/growth'); // ✅ 학생 성장 기록 라
 app.use('/api', growthRoutes); // 성장 기록 라우터 등록
 const bankaccountRoute = require('./routes/bankaccount');
 app.use('/api', bankaccountRoute);
-
+const verifyiosRoutes = require('./routes/verifyios');
+app.use('/api', verifyiosRoutes);
 
 const SQUARE_SIGNATURE_KEY = process.env.SQUARE_SIGNATURE_KEY; // `.env` 파일에 저장
 

@@ -7,10 +7,10 @@ const db = require('../db'); // 데이터베이스 연결 가져오기
 router.post('/register-parent', async (req, res) => {
     const { firstName, lastName, dateOfBirth, gender, selectedDojang, email, password, phone, privacy_policy_agreed } = req.body;
 
-    // 필수 필드 검증
-    if (!firstName || !lastName || !dateOfBirth || !gender || !selectedDojang || !email || !password || !phone) {
-        return res.status(400).json({ message: 'All fields are required' });
-    }
+  // 수정 후:
+if (!firstName || !lastName || !selectedDojang || !email || !password || !phone) {
+    return res.status(400).json({ message: 'Missing required fields' });
+}
 
     const phoneRegex = /^\d{10,15}$/;
     if (!phoneRegex.test(phone)) {
@@ -28,17 +28,18 @@ router.post('/register-parent', async (req, res) => {
         `;
 
         const [result] = await db.query(query, [
-            firstName, 
-            lastName, 
-            dateOfBirth, 
-            gender, 
-            selectedDojang, 
-            email, 
-            hashedPassword, 
-            phone, 
-            privacy_policy_agreed ? 1 : 0, 
+            firstName,
+            lastName,
+            dateOfBirth || null,   // 없으면 null 저장
+            gender || null,        // 없으면 null 저장
+            selectedDojang,
+            email,
+            hashedPassword,
+            phone,
+            privacy_policy_agreed ? 1 : 0,
             privacy_policy_agreed ? new Date() : null
-        ]);
+          ]);
+          
 
         res.status(201).json({ message: 'Parent registered successfully' });
         
