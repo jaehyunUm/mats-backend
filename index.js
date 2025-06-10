@@ -160,8 +160,8 @@ const bankaccountRoute = require('./routes/bankaccount');
 app.use('/api', bankaccountRoute);
 const verifyiosRoutes = require('./routes/verifyios');
 app.use('/api', verifyiosRoutes);
-
-const SQUARE_SIGNATURE_KEY = process.env.SQUARE_SIGNATURE_KEY; // `.env` 파일에 저장
+const websiteRoutes = require('./routes/website');
+app.use('/api', websiteRoutes);
 
 // Webhook 엔드포인트 설정
 app.post('/webhook', (req, res) => {
