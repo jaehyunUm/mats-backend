@@ -25,3 +25,4 @@ router.get('/public-get-schedule', async (req, res) => {
       res.status(500).json({ message: 'Error fetching schedule', error: err });
     }
   });
+  module.exports = router;
