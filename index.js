@@ -8,8 +8,13 @@ const server = http.createServer(app);
 
 
 // ✅ CORS 설정
-const whitelist = ['http://localhost:3000', null, undefined, `http://192.168.12.144:4000`];
-
+const whitelist = [
+  'http://localhost:3000',
+  'http://localhost:8000', // ✅ 여기에 추가
+  'http://192.168.12.144:4000',
+  null,
+  undefined
+];
 const corsOptions = {
   origin: (origin, callback) => {
     if (whitelist.includes(origin)) {
@@ -22,8 +27,8 @@ const corsOptions = {
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
 };
+app.use(cors());
 
-app.use(cors(corsOptions)); // ✅ CORS 설정 적용
 
 // ✅ WebSocket 서버 설정
 const wss = new WebSocket.Server({ server });
