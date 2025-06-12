@@ -536,6 +536,22 @@ router.post('/card-save', verifyToken, async (req, res) => {
 
 
 // Apple IAP receipt verification endpoint
+// 공통 요청 함수
+async function verifyReceiptWithApple(url, receipt) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      'receipt-data': receipt,
+      'password': process.env.APPLE_SHARED_SECRET,
+      'exclude-old-transactions': true
+    })
+  });
+
+  return await response.json();
+}
+
+// 메인 엔드포인트
 router.post('/verify-receipt', verifyToken, async (req, res) => {
   const { receipt, productId } = req.body;
   const { dojang_code } = req.user;
@@ -548,22 +564,13 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   }
 
   try {
-    // Verify receipt with Apple's servers
-    const verifyUrl = process.env.NODE_ENV === 'production'
-      ? 'https://buy.itunes.apple.com/verifyReceipt'
-      : 'https://sandbox.itunes.apple.com/verifyReceipt';
+    // 먼저 production에서 검증
+    let data = await verifyReceiptWithApple('https://buy.itunes.apple.com/verifyReceipt', receipt);
 
-    const response = await fetch(verifyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        'receipt-data': receipt,
-        'password': process.env.APPLE_SHARED_SECRET,
-        'exclude-old-transactions': true
-      })
-    });
-
-    const data = await response.json();
+    // 만약 sandbox receipt이면 fallback
+    if (data.status === 21007) {
+      data = await verifyReceiptWithApple('https://sandbox.itunes.apple.com/verifyReceipt', receipt);
+    }
 
     if (data.status !== 0) {
       console.error('Apple receipt verification failed:', data);
@@ -573,11 +580,8 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       });
     }
 
-    // Find the latest subscription purchase
-    const latestReceipt = data.latest_receipt_info
-      ? data.latest_receipt_info[data.latest_receipt_info.length - 1]
-      : null;
-
+    // 최신 구독 정보 추출
+    const latestReceipt = data.latest_receipt_info?.[data.latest_receipt_info.length - 1];
     if (!latestReceipt) {
       return res.status(400).json({
         success: false,
@@ -585,40 +589,26 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       });
     }
 
-    // Check if the subscription is active
     const expiresDate = new Date(parseInt(latestReceipt.expires_date_ms));
     const isActive = expiresDate > new Date();
+    const status = isActive ? 'active' : 'expired';
+    
+    await db.query(`
+      UPDATE owner_bank_accounts
+      SET
+        subscription_id = ?,
+        status = ?,
+        next_billing_date = ?
+      WHERE dojang_code = ?
+    `, [
+      latestReceipt.transaction_id,
+      status,
+      expiresDate.toISOString().slice(0, 19).replace('T', ' '),
+      dojang_code
+    ]);
 
-    if (!isActive) {
-      return res.status(400).json({
-        success: false,
-        message: 'Subscription has expired'
-      });
-    }
-
-    // Update user's subscription status in database
-    await db.query(
-      `INSERT INTO subscriptions (
-        dojang_code, 
-        subscription_id, 
-        status, 
-        next_billing_date,
-        payment_method
-      ) VALUES (?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        status = VALUES(status),
-        next_billing_date = VALUES(next_billing_date),
-        payment_method = VALUES(payment_method)`,
-      [
-        dojang_code,
-        latestReceipt.transaction_id,
-        'active',
-        expiresDate.toISOString().split('T')[0],
-        'apple_iap'
-      ]
-    );
-
-    res.json({
+    // 응답 반환
+    return res.json({
       success: true,
       subscriptionActive: true,
       expiresDate: expiresDate.toISOString()
@@ -626,12 +616,13 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('Error verifying receipt:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Error verifying receipt'
     });
   }
 });
+
 
 router.delete('/delete-account', verifyToken, async (req, res) => {
   const userId = req.user.id;

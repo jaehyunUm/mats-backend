@@ -45,7 +45,7 @@ router.post('/login', async (req, res) => {
       const now = new Date();
       const diffDays = Math.floor((now - createdAt) / (1000 * 60 * 60 * 24));
     
-      if (diffDays <= 60) {
+      if (diffDays <= 30) {
         subscriptionStatus = 'trial';
         console.log('🟢 DEBUG: subscriptionStatus set to trial');
       } else {

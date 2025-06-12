@@ -163,8 +163,6 @@ const growthRoutes = require('./routes/growth'); // ✅ 학생 성장 기록 라
 app.use('/api', growthRoutes); // 성장 기록 라우터 등록
 const bankaccountRoute = require('./routes/bankaccount');
 app.use('/api', bankaccountRoute);
-const verifyiosRoutes = require('./routes/verifyios');
-app.use('/api', verifyiosRoutes);
 const websiteRoutes = require('./routes/website');
 app.use('/api', websiteRoutes);
 
