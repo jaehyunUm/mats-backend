@@ -35,7 +35,7 @@ router.get('/public-get-schedule', async (req, res) => {
         service: 'gmail',
         auth: {
           user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD // 환경 변수로 저장 권장
+          pass: process.env.EMAIL_PASS
         }
       });
   
