@@ -26,64 +26,38 @@ router.get('/public-get-schedule', async (req, res) => {
     }
   });
 
-  router.post('/public-trial-recommend', async (req, res) => {
-    const { dojang_code, age, belt_rank } = req.body;
+  router.post('/send-trial-email', async (req, res) => {
+    const { name, age, experience, belt } = req.body;
   
     try {
-      console.log("Received age:", age);
-      console.log("Received belt_rank:", belt_rank);
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: 'saehan.jh@gmail.com',
+          pass: process.env.EMAIL_PASSWORD // 환경 변수로 저장 권장
+        }
+      });
   
-      const numericBeltRank = parseInt(belt_rank, 10);
+      const mailOptions = {
+        from: 'saehan.jh@gmail.com',
+        to: 'saehan.jh@gmail.com',
+        subject: 'New Free Trial Class Request',
+        text: `
+  New Trial Request:
+  - Name: ${name}
+  - Age: ${age}
+  - Experience: ${experience}
+  - Belt: ${belt || 'N/A'}
+        `
+      };
   
-      if (isNaN(numericBeltRank)) {
-        return res.status(400).json({ message: 'Invalid belt_rank value' });
-      }
+      await transporter.sendMail(mailOptions);
   
-      const classQuery = `
-        SELECT class_name
-        FROM classconditions
-        WHERE age_min <= ? AND age_max >= ?
-        AND belt_min_rank <= ? AND belt_max_rank >= ?
-        AND dojang_code = ?
-      `;
-      const [classConditions] = await db.query(classQuery, [age, age, numericBeltRank, numericBeltRank, dojang_code]);
-  
-      if (classConditions.length === 0) {
-        return res.status(404).json({ message: 'No classes match the given conditions.' });
-      }
-  
-      const classNames = classConditions.map(cls => cls.class_name);
-      const classNamesString = classNames.map(name => `'${name}'`).join(",");
-  
-      const scheduleQuery = `
-        SELECT time,
-          CASE WHEN Mon IN (${classNamesString}) THEN Mon ELSE '' END AS Mon,
-          CASE WHEN Tue IN (${classNamesString}) THEN Tue ELSE '' END AS Tue,
-          CASE WHEN Wed IN (${classNamesString}) THEN Wed ELSE '' END AS Wed,
-          CASE WHEN Thur IN (${classNamesString}) THEN Thur ELSE '' END AS Thur,
-          CASE WHEN Fri IN (${classNamesString}) THEN Fri ELSE '' END AS Fri,
-          CASE WHEN Sat IN (${classNamesString}) THEN Sat ELSE '' END AS Sat
-        FROM schedule
-        WHERE dojang_code = ?
-        AND (
-          Mon IN (${classNamesString}) OR
-          Tue IN (${classNamesString}) OR
-          Wed IN (${classNamesString}) OR
-          Thur IN (${classNamesString}) OR
-          Fri IN (${classNamesString}) OR
-          Sat IN (${classNamesString})
-        );
-      `;
-      const [schedule] = await db.query(scheduleQuery, [dojang_code]);
-  
-      if (schedule.length === 0) {
-        return res.status(404).json({ message: 'No schedule found for the selected classes.' });
-      }
-  
-      res.json({ schedule });
-    } catch (error) {
-      console.error("Error processing request:", error);
-      res.status(500).json({ message: "Server error", error: error.message });
+      res.status(200).json({ message: 'Email sent' });
+    } catch (err) {
+      console.error('Error sending email:', err);
+      res.status(500).json({ message: 'Email failed', error: err.message });
     }
   });
+
   module.exports = router;
