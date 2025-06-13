@@ -534,24 +534,33 @@ router.post('/card-save', verifyToken, async (req, res) => {
 });
 
 
+// 📦 Apple 서버에서 영수증 검증
+async function verifyReceiptWithApple(receipt) {
+  const payload = {
+    'receipt-data': receipt,
+    'password': process.env.APP_STORE_SHARED_SECRET,
+    'exclude-old-transactions': true
+  };
 
-// Apple IAP receipt verification endpoint
-// 공통 요청 함수
-async function verifyReceiptWithApple(url, receipt) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      'receipt-data': receipt,
-      'password': process.env.APPLE_SHARED_SECRET,
-      'exclude-old-transactions': true
-    })
-  });
+  try {
+    // 1차: production 검증
+    let res = await axios.post('https://buy.itunes.apple.com/verifyReceipt', payload);
+    let data = res.data;
 
-  return await response.json();
+    // 21007: sandbox receipt이므로 재요청
+    if (data.status === 21007) {
+      res = await axios.post('https://sandbox.itunes.apple.com/verifyReceipt', payload);
+      data = res.data;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('verifyReceiptWithApple failed:', error.message);
+    throw error;
+  }
 }
 
-// 메인 엔드포인트
+// 🔐 receipt 검증 엔드포인트
 router.post('/verify-receipt', verifyToken, async (req, res) => {
   const { receipt, productId } = req.body;
   const { dojang_code } = req.user;
@@ -564,13 +573,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   }
 
   try {
-    // 먼저 production에서 검증
-    let data = await verifyReceiptWithApple('https://buy.itunes.apple.com/verifyReceipt', receipt);
-
-    // 만약 sandbox receipt이면 fallback
-    if (data.status === 21007) {
-      data = await verifyReceiptWithApple('https://sandbox.itunes.apple.com/verifyReceipt', receipt);
-    }
+    const data = await verifyReceiptWithApple(receipt);
 
     if (data.status !== 0) {
       console.error('Apple receipt verification failed:', data);
@@ -580,7 +583,6 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       });
     }
 
-    // 최신 구독 정보 추출
     const latestReceipt = data.latest_receipt_info?.[data.latest_receipt_info.length - 1];
     if (!latestReceipt) {
       return res.status(400).json({
@@ -592,7 +594,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     const expiresDate = new Date(parseInt(latestReceipt.expires_date_ms));
     const isActive = expiresDate > new Date();
     const status = isActive ? 'active' : 'expired';
-    
+
     await db.query(`
       UPDATE owner_bank_accounts
       SET
@@ -607,10 +609,9 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       dojang_code
     ]);
 
-    // 응답 반환
     return res.json({
       success: true,
-      subscriptionActive: true,
+      subscriptionActive: isActive,
       expiresDate: expiresDate.toISOString()
     });
 
