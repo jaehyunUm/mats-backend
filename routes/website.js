@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결 파일
+const nodemailer = require('nodemailer');
 
 
 // 인증 없이 누구나 접근 가능한 스케줄 API
