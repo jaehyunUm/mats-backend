@@ -28,7 +28,7 @@ router.get('/public-get-schedule', async (req, res) => {
   });
 
   router.post('/send-trial-email', async (req, res) => {
-    const { name, age, experience, belt } = req.body;
+    const { name, age, experience, belt, phone } = req.body;
   
     try {
       const transporter = nodemailer.createTransport({
@@ -44,11 +44,12 @@ router.get('/public-get-schedule', async (req, res) => {
         to: 'saehan.jh@gmail.com',
         subject: 'New Free Trial Class Request',
         text: `
-  New Trial Request:
-  - Name: ${name}
-  - Age: ${age}
-  - Experience: ${experience}
-  - Belt: ${belt || 'N/A'}
+New Trial Request:
+- Name: ${name}
+- Age: ${age}
+- Phone: ${phone || 'N/A'}
+- Experience: ${experience}
+- Belt: ${belt || 'N/A'}
         `
       };
   
