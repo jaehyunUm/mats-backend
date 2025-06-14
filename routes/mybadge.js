@@ -219,5 +219,46 @@ router.get('/badge-condition-types', verifyToken, async (req, res) => {
   }
 });
 
+router.patch('/badge/:id', verifyToken, upload.single('image'), async (req, res) => {
+  const { id } = req.params;
+  const { name, test_template_id, condition_value } = req.body;
+  const { dojang_code } = req.user;
+
+  try {
+    // 기존 배지 정보 조회
+    const [badgeRows] = await db.query('SELECT image_url FROM badges WHERE id = ? AND dojang_code = ?', [id, dojang_code]);
+    if (badgeRows.length === 0) {
+      return res.status(404).json({ message: 'Badge not found or unauthorized access' });
+    }
+    let imageUrl = badgeRows[0].image_url;
+
+    // 새 이미지가 업로드된 경우 S3에 업로드
+    if (req.file) {
+      const timestamp = Date.now();
+      const originalname = req.file.originalname;
+      const fileExtension = originalname.split('.').pop();
+      const uniqueFileName = `badge_${timestamp}.${fileExtension}`;
+      imageUrl = await uploadFileToS3(uniqueFileName, req.file.buffer, dojang_code);
+
+      // 기존 이미지가 있으면 S3에서 삭제
+      if (badgeRows[0].image_url) {
+        const oldFileName = badgeRows[0].image_url.split('/').pop();
+        await deleteFileFromS3(oldFileName, dojang_code);
+      }
+    }
+
+    // DB 업데이트
+    await db.query(
+      'UPDATE badges SET name = ?, test_template_id = ?, condition_value = ?, image_url = ? WHERE id = ? AND dojang_code = ?',
+      [name, test_template_id, condition_value, imageUrl, id, dojang_code]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Error updating badge:', err);
+    res.status(500).json({ message: 'Database error', error: err });
+  }
+});
+
 
 module.exports = router;
