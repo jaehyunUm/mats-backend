@@ -157,6 +157,7 @@ router.get('/badges-with-results/:childId', verifyToken, async (req, res) => {
               b.test_template_id,
               b.condition_value,
               t.test_name,
+              t.evaluation_type, 
               MAX(r.result_value) AS result_value,  -- ✅ 최신 테스트 결과 가져오기
               DATE_FORMAT(MAX(r.created_at), '%Y-%m-%d') AS test_date  -- ✅ 최신 테스트 날짜 가져오기
           FROM badges b
