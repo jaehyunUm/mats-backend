@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db'); // DB 연결 파일
 const verifyToken = require('../middleware/verifyToken');
 const { uploadFileToS3 } = require('../modules/s3Service');
+const { deleteFileFromS3 } = require('../modules/s3Service');
 const multer = require('multer');
 
 // multer를 사용해 메모리 스토리지 설정
@@ -335,35 +336,45 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
   try {
     console.log(`Received delete request for student ID: ${studentId}, dojang_code: ${dojang_code}`);
 
-    // ✅ 학생 존재 여부 확인
-    const checkStudentQuery = `SELECT id FROM students WHERE id = ? AND dojang_code = ?`;
-    const [studentResult] = await db.query(checkStudentQuery, [studentId, dojang_code]);
+    // ✅ 학생 존재 여부 및 이미지 URL 조회
+    const [studentResult] = await db.query(
+      `SELECT id, image_url FROM students WHERE id = ? AND dojang_code = ?`,
+      [studentId, dojang_code]
+    );
 
     if (studentResult.length === 0) {
       console.warn(`⚠️ Student with ID ${studentId} not found in dojang ${dojang_code}`);
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
 
-    // ✅ 학생 삭제 전에 연관된 데이터 삭제 (foreign key constraints 해결)
+    const imageUrl = studentResult[0].image_url;
+
+    // ✅ S3에서 이미지 삭제
+    if (imageUrl) {
+      const fileName = imageUrl.split('/').pop();
+      try {
+        await deleteFileFromS3(fileName, dojang_code);
+        console.log(`🧹 S3 file deleted: ${fileName}`);
+      } catch (s3Error) {
+        console.error('⚠️ Failed to delete student image from S3:', s3Error);
+        // 삭제 실패 시에도 학생 삭제는 계속 진행
+      }
+    }
+
+    // ✅ 학생 삭제 전에 연관된 데이터 삭제
     console.log(`Deleting related data for student ID: ${studentId}`);
 
-    // 1️⃣ 학생 출석 기록 삭제 (`attendance` 테이블)
     await db.query(`DELETE FROM attendance WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-
-    // 2️⃣ 학생이 등록한 클래스 삭제 (`student_classes` 테이블)
     await db.query(`DELETE FROM student_classes WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-
-    // 3️⃣ 학생의 결제 기록 삭제 (`monthly_payments` 테이블)
     await db.query(`DELETE FROM monthly_payments WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-
-    // 4️⃣ 학생이 신청한 테스트 기록 삭제 (`testlist` 테이블)
     await db.query(`DELETE FROM testlist WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-    
-    await db.query(`DELETE FROM testresult WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]); // ✅ 추가
-    
-    // 5️⃣ 학생 삭제 (`students` 테이블)
-    const deleteStudentQuery = `DELETE FROM students WHERE id = ? AND dojang_code = ?`;
-    const [deleteResult] = await db.query(deleteStudentQuery, [studentId, dojang_code]);
+    await db.query(`DELETE FROM testresult WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
+
+    // ✅ 학생 자체 삭제
+    const [deleteResult] = await db.query(
+      `DELETE FROM students WHERE id = ? AND dojang_code = ?`,
+      [studentId, dojang_code]
+    );
 
     if (deleteResult.affectedRows === 0) {
       console.warn(`⚠️ No student deleted for ID: ${studentId} in dojang ${dojang_code}`);
