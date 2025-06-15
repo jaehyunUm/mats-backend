@@ -338,7 +338,7 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
 
     // ✅ 학생 존재 여부 및 이미지 URL 조회
     const [studentResult] = await db.query(
-      `SELECT id, image_url FROM students WHERE id = ? AND dojang_code = ?`,
+      `SELECT id, profile_image FROM students WHERE id = ? AND dojang_code = ?`,
       [studentId, dojang_code]
     );
 
@@ -347,8 +347,8 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
 
-    const imageUrl = studentResult[0].image_url;
-
+    const imageUrl = studentResult[0].profile_image;
+    
     // ✅ S3에서 이미지 삭제
     if (imageUrl) {
       const fileName = imageUrl.split('/').pop();
