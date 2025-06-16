@@ -534,63 +534,64 @@ router.post('/card-save', verifyToken, async (req, res) => {
 });
 
 
-// 📦 Apple 서버에서 영수증 검증
-async function verifyReceiptWithApple(receipt) {
-  const payload = {
-    'receipt-data': receipt,
-    'password': process.env.APP_STORE_SHARED_SECRET,
-    'exclude-old-transactions': true
-  };
-
+// �� Apple 서버에서 영수증 검증
+const verifyReceiptWithApple = async (receipt, environment = 'production') => {
   try {
-    // 1차: production 검증
-    let res = await axios.post('https://buy.itunes.apple.com/verifyReceipt', payload);
-    let data = res.data;
-
-    // 21007: sandbox receipt이므로 재요청
-    if (data.status === 21007) {
-      res = await axios.post('https://sandbox.itunes.apple.com/verifyReceipt', payload);
-      data = res.data;
+    // 먼저 프로덕션 환경에서 검증 시도
+    const productionResult = await verifyWithApple(receipt, 'production');
+    
+    if (productionResult.status === 0) {
+      return productionResult;
     }
-
-    return data;
+    
+    // 프로덕션 검증 실패 시 샌드박스 환경에서 재시도
+    if (productionResult.status === 21007) { // 샌드박스 영수증
+      const sandboxResult = await verifyWithApple(receipt, 'sandbox');
+      if (sandboxResult.status === 0) {
+        return sandboxResult;
+      }
+    }
+    
+    throw new Error('Receipt verification failed');
   } catch (error) {
-    console.error('verifyReceiptWithApple failed:', error.message);
+    console.error('Receipt verification error:', error);
     throw error;
   }
-}
+};
 
 // 🔐 receipt 검증 엔드포인트
 router.post('/verify-receipt', verifyToken, async (req, res) => {
-  const { receipt, productId } = req.body;
+  const { receipt } = req.body;
   const { dojang_code } = req.user;
 
-  if (!receipt || !productId) {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'Receipt and product ID are required' 
-    });
+  if (!receipt) {
+    return res.status(400).json({ success: false, message: 'Receipt is required' });
   }
 
   try {
-    const data = await verifyReceiptWithApple(receipt);
+    const result = await verifyReceiptWithApple(receipt);
 
-    if (data.status !== 0) {
-      console.error('Apple receipt verification failed:', data);
+    if (result.status !== 0) {
+      console.error('Apple receipt verification failed:', result);
       return res.status(400).json({
         success: false,
         message: 'Invalid receipt'
       });
     }
 
-    const latestReceipt = data.latest_receipt_info?.[data.latest_receipt_info.length - 1];
-    if (!latestReceipt) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid subscription found'
-      });
-    }
+    // --- 추가: 최신 구독 상태 판단 로직 ---
+    const now = Date.now();
+    const latestReceipt = Array.isArray(result.latest_receipt_info)
+      ? result.latest_receipt_info[result.latest_receipt_info.length - 1]
+      : null;
 
+    if (latestReceipt && Number(latestReceipt.expires_date_ms) > now) {
+      return res.json({ alreadySubscribed: true });
+    } else {
+      return res.json({ alreadySubscribed: false });
+    }
+    // --- 기존 DB 업데이트 및 응답 코드는 주석 처리 또는 필요시 유지 ---
+    /*
     const expiresDate = new Date(parseInt(latestReceipt.expires_date_ms));
     const isActive = expiresDate > new Date();
     const status = isActive ? 'active' : 'expired';
@@ -614,7 +615,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       subscriptionActive: isActive,
       expiresDate: expiresDate.toISOString()
     });
-
+    */
   } catch (error) {
     console.error('Error verifying receipt:', error);
     return res.status(500).json({
