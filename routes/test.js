@@ -713,48 +713,62 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   const { test_name, evaluation_type, test_type, duration, target_count, order } = req.body;
   const { dojang_code } = req.user;
-  
+
+  // 1. order만 수정하는 경우
+  if (
+    order !== undefined &&
+    test_name === undefined &&
+    evaluation_type === undefined &&
+    test_type === undefined &&
+    duration === undefined &&
+    target_count === undefined
+  ) {
+    try {
+      const [result] = await db.query(
+        "UPDATE test_template SET `order` = ? WHERE id = ? AND dojang_code = ?",
+        [order, id, dojang_code]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'Test template not found or no changes made' });
+      }
+      return res.json({ message: 'Order updated successfully' });
+    } catch (error) {
+      console.error('❌ Error updating order:', error);
+      return res.status(500).json({ message: 'Failed to update order' });
+    }
+  }
+
+  // 2. 전체 필드 수정 (기존 코드 유지)
   // ✅ 필수 값 검증
   if (!test_name || !evaluation_type) {
     return res.status(400).json({ message: 'Name and evaluation type are required' });
   }
-
-  // ✅ 유형별 필수 값 검증
   if (evaluation_type === 'count' && (duration === undefined || duration === null)) {
     return res.status(400).json({ message: 'Duration is required for count-based tests' });
   }
-
   if ((evaluation_type === 'time' || evaluation_type === 'attempt') && 
       (target_count === undefined || target_count === null)) {
     return res.status(400).json({ message: 'Target count is required for time-based or attempt-based tests' });
   }
 
   try {
-    console.log("📢 Updating Test Template:", { id, test_name, evaluation_type, test_type, duration, target_count, order, dojang_code });
-
-    // order 값이 있으면 포함해서 업데이트, 없으면 기존 로직 유지
-    let query = `UPDATE test_template
-      SET test_name = ?, evaluation_type = ?, test_type = ?, duration = ?, target_count = ?`;
-    let params = [
-      test_name,
-      evaluation_type,
-      test_type,
-      evaluation_type === 'count' ? duration : null,
-      (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null
-    ];
-    if (order !== undefined) {
-      query += ", `order` = ?";
-      params.push(order);
-    }
-    query += " WHERE id = ? AND dojang_code = ?";
-    params.push(id, dojang_code);
-
-    const [result] = await db.query(query, params);
-
+    const [result] = await db.query(
+      `UPDATE test_template
+       SET test_name = ?, evaluation_type = ?, test_type = ?, duration = ?, target_count = ?
+       WHERE id = ? AND dojang_code = ?`,
+      [
+        test_name,
+        evaluation_type,
+        test_type,
+        evaluation_type === 'count' ? duration : null,
+        (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null,
+        id,
+        dojang_code
+      ]
+    );
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Test template not found or no changes made' });
     }
-
     res.json({ message: 'Test template updated successfully' });
   } catch (error) {
     console.error('❌ Error updating test template:', error);
