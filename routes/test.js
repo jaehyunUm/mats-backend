@@ -676,21 +676,29 @@ router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
   const { dojang_code } = req.user;
 
-  const type = (evaluation_type || '').trim(); // ✅ sanitize
-  console.log("📥 Cleaned evaluation_type:", type); // 로그 확인
+  const type = (evaluation_type || '').trim();
 
   try {
+    // 1. 현재 최대 order 값 조회
+    const [rows] = await db.query(
+      'SELECT MAX(`order`) AS maxOrder FROM test_template WHERE dojang_code = ? AND test_type = ?',
+      [dojang_code, test_type]
+    );
+    const nextOrder = (rows[0].maxOrder || 0) + 1;
+
+    // 2. 새 row 저장 (order 포함)
     const [result] = await db.query(
       `INSERT INTO test_template 
-        (dojang_code, test_name, evaluation_type, test_type, duration, target_count)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (dojang_code, test_name, evaluation_type, test_type, duration, target_count, \`order\`)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         dojang_code,
         test_name,
-        type, // ✅ 정제된 값 저장
+        type,
         test_type,
         type === 'count' ? duration : null,
-        (type === 'time' || type === 'attempt') ? target_count : null
+        (type === 'time' || type === 'attempt') ? target_count : null,
+        nextOrder
       ]
     );
 
@@ -703,7 +711,7 @@ router.post('/test-template', verifyToken, async (req, res) => {
 
 router.put('/test-template/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
-  const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
+  const { test_name, evaluation_type, test_type, duration, target_count, order } = req.body;
   const { dojang_code } = req.user;
   
   // ✅ 필수 값 검증
@@ -722,22 +730,26 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
   }
 
   try {
-    console.log("📢 Updating Test Template:", { id, test_name, evaluation_type, test_type, duration, target_count, dojang_code });
+    console.log("📢 Updating Test Template:", { id, test_name, evaluation_type, test_type, duration, target_count, order, dojang_code });
 
-    const [result] = await db.query(
-      `UPDATE test_template
-       SET test_name = ?, evaluation_type = ?, test_type = ?, duration = ?, target_count = ?
-       WHERE id = ? AND dojang_code = ?`,
-      [
-        test_name,
-        evaluation_type,
-        test_type,
-        evaluation_type === 'count' ? duration : null,
-        (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null,
-        id,
-        dojang_code
-      ]
-    );
+    // order 값이 있으면 포함해서 업데이트, 없으면 기존 로직 유지
+    let query = `UPDATE test_template
+      SET test_name = ?, evaluation_type = ?, test_type = ?, duration = ?, target_count = ?`;
+    let params = [
+      test_name,
+      evaluation_type,
+      test_type,
+      evaluation_type === 'count' ? duration : null,
+      (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null
+    ];
+    if (order !== undefined) {
+      query += ", `order` = ?";
+      params.push(order);
+    }
+    query += " WHERE id = ? AND dojang_code = ?";
+    params.push(id, dojang_code);
+
+    const [result] = await db.query(query, params);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Test template not found or no changes made' });
@@ -811,6 +823,7 @@ router.delete('/test-template/:id', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to delete test template' });
   }
 });
+
 
 
 
