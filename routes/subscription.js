@@ -4,8 +4,7 @@ const db = require("../db");
 const verifyToken = require('../middleware/verifyToken');
 const { cardsApi} = require('../modules/stripeClient'); // ✅ Square API 가져오기
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { verifyWithApple } = require('../utils/appleValidator');
-
+const { verifyWithApple } = require('../modules/appleValidator');
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
