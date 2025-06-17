@@ -239,10 +239,12 @@ router.get('/badge-condition-types', verifyToken, async (req, res) => {
       CASE
         WHEN evaluation_type = 'time' THEN target_count
         WHEN evaluation_type = 'count' THEN duration
+        WHEN evaluation_type = 'attempt' THEN target_count
+        WHEN evaluation_type = 'break' THEN target_count
         ELSE NULL
       END AS value
       FROM test_template
-      WHERE evaluation_type IN ('count', 'time')
+      WHERE evaluation_type IN ('count', 'time', 'attempt', 'break')
       AND dojang_code = ?
       ORDER BY test_name ASC;
     `;

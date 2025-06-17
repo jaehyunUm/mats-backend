@@ -724,11 +724,14 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
     target_count === undefined
   ) {
     try {
+      console.log('🔄 [ORDER UPDATE] id:', id, 'order:', order, 'dojang_code:', dojang_code);
       const [result] = await db.query(
         "UPDATE test_template SET `order` = ? WHERE id = ? AND dojang_code = ?",
         [order, id, dojang_code]
       );
+      console.log('🔄 [ORDER UPDATE RESULT]', result);
       if (result.affectedRows === 0) {
+        console.warn('⚠️ [ORDER UPDATE] No rows affected for id:', id);
         return res.status(404).json({ message: 'Test template not found or no changes made' });
       }
       return res.json({ message: 'Order updated successfully' });

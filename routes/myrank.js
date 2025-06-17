@@ -133,10 +133,14 @@ router.get('/objective-tests', verifyToken, async (req, res) => {
             THEN CONCAT(test_name, ' for ', duration, ' Seconds')
           WHEN evaluation_type = 'time' AND target_count IS NOT NULL
             THEN CONCAT(test_name, ' ', target_count, ' times')
+          WHEN evaluation_type = 'attempt' AND target_count IS NOT NULL
+            THEN CONCAT(test_name, ' ', target_count, ' attempts')
+          WHEN evaluation_type = 'break' AND target_count IS NOT NULL
+            THEN CONCAT(test_name, ' ', target_count, ' boards')
           ELSE test_name
         END AS standardized_test_name
       FROM test_template
-      WHERE evaluation_type IN ('count', 'time')
+      WHERE evaluation_type IN ('count', 'time', 'attempt', 'break')
       AND dojang_code = ?
     `;
     
