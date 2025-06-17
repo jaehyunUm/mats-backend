@@ -810,7 +810,7 @@ router.get('/test-templates', verifyToken, async (req, res) => {
       queryParams.push(test_type);
     }
 
-    query += ` ORDER BY id ASC`;
+    query += ` ORDER BY \`order\` ASC, id ASC`;
 
     const [testTemplates] = await db.query(query, queryParams);
 
