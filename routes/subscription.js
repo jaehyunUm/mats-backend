@@ -4,6 +4,7 @@ const db = require("../db");
 const verifyToken = require('../middleware/verifyToken');
 const { cardsApi} = require('../modules/stripeClient'); // ✅ Square API 가져오기
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { verifyWithApple } = require('../utils/appleValidator');
 
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
@@ -532,6 +533,8 @@ router.post('/card-save', verifyToken, async (req, res) => {
     });
   }
 });
+
+
 
 
 // �� Apple 서버에서 영수증 검증
