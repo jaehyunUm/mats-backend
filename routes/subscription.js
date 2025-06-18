@@ -539,23 +539,24 @@ router.post('/card-save', verifyToken, async (req, res) => {
 
 // 🔐 receipt 검증 엔드포인트
 router.post('/verify-receipt', verifyToken, async (req, res) => {
-  console.log('📥 verify-receipt hit');
-  console.log('📨 receipt:', req.body.receipt?.slice?.(0, 30)); // 너무 길면 잘라서 로그
+  console.log('📥 [verify-receipt] hit');
+  console.log('📨 receipt (first 30 chars):', req.body.receipt?.slice?.(0, 30));
 
   const { receipt } = req.body;
   const { dojang_code } = req.user;
 
   if (!receipt) {
+    console.warn('⚠️ [verify-receipt] No receipt provided');
     return res.status(400).json({ success: false, message: 'Receipt is required' });
   }
 
   try {
-    // fallback 포함된 verifyWithApple 내부 호출
     const result = await verifyWithApple(receipt);
-    console.log('🧾 Apple verify result:', result);
+    console.log('🧾 [verify-receipt] Apple verify result status:', result.status);
+    console.log('🧾 [verify-receipt] Apple latest receipt info:', result.latest_receipt_info?.at?.(-1));
 
     if (result.status !== 0) {
-      console.error('Apple receipt verification failed:', result);
+      console.error('❌ [verify-receipt] Verification failed with status:', result.status);
       return res.status(400).json({
         success: false,
         message: 'Invalid receipt',
@@ -563,7 +564,6 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       });
     }
 
-    // 최신 구독 여부 판단
     const now = Date.now();
     const latestReceipt = Array.isArray(result.latest_receipt_info)
       ? result.latest_receipt_info.at(-1)
@@ -571,55 +571,36 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
 
     if (latestReceipt) {
       const expiresMs = Number(latestReceipt.expires_date_ms);
+      console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
+      console.log('🕒 [verify-receipt] Current time (ms):', now);
 
       if (expiresMs > now) {
-        return res.json({
+        const responsePayload = {
           success: true,
           alreadySubscribed: true,
           expiresAt: expiresMs,
-        });
+        };
+        console.log('✅ [verify-receipt] Active subscription. Sending:', responsePayload);
+        return res.json(responsePayload);
       }
     }
 
-    return res.json({
+    const inactivePayload = {
       success: true,
       alreadySubscribed: false,
-    });
+    };
+    console.log('🔚 [verify-receipt] Not subscribed. Sending:', inactivePayload);
+    return res.json(inactivePayload);
 
-    // ✅ 필요 시 DB 업데이트 복구 가능
-    /*
-    const expiresDate = new Date(parseInt(latestReceipt.expires_date_ms));
-    const isActive = expiresDate > new Date();
-    const status = isActive ? 'active' : 'expired';
-
-    await db.query(`
-      UPDATE owner_bank_accounts
-      SET
-        subscription_id = ?,
-        status = ?,
-        next_billing_date = ?
-      WHERE dojang_code = ?
-    `, [
-      latestReceipt.transaction_id,
-      status,
-      expiresDate.toISOString().slice(0, 19).replace('T', ' '),
-      dojang_code
-    ]);
-
-    return res.json({
-      success: true,
-      subscriptionActive: isActive,
-      expiresDate: expiresDate.toISOString()
-    });
-    */
   } catch (error) {
-    console.error('Error verifying receipt:', error);
+    console.error('🔥 [verify-receipt] Error verifying receipt:', error);
     return res.status(500).json({
       success: false,
       message: 'Error verifying receipt'
     });
   }
 });
+
 
 
 
