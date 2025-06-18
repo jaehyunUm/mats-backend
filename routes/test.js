@@ -839,6 +839,7 @@ router.get('/test-templates', verifyToken, async (req, res) => {
           WHEN evaluation_type = 'count' THEN duration
           WHEN evaluation_type = 'time' THEN target_count
           WHEN evaluation_type = 'attempt' THEN target_count
+          WHEN evaluation_type = 'break' THEN target_count
           ELSE NULL
         END AS value,
         created_at
