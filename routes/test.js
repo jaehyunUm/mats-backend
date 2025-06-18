@@ -695,7 +695,21 @@ router.post('/test-template', verifyToken, async (req, res) => {
     );
     const nextOrder = (rows[0].maxOrder || 0) + 1;
 
-    // 2. 새 row 저장 (order 포함)
+    // 2. 저장할 값들 계산
+    const durationValue = type === 'count' ? duration : null;
+    const targetCountValue = (type === 'time' || type === 'attempt' || type === 'break') ? target_count : null;
+
+    console.log('💾 POST /test-template - Values to insert:', {
+      dojang_code,
+      test_name,
+      type,
+      test_type,
+      durationValue,
+      targetCountValue,
+      nextOrder
+    });
+
+    // 3. 새 row 저장 (order 포함)
     const [result] = await db.query(
       `INSERT INTO test_template 
         (dojang_code, test_name, evaluation_type, test_type, duration, target_count, \`order\`)
@@ -705,11 +719,20 @@ router.post('/test-template', verifyToken, async (req, res) => {
         test_name,
         type,
         test_type,
-        type === 'count' ? duration : null,
-        (type === 'time' || type === 'attempt' || type === 'break') ? target_count : null,
+        durationValue,
+        targetCountValue,
         nextOrder
       ]
     );
+
+    console.log('✅ POST /test-template - Insert result:', result);
+
+    // 4. 실제로 저장된 데이터 확인
+    const [savedData] = await db.query(
+      'SELECT * FROM test_template WHERE id = ?',
+      [result.insertId]
+    );
+    console.log('🔍 POST /test-template - Saved data:', savedData[0]);
 
     res.json({ message: 'Test template created successfully', id: result.insertId });
   } catch (error) {
