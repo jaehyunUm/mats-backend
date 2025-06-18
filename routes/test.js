@@ -686,6 +686,9 @@ router.post('/test-template', verifyToken, async (req, res) => {
   });
 
   const type = (evaluation_type || '').trim();
+  if (!type) {
+    return res.status(400).json({ message: 'evaluation_type is required' });
+  }
 
   try {
     // 1. 현재 최대 order 값 조회
