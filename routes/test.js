@@ -749,9 +749,9 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
   if (evaluation_type === 'count' && (duration === undefined || duration === null)) {
     return res.status(400).json({ message: 'Duration is required for count-based tests' });
   }
-  if ((evaluation_type === 'time' || evaluation_type === 'attempt') && 
+  if ((evaluation_type === 'time' || evaluation_type === 'attempt' || evaluation_type === 'break') && 
       (target_count === undefined || target_count === null)) {
-    return res.status(400).json({ message: 'Target count is required for time-based or attempt-based tests' });
+    return res.status(400).json({ message: 'Target count is required for time-based, attempt-based, or break tests' });
   }
 
   try {
@@ -764,7 +764,7 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
         evaluation_type,
         test_type,
         evaluation_type === 'count' ? duration : null,
-        (evaluation_type === 'time' || evaluation_type === 'attempt') ? target_count : null,
+        (evaluation_type === 'time' || evaluation_type === 'attempt' || evaluation_type === 'break') ? target_count : null,
         id,
         dojang_code
       ]
