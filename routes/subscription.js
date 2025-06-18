@@ -536,30 +536,6 @@ router.post('/card-save', verifyToken, async (req, res) => {
 
 
 
-// �� Apple 서버에서 영수증 검증
-const verifyReceiptWithApple = async (receipt, environment = 'production') => {
-  try {
-    // 먼저 프로덕션 환경에서 검증 시도
-    const productionResult = await verifyWithApple(receipt, 'production');
-    
-    if (productionResult.status === 0) {
-      return productionResult;
-    }
-    
-    // 프로덕션 검증 실패 시 샌드박스 환경에서 재시도
-    if (productionResult.status === 21007) { // 샌드박스 영수증
-      const sandboxResult = await verifyWithApple(receipt, 'sandbox');
-      if (sandboxResult.status === 0) {
-        return sandboxResult;
-      }
-    }
-    
-    throw new Error('Receipt verification failed');
-  } catch (error) {
-    console.error('Receipt verification error:', error);
-    throw error;
-  }
-};
 
 // 🔐 receipt 검증 엔드포인트
 router.post('/verify-receipt', verifyToken, async (req, res) => {
@@ -571,17 +547,19 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   }
 
   try {
-    const result = await verifyReceiptWithApple(receipt);
+    // fallback 포함된 verifyWithApple 내부 호출
+    const result = await verifyWithApple(receipt);
 
     if (result.status !== 0) {
       console.error('Apple receipt verification failed:', result);
       return res.status(400).json({
         success: false,
-        message: 'Invalid receipt'
+        message: 'Invalid receipt',
+        status: result.status
       });
     }
 
-    // --- 추가: 최신 구독 상태 판단 로직 ---
+    // 최신 구독 여부 판단
     const now = Date.now();
     const latestReceipt = Array.isArray(result.latest_receipt_info)
       ? result.latest_receipt_info[result.latest_receipt_info.length - 1]
@@ -592,7 +570,8 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     } else {
       return res.json({ alreadySubscribed: false });
     }
-    // --- 기존 DB 업데이트 및 응답 코드는 주석 처리 또는 필요시 유지 ---
+
+    // ✅ 필요 시 DB 업데이트 복구 가능
     /*
     const expiresDate = new Date(parseInt(latestReceipt.expires_date_ms));
     const isActive = expiresDate > new Date();
@@ -626,6 +605,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     });
   }
 });
+
 
 
 router.delete('/delete-account', verifyToken, async (req, res) => {
