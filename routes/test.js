@@ -697,7 +697,7 @@ router.post('/test-template', verifyToken, async (req, res) => {
         type,
         test_type,
         type === 'count' ? duration : null,
-        (type === 'time' || type === 'attempt') ? target_count : null,
+        (type === 'time' || type === 'attempt' || type === 'break') ? target_count : null,
         nextOrder
       ]
     );
