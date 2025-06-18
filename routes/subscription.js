@@ -539,6 +539,9 @@ router.post('/card-save', verifyToken, async (req, res) => {
 
 // 🔐 receipt 검증 엔드포인트
 router.post('/verify-receipt', verifyToken, async (req, res) => {
+  console.log('📥 verify-receipt hit');
+  console.log('📨 receipt:', req.body.receipt?.slice?.(0, 30)); // 너무 길면 잘라서 로그
+
   const { receipt } = req.body;
   const { dojang_code } = req.user;
 
@@ -549,6 +552,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   try {
     // fallback 포함된 verifyWithApple 내부 호출
     const result = await verifyWithApple(receipt);
+    console.log('🧾 Apple verify result:', result);
 
     if (result.status !== 0) {
       console.error('Apple receipt verification failed:', result);
