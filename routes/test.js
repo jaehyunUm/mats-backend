@@ -676,6 +676,15 @@ router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
   const { dojang_code } = req.user;
 
+  console.log('📥 POST /test-template - Received data:', {
+    test_name,
+    evaluation_type,
+    test_type,
+    duration,
+    target_count,
+    target_count_type: typeof target_count
+  });
+
   const type = (evaluation_type || '').trim();
 
   try {
@@ -713,6 +722,17 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   const { test_name, evaluation_type, test_type, duration, target_count, order } = req.body;
   const { dojang_code } = req.user;
+
+  console.log('📥 PUT /test-template/:id - Received data:', {
+    id,
+    test_name,
+    evaluation_type,
+    test_type,
+    duration,
+    target_count,
+    target_count_type: typeof target_count,
+    order
+  });
 
   // 1. order만 수정하는 경우
   if (
