@@ -566,14 +566,25 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     // 최신 구독 여부 판단
     const now = Date.now();
     const latestReceipt = Array.isArray(result.latest_receipt_info)
-      ? result.latest_receipt_info[result.latest_receipt_info.length - 1]
+      ? result.latest_receipt_info.at(-1)
       : null;
 
-    if (latestReceipt && Number(latestReceipt.expires_date_ms) > now) {
-      return res.json({ alreadySubscribed: true });
-    } else {
-      return res.json({ alreadySubscribed: false });
+    if (latestReceipt) {
+      const expiresMs = Number(latestReceipt.expires_date_ms);
+
+      if (expiresMs > now) {
+        return res.json({
+          success: true,
+          alreadySubscribed: true,
+          expiresAt: expiresMs,
+        });
+      }
     }
+
+    return res.json({
+      success: true,
+      alreadySubscribed: false,
+    });
 
     // ✅ 필요 시 DB 업데이트 복구 가능
     /*
@@ -609,6 +620,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     });
   }
 });
+
 
 
 
