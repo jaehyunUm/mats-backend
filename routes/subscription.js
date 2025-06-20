@@ -542,7 +542,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   console.log('📥 [verify-receipt] hit');
   console.log('📨 receipt (first 30 chars):', req.body.receipt?.slice?.(0, 30));
 
-  const { receipt } = req.body;
+  const { receipt, environment = 'production' } = req.body;
   const { dojang_code } = req.user;
 
   if (!receipt) {
@@ -570,17 +570,57 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       : null;
 
     if (latestReceipt) {
+      console.warn('⚠️ No latestReceipt found in response');
       const expiresMs = Number(latestReceipt.expires_date_ms);
+      
+      // ✅ 개선 제안: 구독 취소 여부 확인
+      const isCanceled = !!latestReceipt.cancellation_date;
+      if (isCanceled) {
+        console.warn('🚫 Subscription was cancelled by the user');
+        return res.json({ 
+          success: true, 
+          alreadySubscribed: false, 
+          cancelled: true, 
+          expiresAt: expiresMs 
+        });
+      }
+
       console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
       console.log('🕒 [verify-receipt] Current time (ms):', now);
+      console.log('🌍 [verify-receipt] Environment:', environment);
 
+      const isSandbox = environment === 'sandbox';
+      const isExpired = expiresMs <= now;
+      
+      // ✅ 요청된 Sandbox 로직 수정
+      if (isSandbox) {
+        if (isExpired) {
+          console.log('🧪 [sandbox] expired → treat as inactive for testing');
+          return res.json({
+            success: true,
+            alreadySubscribed: false,
+            sandboxMode: true,
+            originalExpired: true
+          });
+        } else {
+          return res.json({
+            success: true,
+            alreadySubscribed: true,
+            expiresAt: expiresMs,
+            sandboxMode: true,
+            originalExpired: false
+          });
+        }
+      }
+
+      // Production 환경에서는 엄격하게 검증
       if (expiresMs > now) {
         const responsePayload = {
           success: true,
           alreadySubscribed: true,
           expiresAt: expiresMs,
         };
-        console.log('✅ [verify-receipt] Active subscription. Sending:', responsePayload);
+        console.log('✅ [verify-receipt] Production: Active subscription. Sending:', responsePayload);
         return res.json(responsePayload);
       }
     }
