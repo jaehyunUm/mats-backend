@@ -7,17 +7,18 @@ const verifyWithApple = async (receipt) => {
     'exclude-old-transactions': true
   };
 
-  // 1차: production
+  let environmentUsed = 'production';
   let response = await axios.post('https://buy.itunes.apple.com/verifyReceipt', payload);
   let data = response.data;
 
-  // 2차: 만약 21007 → sandbox fallback
   if (data.status === 21007) {
+    console.log('🔁 Detected sandbox receipt in production → switching to sandbox');
+    environmentUsed = 'sandbox';
     response = await axios.post('https://sandbox.itunes.apple.com/verifyReceipt', payload);
     data = response.data;
   }
 
-  return data;
+  return { ...data, _environmentUsed: environmentUsed };
 };
 
 
