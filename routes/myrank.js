@@ -303,6 +303,74 @@ router.get('/similar-tests', verifyToken, async (req, res) => {
   }
 });
 
+router.get('/grouped-objective-tests', verifyToken, async (req, res) => {
+  try {
+    const { dojang_code } = req.user;
+
+    // 1. 테스트 항목 가져오기
+    const [tests] = await db.query(`
+      SELECT id, test_name, evaluation_type, duration, target_count,
+        CASE
+          WHEN evaluation_type = 'count' AND duration IS NOT NULL
+            THEN CONCAT(test_name, ' for ', duration, ' Seconds')
+          WHEN evaluation_type = 'time' AND target_count IS NOT NULL
+            THEN CONCAT(test_name, ' ', target_count, ' times')
+          WHEN evaluation_type = 'attempt' AND target_count IS NOT NULL
+            THEN CONCAT(test_name, ' ', target_count, ' attempts')
+          WHEN evaluation_type = 'break' AND target_count IS NOT NULL
+            THEN CONCAT(test_name, ' ', target_count, ' boards')
+          ELSE test_name
+        END AS standardized_test_name
+      FROM test_template
+      WHERE evaluation_type IN ('count', 'time', 'attempt', 'break')
+        AND dojang_code = ?
+    `, [dojang_code]);
+
+    // 이름 정규화 함수
+    const normalize = (str) => str.toLowerCase()
+      .replace(/[^\w\s]/g, '') // 특수문자 제거
+      .replace(/\s+/g, ' ')    // 여분 공백 제거
+      .trim();
+
+    // group_id 생성
+    const createGroupId = (name, type, duration, target_count) => {
+      const value = duration !== null ? duration : target_count;
+      return `${normalize(name)}-${type}-${value}`.replace(/\s+/g, '-');
+    };
+
+    const groups = [];
+
+    for (const test of tests) {
+      const normName = normalize(test.test_name);
+
+      const existingGroup = groups.find(group =>
+        group.evaluation_type === test.evaluation_type &&
+        group.duration === test.duration &&
+        group.target_count === test.target_count &&
+        normalize(group.test_name) === normName
+      );
+
+      if (existingGroup) {
+        existingGroup.items.push(test);
+      } else {
+        groups.push({
+          group_id: createGroupId(test.test_name, test.evaluation_type, test.duration, test.target_count),
+          test_name: test.test_name,
+          evaluation_type: test.evaluation_type,
+          duration: test.duration,
+          target_count: test.target_count,
+          standardized_name: test.standardized_test_name,
+          items: [test]
+        });
+      }
+    }
+
+    res.json(groups);
+  } catch (error) {
+    console.error('Error grouping tests:', error);
+    res.status(500).json({ message: 'Failed to group objective tests' });
+  }
+});
 
 
 
