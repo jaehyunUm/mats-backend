@@ -324,6 +324,7 @@ router.get('/grouped-objective-tests', verifyToken, async (req, res) => {
       FROM test_template
       WHERE evaluation_type IN ('count', 'time', 'attempt', 'break')
         AND dojang_code = ?
+      ORDER BY standardized_test_name ASC
     `, [dojang_code]);
 
     // 이름 정규화 함수
