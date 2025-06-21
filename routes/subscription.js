@@ -542,7 +542,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   console.log('📥 [verify-receipt] hit');
   console.log('📨 receipt (first 30 chars):', req.body.receipt?.slice?.(0, 30));
 
-  const { receipt, productId } = req.body;
+  const { receipt } = req.body;
   const { dojang_code } = req.user;
 
   if (!receipt) {
@@ -555,7 +555,6 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
 
     console.log('🧾 [verify-receipt] Apple verify result status:', result.status);
     console.log('🌍 [verify-receipt] Receipt environment used:', result._environmentUsed);
-    console.log('🧾 [verify-receipt] Apple latest receipt info:', result.latest_receipt_info?.at?.(-1));
 
     if (result.status !== 0) {
       console.error('❌ [verify-receipt] Verification failed with status:', result.status);
@@ -566,23 +565,27 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       });
     }
 
-    const now = Date.now();
-    const latestReceipt = Array.isArray(result.latest_receipt_info)
-      ? result.latest_receipt_info.at(-1)
-      : null;
+    const latestReceipts = Array.isArray(result.latest_receipt_info) ? result.latest_receipt_info : [];
+    const mostRecent = latestReceipts.sort((a, b) => Number(b.expires_date_ms) - Number(a.expires_date_ms))[0];
 
-    if (!latestReceipt) {
-      console.warn('⚠️ No latestReceipt found in response');
+    console.log('🧾 [verify-receipt] Apple most recent receipt info:', mostRecent);
+
+    if (!mostRecent) {
+      console.warn('⚠️ No valid receipt found after sorting');
       return res.json({
         success: true,
         alreadySubscribed: false
       });
     }
 
-    const expiresMs = Number(latestReceipt.expires_date_ms);
-    const isCanceled = !!latestReceipt.cancellation_date;
+    const now = Date.now();
+    const expiresMs = Number(mostRecent.expires_date_ms);
+    const isCanceled = !!mostRecent.cancellation_date;
     const isExpired = expiresMs <= now;
     const isSandbox = result._environmentUsed === 'sandbox';
+
+    console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
+    console.log('🕒 [verify-receipt] Current time (ms):', now);
 
     if (isCanceled) {
       console.warn('🚫 Subscription was cancelled by the user');
@@ -593,9 +596,6 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
         expiresAt: expiresMs
       });
     }
-
-    console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
-    console.log('🕒 [verify-receipt] Current time (ms):', now);
 
     if (isSandbox) {
       if (isExpired) {
@@ -642,6 +642,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     });
   }
 });
+
 
 
 
