@@ -12,11 +12,11 @@ router.post('/badges', verifyToken, upload.single('image'), async (req, res) => 
   console.log("📥 Received request body:", req.body); // ✅ 디버깅 로그 추가
   console.log("📂 Received file:", req.file); // ✅ 파일 데이터 확인
   
-  const { name, test_template_id, condition_value } = req.body;
+  const { name, group_id, condition_value } = req.body;
   const { dojang_code } = req.user;
   
   // 필수 필드 체크
-  if (!name || !test_template_id || !condition_value) {
+  if (!name || !group_id || !condition_value) {
     return res.status(400).json({ message: 'Missing required fields' });
   }
   
@@ -37,12 +37,12 @@ router.post('/badges', verifyToken, upload.single('image'), async (req, res) => 
     
     // ✅ 배지 정보 저장 쿼리
     const query = `
-      INSERT INTO badges (name, image_url, dojang_code, test_template_id, condition_value)
+      INSERT INTO badges (name, image_url, dojang_code, group_id, condition_value)
       VALUES (?, ?, ?, ?, ?)
     `;
-    await db.query(query, [name, fileName, dojang_code, test_template_id, condition_value]);
+    await db.query(query, [name, fileName, dojang_code, group_id, condition_value]);
     
-    console.log("✔ Badge added successfully:", { name, test_template_id, condition_value });
+    console.log("✔ Badge added successfully:", { name, group_id, condition_value });
     res.status(201).json({ message: 'Badge added successfully' });
   } catch (err) {
     console.error("❌ Error adding badge:", err);
@@ -105,7 +105,7 @@ router.delete('/badge/:id', verifyToken, async (req, res) => {
 
   router.patch('/badge/:id', verifyToken, upload.single('image'), async (req, res) => {
     const { id } = req.params;
-    const { name, test_template_id, condition_value } = req.body;
+    const { name, group_id, condition_value } = req.body;
     const { dojang_code } = req.user;
   
     try {
@@ -134,8 +134,8 @@ router.delete('/badge/:id', verifyToken, async (req, res) => {
   
       // DB 업데이트
       await db.query(
-        'UPDATE badges SET name = ?, test_template_id = ?, condition_value = ?, image_url = ? WHERE id = ? AND dojang_code = ?',
-        [name, test_template_id, condition_value, imageUrl, id, dojang_code]
+        'UPDATE badges SET name = ?, group_id = ?, condition_value = ?, image_url = ? WHERE id = ? AND dojang_code = ?',
+        [name, group_id, condition_value, imageUrl, id, dojang_code]
       );
   
       res.json({ success: true });
@@ -196,17 +196,17 @@ router.get('/badges-with-results/:childId', verifyToken, async (req, res) => {
               b.name AS badge_name,
               b.image_url,
               b.dojang_code,
-              b.test_template_id,
+              b.group_id,
               b.condition_value,
               t.test_name,
               t.evaluation_type, 
               MAX(r.result_value) AS result_value,  -- ✅ 최신 테스트 결과 가져오기
               DATE_FORMAT(MAX(r.created_at), '%Y-%m-%d') AS test_date  -- ✅ 최신 테스트 날짜 가져오기
           FROM badges b
-          LEFT JOIN test_template t ON b.test_template_id = t.id
-          LEFT JOIN testresult r ON b.test_template_id = r.test_template_id AND r.student_id = ?
+          LEFT JOIN test_template t ON b.group_id = t.id
+          LEFT JOIN testresult r ON b.group_id = r.group_id AND r.student_id = ?
           WHERE b.dojang_code = ?
-          GROUP BY b.id, b.name, b.image_url, b.dojang_code, b.test_template_id, 
+          GROUP BY b.id, b.name, b.image_url, b.dojang_code, b.group_id, 
                    b.condition_value, t.test_name
           ORDER BY b.id ASC;
       `;
@@ -228,41 +228,6 @@ router.get('/badges-with-results/:childId', verifyToken, async (req, res) => {
 
 
 
-
-router.get('/badge-condition-types', verifyToken, async (req, res) => {
-  try {
-    // 토큰에서 도장 코드 추출
-    const { dojang_code } = req.user;
-    
-    const query = `
-      SELECT id, test_name, evaluation_type,
-      CASE
-        WHEN evaluation_type = 'time' THEN target_count
-        WHEN evaluation_type = 'count' THEN duration
-        WHEN evaluation_type = 'attempt' THEN target_count
-        WHEN evaluation_type = 'break' THEN target_count
-        ELSE NULL
-      END AS value
-      FROM test_template
-      WHERE evaluation_type IN ('count', 'time', 'attempt', 'break')
-      AND dojang_code = ?
-      ORDER BY test_name ASC;
-    `;
-    
-    const [results] = await db.query(query, [dojang_code]);
-    
-    if (results.length === 0) {
-      console.warn(`⚠ No condition types found for dojang_code: ${dojang_code}`);
-      return res.status(404).json({ message: 'No condition types found for your dojang.' });
-    }
-    
-    console.log(`🔍 Fetched Badge Condition Types for dojang_code ${dojang_code}:`, results);
-    res.status(200).json(results);
-  } catch (error) {
-    console.error("❌ Error fetching badge condition types:", error);
-    res.status(500).json({ message: 'Database error', error });
-  }
-});
 
 
 
