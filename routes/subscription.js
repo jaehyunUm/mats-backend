@@ -577,6 +577,9 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
         alreadySubscribed: false
       });
     }
+    if (mostRecent.expires_date_ms < Date.now()) {
+      console.warn('⚠️ received expired receipt from client');
+    }
 
     const now = Date.now();
     const expiresMs = Number(mostRecent.expires_date_ms);
