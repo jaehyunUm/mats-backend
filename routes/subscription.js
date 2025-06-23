@@ -577,9 +577,6 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
         alreadySubscribed: false
       });
     }
-    if (mostRecent.expires_date_ms < Date.now()) {
-      console.warn('⚠️ received expired receipt from client');
-    }
 
     const now = Date.now();
     const expiresMs = Number(mostRecent.expires_date_ms);
@@ -587,11 +584,16 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     const isExpired = expiresMs <= now;
     const isSandbox = result._environmentUsed === 'sandbox';
 
-    console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
-    console.log('🕒 [verify-receipt] Current time (ms):', now);
+    console.log('📅 Subscription expires at (ms):', expiresMs);
+    console.log('🕒 Current time (ms):', now);
 
+    // 🚫 취소된 경우 → 삭제 후 응답
     if (isCanceled) {
       console.warn('🚫 Subscription was cancelled by the user');
+
+      await db('owner_bank_accounts').where({ dojang_code }).del();
+      console.log('🧹 owner_bank_accounts entry deleted (canceled)');
+
       return res.json({
         success: true,
         alreadySubscribed: false,
@@ -600,9 +602,10 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       });
     }
 
+    // 🧪 Sandbox 테스트 상황
     if (isSandbox) {
       if (isExpired) {
-        console.log('🧪 [sandbox] expired → treat as inactive for testing');
+        console.log('🧪 [sandbox] expired → treat as inactive');
         return res.json({
           success: true,
           alreadySubscribed: false,
@@ -620,25 +623,41 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       }
     }
 
+    // ✅ 유효한 구독
     if (expiresMs > now) {
       const responsePayload = {
         success: true,
         alreadySubscribed: true,
         expiresAt: expiresMs,
       };
-      console.log('✅ [verify-receipt] Production: Active subscription. Sending:', responsePayload);
+      console.log('✅ Active subscription. Sending:', responsePayload);
       return res.json(responsePayload);
     }
 
-    const inactivePayload = {
+    // 🔚 만료된 구독 (production) → 삭제 후 응답
+    if (isExpired) {
+      console.warn('⌛️ [production] subscription expired');
+
+      await db('owner_bank_accounts').where({ dojang_code }).del();
+      console.log('🧹 owner_bank_accounts entry deleted (expired)');
+
+      return res.json({
+        success: true,
+        alreadySubscribed: false,
+        expired: true,
+        expiresAt: expiresMs
+      });
+    }
+
+    // fallback
+    console.log('🔚 Not subscribed. Sending fallback');
+    return res.json({
       success: true,
       alreadySubscribed: false,
-    };
-    console.log('🔚 [verify-receipt] Not subscribed. Sending:', inactivePayload);
-    return res.json(inactivePayload);
+    });
 
   } catch (error) {
-    console.error('🔥 [verify-receipt] Error verifying receipt:', error);
+    console.error('🔥 Error verifying receipt:', error);
     return res.status(500).json({
       success: false,
       message: 'Error verifying receipt'
