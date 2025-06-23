@@ -280,13 +280,14 @@ router.put('/items/:id', verifyToken, upload.single('image'), async (req, res) =
       imageUrl = await uploadFileToS3(req.file.originalname, req.file.buffer, dojang_code);
       console.log("✅ Uploaded new image:", imageUrl);
       
-      // 기존 이미지가 있으면 S3에서 삭제 (선택적)
+      // ✅ 기존 이미지가 있으면 S3에서 삭제
       if (currentItem.length > 0 && currentItem[0].image_url) {
         try {
-          await deleteFileFromS3(currentItem[0].image_url);
-          console.log("✅ Deleted old image:", currentItem[0].image_url);
+          const oldFileName = currentItem[0].image_url.split('/').pop();
+          await deleteFileFromS3(oldFileName, dojang_code);
+          console.log("✅ 기존 이미지 삭제 완료:", oldFileName);
         } catch (deleteErr) {
-          console.error("Warning: Failed to delete old image:", deleteErr);
+          console.error("⚠️ 기존 이미지 삭제 실패:", deleteErr);
           // 이미지 삭제 실패는 전체 업데이트를 중단시키지 않음
         }
       }
