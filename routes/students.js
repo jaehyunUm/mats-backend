@@ -19,10 +19,33 @@ router.post('/students/upload-image/:studentId', verifyToken, upload.single('ima
       if (!req.file) {
         return res.status(400).json({ message: 'No image file provided' });
       }
+
+      // ✅ 기존 이미지 URL 조회
+      const [currentStudent] = await db.query(
+        'SELECT profile_image FROM students WHERE id = ? AND dojang_code = ?',
+        [studentId, dojang_code]
+      );
+
+      let oldImageUrl = null;
+      if (currentStudent.length > 0) {
+        oldImageUrl = currentStudent[0].profile_image;
+      }
   
-      // S3에 이미지 업로드
+      // S3에 새 이미지 업로드
       const uniqueFilename = `student_${studentId}_${Date.now()}.jpg`;
       const imageUrl = await uploadFileToS3(uniqueFilename, req.file.buffer, dojang_code);
+      
+      // ✅ 기존 이미지가 있으면 S3에서 삭제
+      if (oldImageUrl) {
+        try {
+          const oldFileName = oldImageUrl.split('/').pop();
+          await deleteFileFromS3(oldFileName, dojang_code);
+          console.log(`✅ 기존 이미지 삭제 완료: ${oldFileName}`);
+        } catch (deleteError) {
+          console.error('⚠️ 기존 이미지 삭제 실패:', deleteError);
+          // 삭제 실패 시에도 새 이미지 업로드는 계속 진행
+        }
+      }
       
       // students 테이블에 이미지 URL 업데이트
       const updateQuery = `UPDATE students SET profile_image = ? WHERE id = ? AND dojang_code = ?`;
