@@ -203,11 +203,11 @@ router.get('/badges-with-results/:childId', verifyToken, async (req, res) => {
               MAX(r.result_value) AS result_value,  -- ✅ 최신 테스트 결과 가져오기
               DATE_FORMAT(MAX(r.created_at), '%Y-%m-%d') AS test_date  -- ✅ 최신 테스트 날짜 가져오기
           FROM badges b
-          LEFT JOIN test_template t ON b.group_id = t.id
-          LEFT JOIN testresult r ON b.group_id = r.group_id AND r.student_id = ?
+          LEFT JOIN test_template t ON b.group_id = t.group_id  -- ✅ group_id로 조인
+          LEFT JOIN testresult r ON t.id = r.test_template_id AND r.student_id = ?  -- ✅ test_template_id로 조인
           WHERE b.dojang_code = ?
           GROUP BY b.id, b.name, b.image_url, b.dojang_code, b.group_id, 
-                   b.condition_value, t.test_name
+                   b.condition_value, t.test_name, t.evaluation_type
           ORDER BY b.id ASC;
       `;
 
