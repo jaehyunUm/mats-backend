@@ -676,6 +676,17 @@ router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
   const { dojang_code } = req.user;
 
+  // group_id 생성 함수 (Node.js와 동일하게)
+  const normalize = (str) => str.toLowerCase()
+    .replace(/[^\w\s]/g, '') // 특수문자 제거
+    .replace(/\s+/g, ' ')    // 여분 공백 제거
+    .trim();
+
+  const createGroupId = (name, type, duration, target_count) => {
+    const value = duration !== null ? duration : target_count;
+    return `${normalize(name)}-${type}-${value}`.replace(/\s+/g, '-');
+  };
+
   console.log('📥 POST /test-template - Received data:', {
     test_name,
     evaluation_type,
@@ -702,6 +713,9 @@ router.post('/test-template', verifyToken, async (req, res) => {
     const durationValue = type === 'count' ? duration : null;
     const targetCountValue = (type === 'time' || type === 'attempt' || type === 'break') ? target_count : null;
 
+    // group_id 생성
+    const group_id = createGroupId(test_name, type, durationValue, targetCountValue);
+
     console.log('💾 POST /test-template - Values to insert:', {
       dojang_code,
       test_name,
@@ -709,14 +723,15 @@ router.post('/test-template', verifyToken, async (req, res) => {
       test_type,
       durationValue,
       targetCountValue,
-      nextOrder
+      nextOrder,
+      group_id
     });
 
-    // 3. 새 row 저장 (order 포함)
+    // 3. 새 row 저장 (order, group_id 포함)
     const [result] = await db.query(
       `INSERT INTO test_template 
-        (dojang_code, test_name, evaluation_type, test_type, duration, target_count, \`order\`)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (dojang_code, test_name, evaluation_type, test_type, duration, target_count, \`order\`, group_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         dojang_code,
         test_name,
@@ -724,7 +739,8 @@ router.post('/test-template', verifyToken, async (req, res) => {
         test_type,
         durationValue,
         targetCountValue,
-        nextOrder
+        nextOrder,
+        group_id
       ]
     );
 
@@ -748,6 +764,17 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   const { test_name, evaluation_type, test_type, duration, target_count, order } = req.body;
   const { dojang_code } = req.user;
+
+  // group_id 생성 함수 (Node.js와 동일하게)
+  const normalize = (str) => str.toLowerCase()
+    .replace(/[^\w\s]/g, '') // 특수문자 제거
+    .replace(/\s+/g, ' ')    // 여분 공백 제거
+    .trim();
+
+  const createGroupId = (name, type, duration, target_count) => {
+    const value = duration !== null ? duration : target_count;
+    return `${normalize(name)}-${type}-${value}`.replace(/\s+/g, '-');
+  };
 
   console.log('📥 PUT /test-template/:id - Received data:', {
     id,
@@ -787,7 +814,7 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
     }
   }
 
-  // 2. 전체 필드 수정 (기존 코드 유지)
+  // 2. 전체 필드 수정 (group_id 포함)
   // ✅ 필수 값 검증
   if (!test_name || !evaluation_type) {
     return res.status(400).json({ message: 'Name and evaluation type are required' });
@@ -801,16 +828,33 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
   }
 
   try {
+    // 저장할 값들 계산
+    const durationValue = evaluation_type === 'count' ? duration : null;
+    const targetCountValue = (evaluation_type === 'time' || evaluation_type === 'attempt' || evaluation_type === 'break') ? target_count : null;
+
+    // group_id 생성
+    const group_id = createGroupId(test_name, evaluation_type, durationValue, targetCountValue);
+
+    console.log('💾 PUT /test-template/:id - Values to update:', {
+      test_name,
+      evaluation_type,
+      test_type,
+      durationValue,
+      targetCountValue,
+      group_id
+    });
+
     const [result] = await db.query(
       `UPDATE test_template
-       SET test_name = ?, evaluation_type = ?, test_type = ?, duration = ?, target_count = ?
+       SET test_name = ?, evaluation_type = ?, test_type = ?, duration = ?, target_count = ?, group_id = ?
        WHERE id = ? AND dojang_code = ?`,
       [
         test_name,
         evaluation_type,
         test_type,
-        evaluation_type === 'count' ? duration : null,
-        (evaluation_type === 'time' || evaluation_type === 'attempt' || evaluation_type === 'break') ? target_count : null,
+        durationValue,
+        targetCountValue,
+        group_id,
         id,
         dojang_code
       ]
