@@ -47,13 +47,14 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
       `SELECT id, test_name, evaluation_type 
        FROM test_template 
        WHERE evaluation_type = ? 
+         AND test_name = ?
          AND (
            (evaluation_type = 'count' AND duration = ?) OR
            (evaluation_type = 'time' AND target_count = ?) OR
            (evaluation_type = 'attempt' AND target_count = ?) OR
            (evaluation_type = 'break' AND target_count = ?)
          )`,
-      [evaluation_type, value, value, value, value]
+      [evaluation_type, test_name, value, value, value, value]
     );
     
     if (!testTemplates.length) {
@@ -91,16 +92,21 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
             additionalValue = null;
           }
           
+          // 추가 group_id에서 test_name 추출
+          const additionalTestNameParts = additionalParts.slice(0, -2);
+          const additionalTestName = additionalTestNameParts.join(' ');
+          
           const [additionalTestTemplates] = await db.execute(
             `SELECT id FROM test_template 
              WHERE evaluation_type = ? 
+               AND test_name = ?
                AND (
                  (evaluation_type = 'count' AND duration = ?) OR
                  (evaluation_type = 'time' AND target_count = ?) OR
                  (evaluation_type = 'attempt' AND target_count = ?) OR
                  (evaluation_type = 'break' AND target_count = ?)
                )`,
-            [additionalEvaluationType, additionalValue, additionalValue, additionalValue, additionalValue]
+            [additionalEvaluationType, additionalTestName, additionalValue, additionalValue, additionalValue, additionalValue]
           );
           
           const additionalIds = additionalTestTemplates.map(t => t.id);
