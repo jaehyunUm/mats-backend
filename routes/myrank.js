@@ -42,20 +42,35 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
     const testNameParts = parts.slice(0, -2);
     const test_name = testNameParts.join(' ');
     
+    console.log("🔍 추출된 정보:", {
+      groupId,
+      test_name,
+      evaluation_type,
+      value
+    });
+    
     // 해당 group_id에 맞는 test_template_id들 찾기
-    const [testTemplates] = await db.execute(
-      `SELECT id, test_name, evaluation_type 
-       FROM test_template 
-       WHERE evaluation_type = ? 
-         AND test_name = ?
-         AND (
-           (evaluation_type = 'count' AND duration = ?) OR
-           (evaluation_type = 'time' AND target_count = ?) OR
-           (evaluation_type = 'attempt' AND target_count = ?) OR
-           (evaluation_type = 'break' AND target_count = ?)
-         )`,
-      [evaluation_type, test_name, value, value, value, value]
-    );
+    const testTemplateQuery = `
+      SELECT id, test_name, evaluation_type 
+      FROM test_template 
+      WHERE evaluation_type = ? 
+        AND LOWER(REPLACE(test_name, ' ', '')) = LOWER(REPLACE(?, ' ', ''))
+        AND (
+          (evaluation_type = 'count' AND duration = ?) OR
+          (evaluation_type = 'time' AND target_count = ?) OR
+          (evaluation_type = 'attempt' AND target_count = ?) OR
+          (evaluation_type = 'break' AND target_count = ?)
+        )
+    `;
+    
+    const testTemplateParams = [evaluation_type, test_name, value, value, value, value];
+    
+    console.log("🔍 실행할 쿼리:", testTemplateQuery);
+    console.log("🔍 쿼리 파라미터:", testTemplateParams);
+    
+    const [testTemplates] = await db.execute(testTemplateQuery, testTemplateParams);
+    
+    console.log("🔍 찾은 테스트 템플릿:", testTemplates);
     
     if (!testTemplates.length) {
       return res.status(400).json({ message: 'No tests found for this group' });
@@ -99,7 +114,7 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
           const [additionalTestTemplates] = await db.execute(
             `SELECT id FROM test_template 
              WHERE evaluation_type = ? 
-               AND test_name = ?
+               AND LOWER(REPLACE(test_name, ' ', '')) = LOWER(REPLACE(?, ' ', ''))
                AND (
                  (evaluation_type = 'count' AND duration = ?) OR
                  (evaluation_type = 'time' AND target_count = ?) OR
