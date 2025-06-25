@@ -728,13 +728,16 @@ router.post('/test-template', verifyToken, async (req, res) => {
     });
 
     // 3. 새 row 저장 (order, group_id 포함)
+    // test_name도 정규화해서 저장 (group_id와 일치시키기 위해)
+    const normalizedTestName = normalize(test_name);
+    
     const [result] = await db.query(
       `INSERT INTO test_template 
         (dojang_code, test_name, evaluation_type, test_type, duration, target_count, \`order\`, group_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         dojang_code,
-        test_name,
+        normalizedTestName, // 정규화된 이름 저장
         type,
         test_type,
         durationValue,
@@ -835,8 +838,12 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
     // group_id 생성
     const group_id = createGroupId(test_name, evaluation_type, durationValue, targetCountValue);
 
+    // test_name도 정규화해서 저장 (group_id와 일치시키기 위해)
+    const normalizedTestName = normalize(test_name);
+
     console.log('💾 PUT /test-template/:id - Values to update:', {
       test_name,
+      normalizedTestName,
       evaluation_type,
       test_type,
       durationValue,
@@ -849,7 +856,7 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
        SET test_name = ?, evaluation_type = ?, test_type = ?, duration = ?, target_count = ?, group_id = ?
        WHERE id = ? AND dojang_code = ?`,
       [
-        test_name,
+        normalizedTestName, // 정규화된 이름 저장
         evaluation_type,
         test_type,
         durationValue,

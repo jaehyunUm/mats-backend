@@ -42,9 +42,18 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
     const testNameParts = parts.slice(0, -2);
     const test_name = testNameParts.join(' ');
     
+    // group_id 생성 시와 동일한 정규화 로직 적용
+    const normalize = (str) => str.toLowerCase()
+      .replace(/[^\w\s]/g, '') // 특수문자 제거
+      .replace(/\s+/g, ' ')    // 여분 공백 제거
+      .trim();
+    
+    const normalizedTestName = normalize(test_name);
+    
     console.log("🔍 추출된 정보:", {
       groupId,
       test_name,
+      normalizedTestName,
       evaluation_type,
       value
     });
@@ -63,7 +72,7 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
         )
     `;
     
-    const testTemplateParams = [evaluation_type, test_name, value, value, value, value];
+    const testTemplateParams = [evaluation_type, normalizedTestName, value, value, value, value];
     
     console.log("🔍 실행할 쿼리:", testTemplateQuery);
     console.log("🔍 쿼리 파라미터:", testTemplateParams);
@@ -111,6 +120,9 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
           const additionalTestNameParts = additionalParts.slice(0, -2);
           const additionalTestName = additionalTestNameParts.join(' ');
           
+          // 동일한 정규화 로직 적용
+          const normalizedAdditionalTestName = normalize(additionalTestName);
+          
           const [additionalTestTemplates] = await db.execute(
             `SELECT id FROM test_template 
              WHERE evaluation_type = ? 
@@ -121,7 +133,7 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
                  (evaluation_type = 'attempt' AND target_count = ?) OR
                  (evaluation_type = 'break' AND target_count = ?)
                )`,
-            [additionalEvaluationType, additionalTestName, additionalValue, additionalValue, additionalValue, additionalValue]
+            [additionalEvaluationType, normalizedAdditionalTestName, additionalValue, additionalValue, additionalValue, additionalValue]
           );
           
           const additionalIds = additionalTestTemplates.map(t => t.id);
