@@ -677,14 +677,14 @@ router.post('/test-template', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   // group_id 생성 함수 (Node.js와 동일하게)
-  const normalize = (str) => str.toLowerCase()
-    .replace(/[^\w\s]/g, '') // 특수문자 제거
+  const normalize = (str) => str
+    .replace(/[^\w\s]/g, '') // 특수문자 제거 (대소문자 유지)
     .replace(/\s+/g, ' ')    // 여분 공백 제거
     .trim();
 
   const createGroupId = (name, type, duration, target_count) => {
     const value = duration !== null ? duration : target_count;
-    return `${normalize(name)}-${type}-${value}`.replace(/\s+/g, '-');
+    return `${normalize(name).toLowerCase()}-${type}-${value}`.replace(/\s+/g, '-');
   };
 
   console.log('📥 POST /test-template - Received data:', {
@@ -769,14 +769,14 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   // group_id 생성 함수 (Node.js와 동일하게)
-  const normalize = (str) => str.toLowerCase()
-    .replace(/[^\w\s]/g, '') // 특수문자 제거
+  const normalize = (str) => str
+    .replace(/[^\w\s]/g, '') // 특수문자 제거 (대소문자 유지)
     .replace(/\s+/g, ' ')    // 여분 공백 제거
     .trim();
 
   const createGroupId = (name, type, duration, target_count) => {
     const value = duration !== null ? duration : target_count;
-    return `${normalize(name)}-${type}-${value}`.replace(/\s+/g, '-');
+    return `${normalize(name).toLowerCase()}-${type}-${value}`.replace(/\s+/g, '-');
   };
 
   console.log('📥 PUT /test-template/:id - Received data:', {

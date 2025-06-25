@@ -43,8 +43,8 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
     const test_name = testNameParts.join(' ');
     
     // group_id 생성 시와 동일한 정규화 로직 적용
-    const normalize = (str) => str.toLowerCase()
-      .replace(/[^\w\s]/g, '') // 특수문자 제거
+    const normalize = (str) => str
+      .replace(/[^\w\s]/g, '') // 특수문자 제거 (대소문자 유지)
       .replace(/\s+/g, ' ')    // 여분 공백 제거
       .trim();
     
@@ -443,8 +443,8 @@ router.get('/grouped-objective-tests', verifyToken, async (req, res) => {
     `, [dojang_code]);
 
     // 이름 정규화 함수
-    const normalize = (str) => str.toLowerCase()
-      .replace(/[^\w\s]/g, '') // 특수문자 제거
+    const normalize = (str) => str
+      .replace(/[^\w\s]/g, '') // 특수문자 제거 (대소문자 유지)
       .replace(/\s+/g, ' ')    // 여분 공백 제거
       .trim();
 
