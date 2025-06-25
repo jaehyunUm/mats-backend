@@ -104,7 +104,11 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
         CASE 
           WHEN p.payment_type = 'monthly_pay' THEN mp.next_payment_date
           ELSE NULL
-        END AS next_payment_date
+        END AS next_payment_date,
+        CASE 
+          WHEN p.payment_type = 'monthly_pay' THEN mp.program_fee
+          ELSE NULL
+        END AS program_fee
       FROM students s
       LEFT JOIN programs p ON s.program_id = p.id
       LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
@@ -135,6 +139,7 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       paymentInfo.paymentStatus = student.payment_status;
       paymentInfo.startDate = student.start_date;
       paymentInfo.endDate = student.end_date;
+      paymentInfo.programFee = student.program_fee;
     } else if (student.payment_type === 'pay_in_full') {
       if (student.operation_type === 'class_based') {
         paymentInfo.totalClasses = student.total_classes;
@@ -322,31 +327,57 @@ router.put('/students/parents/:id', verifyToken, async (req, res) => {
 //monthly 결제 정보 업데이트
 router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
   const { studentId } = req.params; // URL에서 studentId 가져오기
-  const { nextPaymentDate } = req.body; // 요청 바디에서 nextPaymentDate 가져오기
+  const { nextPaymentDate, startDate, endDate, programFee } = req.body; // 요청 바디에서 데이터 가져오기
   const { dojang_code } = req.user; // 토큰에서 추출한 도장 코드
 
   try {
-    // ✅ `nextPaymentDate`가 유효한지 확인
-    if (!nextPaymentDate) {
-      return res.status(400).json({ success: false, message: 'Next payment date is required' });
+    // ✅ 업데이트할 필드들을 동적으로 구성
+    const updateFields = [];
+    const updateValues = [];
+
+    if (nextPaymentDate !== undefined) {
+      updateFields.push('next_payment_date = ?');
+      updateValues.push(nextPaymentDate);
     }
 
-    // ✅ 특정 학생의 `next_payment_date`만 업데이트
+    if (startDate !== undefined) {
+      updateFields.push('start_date = ?');
+      updateValues.push(startDate);
+    }
+
+    if (endDate !== undefined) {
+      updateFields.push('end_date = ?');
+      updateValues.push(endDate);
+    }
+
+    if (programFee !== undefined) {
+      updateFields.push('program_fee = ?');
+      updateValues.push(programFee);
+    }
+
+    // ✅ 업데이트할 필드가 없으면 에러 반환
+    if (updateFields.length === 0) {
+      return res.status(400).json({ success: false, message: 'No fields to update' });
+    }
+
+    // ✅ WHERE 조건 추가
+    updateValues.push(studentId, dojang_code);
+
     const updateQuery = `
       UPDATE monthly_payments
-      SET next_payment_date = ?
+      SET ${updateFields.join(', ')}
       WHERE student_id = ? AND dojang_code = ?;
     `;
 
-    const [result] = await db.query(updateQuery, [nextPaymentDate, studentId, dojang_code]);
+    const [result] = await db.query(updateQuery, updateValues);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'No payment record found for the given student' });
     }
 
-    res.status(200).json({ success: true, message: 'Next payment date updated successfully' });
+    res.status(200).json({ success: true, message: 'Payment information updated successfully' });
   } catch (error) {
-    console.error('Error updating next payment date:', error);
+    console.error('Error updating payment information:', error);
     res.status(500).json({ success: false, message: 'Server error while updating payment information' });
   }
 });
