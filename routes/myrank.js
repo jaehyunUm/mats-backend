@@ -6,43 +6,107 @@ const verifyToken = require('../middleware/verifyToken');
 
 
 
-router.get('/ranking/:testId', verifyToken, async (req, res) => {
-  const { testId } = req.params;
+router.get('/ranking/:groupId', verifyToken, async (req, res) => {
+  const { groupId } = req.params;
   const { dojang_code } = req.user;
   const dojangOnly = req.query.dojang_code === 'true';
   const useSimilar = req.query.similar === 'true';
-  const additionalTestIds = req.query.test_ids ? req.query.test_ids.split(',') : [];
+  const additionalGroupIds = req.query.group_ids ? req.query.group_ids.split(',') : [];
   
   try {
     // 디버깅 로그 추가
-    console.log("테스트 ID:", testId);
-    console.log("추가 테스트 ID:", additionalTestIds);
+    console.log("그룹 ID:", groupId);
+    console.log("추가 그룹 ID:", additionalGroupIds);
     console.log("도장 코드:", dojang_code);
     console.log("내 도장만:", dojangOnly);
     
-    // 선택한 testId가 실제 test_template에 존재하는지 확인
-    const [testTemplate] = await db.execute(
-      `SELECT id, test_name, evaluation_type FROM test_template WHERE id = ? LIMIT 1`,
-      [testId]
-    );
-    
-    if (!testTemplate.length) {
-      return res.status(400).json({ message: 'Invalid test id' });
+    // group_id에서 정보 추출
+    const parts = groupId.split('-');
+    if (parts.length < 3) {
+      return res.status(400).json({ message: 'Invalid group ID format' });
     }
     
-    const { id: testTemplateId, evaluation_type } = testTemplate[0];
+    const lastPart = parts[parts.length - 1];
+    const secondLastPart = parts[parts.length - 2];
+    
+    let evaluation_type, value;
+    
+    if (!isNaN(lastPart)) {
+      evaluation_type = secondLastPart;
+      value = parseInt(lastPart);
+    } else {
+      evaluation_type = lastPart;
+      value = null;
+    }
+    
+    const testNameParts = parts.slice(0, -2);
+    const test_name = testNameParts.join(' ');
+    
+    // 해당 group_id에 맞는 test_template_id들 찾기
+    const [testTemplates] = await db.execute(
+      `SELECT id, test_name, evaluation_type 
+       FROM test_template 
+       WHERE evaluation_type = ? 
+         AND (
+           (evaluation_type = 'count' AND duration = ?) OR
+           (evaluation_type = 'time' AND target_count = ?) OR
+           (evaluation_type = 'attempt' AND target_count = ?) OR
+           (evaluation_type = 'break' AND target_count = ?)
+         )`,
+      [evaluation_type, value, value, value, value]
+    );
+    
+    if (!testTemplates.length) {
+      return res.status(400).json({ message: 'No tests found for this group' });
+    }
+    
+    const testTemplateIds = testTemplates.map(t => t.id);
+    const evaluation_type_from_db = testTemplates[0].evaluation_type;
     
     // evaluation_type 체크
-    if (evaluation_type !== 'count' && evaluation_type !== 'time') {
+    if (evaluation_type_from_db !== 'count' && evaluation_type_from_db !== 'time' && 
+        evaluation_type_from_db !== 'attempt' && evaluation_type_from_db !== 'break') {
       return res.status(400).json({ message: 'Invalid test type' });
     }
     
-    // 모든 테스트 ID 결정 - 여기서 allTestIds 초기화
-    let allTestIds = [testId];
+    // 모든 테스트 ID 결정
+    let allTestIds = [...testTemplateIds];
     
     // 유사 테스트 포함이 활성화된 경우에만 추가 ID를 포함
-    if (useSimilar && additionalTestIds.length > 0) {
-      allTestIds = [...allTestIds, ...additionalTestIds];
+    if (useSimilar && additionalGroupIds.length > 0) {
+      // 추가 group_id들에 대한 test_template_id들도 찾기
+      for (const additionalGroupId of additionalGroupIds) {
+        const additionalParts = additionalGroupId.split('-');
+        if (additionalParts.length >= 3) {
+          const additionalLastPart = additionalParts[additionalParts.length - 1];
+          const additionalSecondLastPart = additionalParts[additionalParts.length - 2];
+          
+          let additionalEvaluationType, additionalValue;
+          
+          if (!isNaN(additionalLastPart)) {
+            additionalEvaluationType = additionalSecondLastPart;
+            additionalValue = parseInt(additionalLastPart);
+          } else {
+            additionalEvaluationType = additionalLastPart;
+            additionalValue = null;
+          }
+          
+          const [additionalTestTemplates] = await db.execute(
+            `SELECT id FROM test_template 
+             WHERE evaluation_type = ? 
+               AND (
+                 (evaluation_type = 'count' AND duration = ?) OR
+                 (evaluation_type = 'time' AND target_count = ?) OR
+                 (evaluation_type = 'attempt' AND target_count = ?) OR
+                 (evaluation_type = 'break' AND target_count = ?)
+               )`,
+            [additionalEvaluationType, additionalValue, additionalValue, additionalValue, additionalValue]
+          );
+          
+          const additionalIds = additionalTestTemplates.map(t => t.id);
+          allTestIds = [...allTestIds, ...additionalIds];
+        }
+      }
     }
     
     console.log("최종 테스트 ID 목록:", allTestIds);
@@ -221,25 +285,38 @@ router.get('/global-rankings', verifyToken, async (req, res) => {
 
 router.get('/similar-tests', verifyToken, async (req, res) => {
   try {
-    const { test_id } = req.query;
+    const { group_id } = req.query;
     
-    if (!test_id) {
-      return res.status(400).json({ message: 'Test ID is required' });
+    if (!group_id) {
+      return res.status(400).json({ message: 'Group ID is required' });
     }
     
-    // 1. 선택된 테스트 정보 가져오기
-    const [selectedTest] = await db.query(
-      `SELECT id, test_name, evaluation_type, duration, target_count 
-       FROM test_template 
-       WHERE id = ?`,
-      [test_id]
-    );
-    
-    if (selectedTest.length === 0) {
-      return res.status(404).json({ message: 'Test not found' });
+    // group_id에서 정보 추출 (예: "agility-forward-time-22" -> test_name: "agility forward", evaluation_type: "time", target_count: 22)
+    const parts = group_id.split('-');
+    if (parts.length < 3) {
+      return res.status(400).json({ message: 'Invalid group ID format' });
     }
     
-    const test = selectedTest[0];
+    // 마지막 부분이 숫자인지 확인
+    const lastPart = parts[parts.length - 1];
+    const secondLastPart = parts[parts.length - 2];
+    
+    let evaluation_type, value;
+    
+    // evaluation_type과 value 추출
+    if (!isNaN(lastPart)) {
+      // 마지막이 숫자인 경우 (예: "agility-forward-time-22")
+      evaluation_type = secondLastPart;
+      value = parseInt(lastPart);
+    } else {
+      // 마지막이 숫자가 아닌 경우 (예: "agility-forward-time")
+      evaluation_type = lastPart;
+      value = null;
+    }
+    
+    // test_name 추출 (evaluation_type과 value 부분 제외)
+    const testNameParts = parts.slice(0, -2); // evaluation_type과 value 제외
+    const test_name = testNameParts.join(' ');
     
     // 2. 유사한 테스트 찾기 (평가 유형과 value가 동일)
     const similarTestsQuery = `
@@ -249,23 +326,28 @@ router.get('/similar-tests', verifyToken, async (req, res) => {
           THEN CONCAT(test_name, ' for ', duration, ' Seconds')
         WHEN evaluation_type = 'time' AND target_count IS NOT NULL
           THEN CONCAT(test_name, ' ', target_count, ' times')
+        WHEN evaluation_type = 'attempt' AND target_count IS NOT NULL
+          THEN CONCAT(test_name, ' ', target_count, ' attempts')
+        WHEN evaluation_type = 'break' AND target_count IS NOT NULL
+          THEN CONCAT(test_name, ' ', target_count, ' boards')
         ELSE test_name
       END AS standardized_test_name
       FROM test_template
       WHERE evaluation_type = ?
         AND (
           (evaluation_type = 'count' AND duration = ?) OR
-          (evaluation_type = 'time' AND target_count = ?)
+          (evaluation_type = 'time' AND target_count = ?) OR
+          (evaluation_type = 'attempt' AND target_count = ?) OR
+          (evaluation_type = 'break' AND target_count = ?)
         )
     `;
     
     const [similarTests] = await db.query(
       similarTestsQuery,
-      [test.evaluation_type, test.duration, test.target_count]
+      [evaluation_type, value, value, value, value]
     );
     
     // 3. 이름 유사도 비교를 위한 처리
-    // 간단한 정규화: 소문자 변환, 특수문자 및 여분의 공백 제거
     const normalizeTestName = (name) => {
       return name.toLowerCase()
         .replace(/[^\w\s]/g, '')  // 특수문자 제거
@@ -273,7 +355,7 @@ router.get('/similar-tests', verifyToken, async (req, res) => {
         .trim();                  // 앞뒤 공백 제거
     };
     
-    const normalizedSelectedName = normalizeTestName(test.test_name);
+    const normalizedSelectedName = normalizeTestName(test_name);
     
     // 유사한 테스트 필터링 (이름 유사도 확인)
     const matchingTests = similarTests.filter(t => {
@@ -287,7 +369,7 @@ router.get('/similar-tests', verifyToken, async (req, res) => {
           normalizedSelectedName.includes(normalizedName)) return true;
       
       // 3. 키워드 매칭 (kick, punch 등 주요 키워드 포함)
-      const keywords = ['kick', 'punch', 'push', 'squat', 'jump', 'run'];
+      const keywords = ['kick', 'punch', 'push', 'squat', 'jump', 'run', 'agility'];
       const matchedKeywords = keywords.filter(keyword => 
         normalizedName.includes(keyword) && normalizedSelectedName.includes(keyword)
       );
