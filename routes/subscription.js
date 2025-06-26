@@ -539,8 +539,12 @@ router.post('/card-save', verifyToken, async (req, res) => {
 
 // 🔐 receipt 검증 엔드포인트
 router.post('/verify-receipt', verifyToken, async (req, res) => {
-  console.log('📥 [verify-receipt] hit');
-  console.log('📨 receipt (first 30 chars):', req.body.receipt?.slice?.(0, 30));
+  console.log('📥 [verify-receipt] ====== 요청 시작 ======');
+  console.log('🕒 [verify-receipt] 요청 시간:', new Date().toISOString());
+  console.log('👤 [verify-receipt] 사용자 dojang_code:', req.user?.dojang_code);
+  console.log('📨 [verify-receipt] receipt (first 30 chars):', req.body.receipt?.slice?.(0, 30));
+  console.log('🆔 [verify-receipt] productId:', req.body.productId);
+  console.log('🌍 [verify-receipt] environment:', req.body.environment);
 
   const { receipt } = req.body;
   const { dojang_code } = req.user;
@@ -551,6 +555,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   }
 
   try {
+    console.log('🍎 [verify-receipt] Apple 서버로 receipt 검증 요청 중...');
     const result = await verifyWithApple(receipt);
 
     console.log('🧾 [verify-receipt] Apple verify result status:', result.status);
@@ -569,9 +574,10 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     const mostRecent = latestReceipts.sort((a, b) => Number(b.expires_date_ms) - Number(a.expires_date_ms))[0];
 
     console.log('🧾 [verify-receipt] Apple most recent receipt info:', mostRecent);
+    console.log('📊 [verify-receipt] 총 receipt 개수:', latestReceipts.length);
 
     if (!mostRecent) {
-      console.warn('⚠️ No valid receipt found after sorting');
+      console.warn('⚠️ [verify-receipt] No valid receipt found after sorting');
       return res.json({
         success: true,
         alreadySubscribed: false
@@ -584,15 +590,18 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     const isExpired = expiresMs <= now;
     const isSandbox = result._environmentUsed === 'sandbox';
 
-    console.log('📅 Subscription expires at (ms):', expiresMs);
-    console.log('🕒 Current time (ms):', now);
+    console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
+    console.log('🕒 [verify-receipt] Current time (ms):', now);
+    console.log('🚫 [verify-receipt] Is canceled:', isCanceled);
+    console.log('⏰ [verify-receipt] Is expired:', isExpired);
+    console.log('🧪 [verify-receipt] Is sandbox:', isSandbox);
 
     // 🚫 취소된 경우 → 삭제 후 응답
     if (isCanceled) {
-      console.warn('🚫 Subscription was cancelled by the user');
+      console.warn('🚫 [verify-receipt] Subscription was cancelled by the user');
 
       await db('owner_bank_accounts').where({ dojang_code }).del();
-      console.log('🧹 owner_bank_accounts entry deleted (canceled)');
+      console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (canceled)');
 
       return res.json({
         success: true,
@@ -605,7 +614,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     // 🧪 Sandbox 테스트 상황
     if (isSandbox) {
       if (isExpired) {
-        console.log('🧪 [sandbox] expired → treat as inactive');
+        console.log('🧪 [verify-receipt] [sandbox] expired → treat as inactive');
         return res.json({
           success: true,
           alreadySubscribed: false,
@@ -613,6 +622,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
           originalExpired: true
         });
       } else {
+        console.log('🧪 [verify-receipt] [sandbox] active subscription');
         return res.json({
           success: true,
           alreadySubscribed: true,
@@ -630,16 +640,16 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
         alreadySubscribed: true,
         expiresAt: expiresMs,
       };
-      console.log('✅ Active subscription. Sending:', responsePayload);
+      console.log('✅ [verify-receipt] Active subscription. Sending:', responsePayload);
       return res.json(responsePayload);
     }
 
     // 🔚 만료된 구독 (production) → 삭제 후 응답
     if (isExpired) {
-      console.warn('⌛️ [production] subscription expired');
+      console.warn('⌛️ [verify-receipt] [production] subscription expired');
 
       await db('owner_bank_accounts').where({ dojang_code }).del();
-      console.log('🧹 owner_bank_accounts entry deleted (expired)');
+      console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (expired)');
 
       return res.json({
         success: true,
@@ -650,18 +660,20 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     }
 
     // fallback
-    console.log('🔚 Not subscribed. Sending fallback');
+    console.log('🔚 [verify-receipt] Not subscribed. Sending fallback');
     return res.json({
       success: true,
       alreadySubscribed: false,
     });
 
   } catch (error) {
-    console.error('🔥 Error verifying receipt:', error);
+    console.error('🔥 [verify-receipt] Error verifying receipt:', error);
     return res.status(500).json({
       success: false,
       message: 'Error verifying receipt'
     });
+  } finally {
+    console.log('📤 [verify-receipt] ====== 요청 완료 ======');
   }
 });
 
