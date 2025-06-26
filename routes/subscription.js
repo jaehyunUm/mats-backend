@@ -599,7 +599,11 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     // 🚫 취소된 경우 → 삭제 후 응답
     if (isCanceled) {
       console.warn('🚫 [verify-receipt] Subscription was cancelled by the user');
+      console.log('📅 [verify-receipt] Cancellation date:', mostRecent.cancellation_date);
+      console.log('📅 [verify-receipt] Original expiration date:', mostRecent.expires_date_ms);
+      console.log('🕒 [verify-receipt] Current time:', new Date().toISOString());
 
+      // 즉시 DB에서 삭제
       await db('owner_bank_accounts').where({ dojang_code }).del();
       console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (canceled)');
 
@@ -607,7 +611,9 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
         success: true,
         alreadySubscribed: false,
         cancelled: true,
-        expiresAt: expiresMs
+        expiresAt: expiresMs,
+        cancellationDate: mostRecent.cancellation_date,
+        message: 'Subscription cancelled - access revoked immediately'
       });
     }
 
