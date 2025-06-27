@@ -603,9 +603,27 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       console.log('📅 [verify-receipt] Original expiration date:', mostRecent.expires_date_ms);
       console.log('🕒 [verify-receipt] Current time:', new Date().toISOString());
 
+      // 먼저 해당 레코드가 존재하는지 확인
+      try {
+        console.log('🔍 [verify-receipt] DB에서 기존 레코드 확인 중... dojang_code:', dojang_code);
+        const [existingRows] = await db.query('SELECT * FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+        console.log('📊 [verify-receipt] 기존 레코드 개수:', existingRows.length);
+        
+        if (existingRows.length > 0) {
+          console.log('📋 [verify-receipt] 기존 레코드:', existingRows[0]);
+        }
+      } catch (checkError) {
+        console.error('❌ [verify-receipt] 기존 레코드 확인 실패:', checkError);
+      }
+
       // 즉시 DB에서 삭제
-      await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-      console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (canceled)');
+      try {
+        console.log('🗑️ [verify-receipt] DB 삭제 시도 중... dojang_code:', dojang_code);
+        const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (canceled) - affected rows:', deleteResult[0].affectedRows);
+      } catch (dbError) {
+        console.error('❌ [verify-receipt] DB 삭제 실패 (canceled):', dbError);
+      }
 
       return res.json({
         success: true,
@@ -622,9 +640,27 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       if (isExpired) {
         console.log('🧪 [verify-receipt] [sandbox] expired → treat as inactive');
         
-        // Sandbox에서도 만료된 구독은 DB에서 삭제 (임시 주석)
-        // await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (sandbox expired) - SKIPPED');
+        // 먼저 해당 레코드가 존재하는지 확인
+        try {
+          console.log('🔍 [verify-receipt] Sandbox DB에서 기존 레코드 확인 중... dojang_code:', dojang_code);
+          const [existingRows] = await db.query('SELECT * FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+          console.log('📊 [verify-receipt] Sandbox 기존 레코드 개수:', existingRows.length);
+          
+          if (existingRows.length > 0) {
+            console.log('📋 [verify-receipt] Sandbox 기존 레코드:', existingRows[0]);
+          }
+        } catch (checkError) {
+          console.error('❌ [verify-receipt] Sandbox 기존 레코드 확인 실패:', checkError);
+        }
+        
+        // Sandbox에서도 만료된 구독은 DB에서 삭제
+        try {
+          console.log('🗑️ [verify-receipt] Sandbox DB 삭제 시도 중... dojang_code:', dojang_code);
+          const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+          console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (sandbox expired) - affected rows:', deleteResult[0].affectedRows);
+        } catch (dbError) {
+          console.error('❌ [verify-receipt] DB 삭제 실패 (sandbox expired):', dbError);
+        }
         
         return res.json({
           success: true,
@@ -660,8 +696,26 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     if (isExpired) {
       console.warn('⌛️ [verify-receipt] [production] subscription expired');
 
-      await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-      console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (expired)');
+      // 먼저 해당 레코드가 존재하는지 확인
+      try {
+        console.log('🔍 [verify-receipt] Production DB에서 기존 레코드 확인 중... dojang_code:', dojang_code);
+        const [existingRows] = await db.query('SELECT * FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+        console.log('📊 [verify-receipt] Production 기존 레코드 개수:', existingRows.length);
+        
+        if (existingRows.length > 0) {
+          console.log('📋 [verify-receipt] Production 기존 레코드:', existingRows[0]);
+        }
+      } catch (checkError) {
+        console.error('❌ [verify-receipt] Production 기존 레코드 확인 실패:', checkError);
+      }
+
+      try {
+        console.log('🗑️ [verify-receipt] Production DB 삭제 시도 중... dojang_code:', dojang_code);
+        const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (expired) - affected rows:', deleteResult[0].affectedRows);
+      } catch (dbError) {
+        console.error('❌ [verify-receipt] DB 삭제 실패 (expired):', dbError);
+      }
 
       return res.json({
         success: true,
