@@ -604,7 +604,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       console.log('🕒 [verify-receipt] Current time:', new Date().toISOString());
 
       // 즉시 DB에서 삭제
-      await db('owner_bank_accounts').where({ dojang_code }).del();
+      await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
       console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (canceled)');
 
       return res.json({
@@ -622,9 +622,9 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
       if (isExpired) {
         console.log('🧪 [verify-receipt] [sandbox] expired → treat as inactive');
         
-        // Sandbox에서도 만료된 구독은 DB에서 삭제
-        await db('owner_bank_accounts').where({ dojang_code }).del();
-        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (sandbox expired)');
+        // Sandbox에서도 만료된 구독은 DB에서 삭제 (임시 주석)
+        // await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (sandbox expired) - SKIPPED');
         
         return res.json({
           success: true,
@@ -660,7 +660,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     if (isExpired) {
       console.warn('⌛️ [verify-receipt] [production] subscription expired');
 
-      await db('owner_bank_accounts').where({ dojang_code }).del();
+      await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
       console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (expired)');
 
       return res.json({
