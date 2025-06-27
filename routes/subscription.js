@@ -621,11 +621,17 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     if (isSandbox) {
       if (isExpired) {
         console.log('🧪 [verify-receipt] [sandbox] expired → treat as inactive');
+        
+        // Sandbox에서도 만료된 구독은 DB에서 삭제
+        await db('owner_bank_accounts').where({ dojang_code }).del();
+        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (sandbox expired)');
+        
         return res.json({
           success: true,
           alreadySubscribed: false,
           sandboxMode: true,
-          originalExpired: true
+          originalExpired: true,
+          message: 'Sandbox subscription expired - access revoked'
         });
       } else {
         console.log('🧪 [verify-receipt] [sandbox] active subscription');
