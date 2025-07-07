@@ -210,6 +210,15 @@ router.get('/absences', verifyToken, async (req, res) => {
   }
 
   try {
+    // 먼저 absences 테이블만 확인
+    const [absencesOnly] = await db.query(`
+      SELECT * FROM absences 
+      WHERE absence_date = ? AND dojang_code = ?
+    `, [date, dojang_code]);
+    
+    console.log('Absences only:', absencesOnly);
+
+    // 전체 JOIN 쿼리
     const query = `
       SELECT 
         a.id,
@@ -219,9 +228,9 @@ router.get('/absences', verifyToken, async (req, res) => {
         cd.time
       FROM 
         absences a
-      JOIN 
+      LEFT JOIN 
         students s ON a.student_id = s.id
-      JOIN 
+      LEFT JOIN 
         class_details cd ON a.class_id = cd.class_id
       WHERE 
         a.absence_date = ? AND a.dojang_code = ?

@@ -596,43 +596,48 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     console.log('⏰ [verify-receipt] Is expired:', isExpired);
     console.log('🧪 [verify-receipt] Is sandbox:', isSandbox);
 
-    // 🚫 취소된 경우 → 삭제 후 응답
+    // 🚫 취소된 경우 → Apple 정책에 따라 기간이 남아있으면 삭제하지 않음
     if (isCanceled) {
       console.warn('🚫 [verify-receipt] Subscription was cancelled by the user');
       console.log('📅 [verify-receipt] Cancellation date:', mostRecent.cancellation_date);
       console.log('📅 [verify-receipt] Original expiration date:', mostRecent.expires_date_ms);
       console.log('🕒 [verify-receipt] Current time:', new Date().toISOString());
 
-      // 먼저 해당 레코드가 존재하는지 확인
-      try {
-        console.log('🔍 [verify-receipt] DB에서 기존 레코드 확인 중... dojang_code:', dojang_code);
-        const [existingRows] = await db.query('SELECT * FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-        console.log('📊 [verify-receipt] 기존 레코드 개수:', existingRows.length);
+      // Apple 정책: 취소해도 기간이 남아있으면 계속 사용 가능
+      if (isExpired) {
+        // 기간이 끝났으면 삭제
+        console.log('⌛️ [verify-receipt] Cancelled subscription has expired - deleting from DB');
         
-        if (existingRows.length > 0) {
-          console.log('📋 [verify-receipt] 기존 레코드:', existingRows[0]);
+        try {
+          console.log('🗑️ [verify-receipt] DB 삭제 시도 중... dojang_code:', dojang_code);
+          const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
+          console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (cancelled & expired) - affected rows:', deleteResult[0].affectedRows);
+        } catch (dbError) {
+          console.error('❌ [verify-receipt] DB 삭제 실패 (cancelled & expired):', dbError);
         }
-      } catch (checkError) {
-        console.error('❌ [verify-receipt] 기존 레코드 확인 실패:', checkError);
-      }
 
-      // 즉시 DB에서 삭제
-      try {
-        console.log('🗑️ [verify-receipt] DB 삭제 시도 중... dojang_code:', dojang_code);
-        const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (canceled) - affected rows:', deleteResult[0].affectedRows);
-      } catch (dbError) {
-        console.error('❌ [verify-receipt] DB 삭제 실패 (canceled):', dbError);
+        return res.json({
+          success: true,
+          alreadySubscribed: false,
+          cancelled: true,
+          expired: true,
+          expiresAt: expiresMs,
+          cancellationDate: mostRecent.cancellation_date,
+          message: 'Cancelled subscription has expired - access revoked'
+        });
+      } else {
+        // 기간이 남아있으면 삭제하지 않음 (Apple 정책)
+        console.log('✅ [verify-receipt] Cancelled subscription still active until expiration - keeping in DB');
+        
+        return res.json({
+          success: true,
+          alreadySubscribed: true,  // 여전히 구독 중 (기간이 남아있음)
+          cancelled: true,
+          expiresAt: expiresMs,
+          cancellationDate: mostRecent.cancellation_date,
+          message: 'Subscription cancelled but still active until expiration'
+        });
       }
-
-      return res.json({
-        success: true,
-        alreadySubscribed: false,
-        cancelled: true,
-        expiresAt: expiresMs,
-        cancellationDate: mostRecent.cancellation_date,
-        message: 'Subscription cancelled - access revoked immediately'
-      });
     }
 
     // 🧪 Sandbox 테스트 상황
