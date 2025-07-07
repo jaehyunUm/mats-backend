@@ -218,14 +218,37 @@ router.get('/absences', verifyToken, async (req, res) => {
     
     console.log('Absences only:', absencesOnly);
 
+    // 데이터 무결성 검사
+    if (absencesOnly.length > 0) {
+      const studentIds = [...new Set(absencesOnly.map(a => a.student_id))];
+      const classIds = [...new Set(absencesOnly.map(a => a.class_id))];
+      
+      console.log('Student IDs in absences:', studentIds);
+      console.log('Class IDs in absences:', classIds);
+      
+      // students 테이블 확인
+      const [students] = await db.query(`
+        SELECT id, first_name, last_name FROM students 
+        WHERE id IN (${studentIds.map(() => '?').join(',')}) AND dojang_code = ?
+      `, [...studentIds, dojang_code]);
+      console.log('Found students:', students);
+      
+      // class_details 테이블 확인
+      const [classes] = await db.query(`
+        SELECT class_id, classname, time FROM class_details 
+        WHERE class_id IN (${classIds.map(() => '?').join(',')}) AND dojang_code = ?
+      `, [...classIds, dojang_code]);
+      console.log('Found classes:', classes);
+    }
+
     // 전체 JOIN 쿼리
     const query = `
       SELECT 
         a.id,
-        s.first_name,
-        s.last_name,
-        cd.classname,
-        cd.time
+        COALESCE(s.first_name, 'Unknown') as first_name,
+        COALESCE(s.last_name, 'Student') as last_name,
+        COALESCE(cd.classname, 'Unknown Class') as classname,
+        COALESCE(cd.time, 'Unknown Time') as time
       FROM 
         absences a
       LEFT JOIN 
