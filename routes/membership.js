@@ -18,7 +18,11 @@ router.get('/membership-info', verifyToken, async (req, res) => {
         s.first_name,
         s.last_name,
         p.name AS program_name,
-        p.price AS program_price,
+        CASE 
+          WHEN p.payment_type = 'pay_in_full' THEN p.price
+          WHEN p.payment_type = 'monthly_pay' THEN mp.program_fee
+          ELSE p.price
+        END AS program_price,
         p.payment_type,
         p.operation_type,
         CASE 
