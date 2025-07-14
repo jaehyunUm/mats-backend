@@ -400,4 +400,40 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
   });
 
 
+router.get('/student-absences/:studentId', verifyToken, async (req, res) => {
+  const { studentId } = req.params;
+  const { dojang_code } = req.user;
+
+  if (!studentId) {
+    return res.status(400).json({ message: 'Student ID is required' });
+  }
+
+  try {
+    const query = `
+      SELECT 
+        a.id,
+        a.absence_date,
+        cd.classname,
+        cd.time
+      FROM 
+        absences a
+      LEFT JOIN 
+        class_details cd ON a.class_id = cd.class_id
+      WHERE 
+        a.student_id = ? AND a.dojang_code = ?
+      ORDER BY 
+        a.absence_date DESC
+    `;
+
+    const [absences] = await db.query(query, [studentId, dojang_code]);
+
+    console.log('Student Absences Query Result:', absences);
+    res.status(200).json(absences);
+  } catch (error) {
+    console.error('Error fetching student absences:', error);
+    res.status(500).json({ message: 'Failed to fetch student absences' });
+  }
+});
+
+
 module.exports = router;

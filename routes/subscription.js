@@ -133,53 +133,6 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
   }
 });
 
-  router.get("/update-subscription", verifyToken, async (req, res) => {
-    try {
-      const { dojang_code } = req.user;
-      if (!dojang_code) {
-        return res.status(400).json({ success: false, message: "Dojang code is missing in token" });
-      }
-      
-      // ✅ DB에서 도장 코드에 해당하는 구독 ID 조회
-      const [subscriptions] = await db.query(
-        "SELECT subscription_id FROM subscriptions WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
-        [dojang_code]
-      );
-      
-      if (subscriptions.length === 0) {
-        return res.status(404).json({ success: false, message: "No subscription found" });
-      }
-      
-      const subscriptionId = subscriptions[0].subscription_id;
-
-      // ✅ Stripe에서 최신 구독 정보 가져오기
-      const Stripe = require('stripe');
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-      let stripeSub;
-      try {
-        stripeSub = await stripe.subscriptions.retrieve(subscriptionId);
-      } catch (err) {
-        console.error("❌ Stripe API error:", err);
-        return res.status(400).json({ success: false, message: "Failed to fetch subscription data", details: err.message });
-      }
-
-      // next_billing_date는 Unix timestamp(초)로 제공됨
-      const nextBillingDate = stripeSub.current_period_end
-        ? new Date(stripeSub.current_period_end * 1000).toISOString().split('T')[0]
-        : null;
-
-      // ✅ DB 업데이트 - 도장 코드로만 조건 지정
-      await db.query(
-        "UPDATE subscriptions SET next_billing_date = ? WHERE dojang_code = ? AND subscription_id = ?",
-        [nextBillingDate, dojang_code, subscriptionId]
-      );
-
-      res.json({ success: true, nextBillingDate });
-    } catch (error) {
-      console.error("❌ ERROR updating subscription:", error);
-      res.status(500).json({ success: false, message: "Error updating subscription", error: error.message });
-    }
-  });
   
   router.get("/subscription-status", verifyToken, async (req, res) => {
     try {
