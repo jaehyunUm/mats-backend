@@ -62,8 +62,7 @@ router.get('/subscription/list', verifyToken, async (req, res) => {
     const [subscriptions] = await db.query(
       `SELECT 
          stripe_account_id AS subscription_id, 
-         status, 
-         next_billing_date 
+         status
        FROM owner_bank_accounts 
        WHERE dojang_code = ?`,
       [dojang_code]
