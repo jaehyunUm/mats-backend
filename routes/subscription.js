@@ -138,9 +138,9 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
     try {
       const { dojang_code } = req.user;
   
-      // owner_bank_accounts 테이블에서 구독 상태와 다음 결제일 조회
+      // owner_bank_accounts 테이블에서 구독 상태 조회
       const [rows] = await db.query(
-        "SELECT status, next_billing_date FROM owner_bank_accounts WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
+        "SELECT status FROM owner_bank_accounts WHERE dojang_code = ? ORDER BY id DESC LIMIT 1",
         [dojang_code]
       );
   
@@ -148,18 +148,16 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
         return res.status(200).json({
           success: true,
           status: "Inactive",
-          subscriptionId: null,
-          nextBillingDate: null
+          subscriptionId: null
         });
       }
   
-      const { status, next_billing_date } = rows[0];
+      const { status } = rows[0];
   
       res.json({
         success: true,
         subscriptionId: null, // subscription_id는 더 이상 사용하지 않음
-        status,
-        nextBillingDate: next_billing_date,
+        status
       });
     } catch (error) {
       console.error("❌ Error fetching subscription status from DB:", error);
