@@ -5,7 +5,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../db'); // 데이터베이스 연결 가져오기
 
 router.post('/register-parent', async (req, res) => {
-    const { firstName, lastName, dateOfBirth, gender, selectedDojang, email, password, phone, privacy_policy_agreed } = req.body;
+    const { firstName, lastName, selectedDojang, email, password, phone, privacy_policy_agreed } = req.body;
 
   // 수정 후:
 if (!firstName || !lastName || !selectedDojang || !email || !password || !phone) {
@@ -23,15 +23,13 @@ if (!firstName || !lastName || !selectedDojang || !email || !password || !phone)
         // ✅ 개인정보처리방침 동의 정보 포함하여 INSERT
         const query = `
             INSERT INTO parents 
-            (first_name, last_name, birth_date, gender, dojang_code, email, password, phone, role, privacy_policy_agreed, privacy_policy_agreed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'parent', ?, ?)
+            (first_name, last_name, dojang_code, email, password, phone, role, privacy_policy_agreed, privacy_policy_agreed_at)
+            VALUES (?, ?, ?, ?, ?, ?,'parent', ?, ?)
         `;
 
         const [result] = await db.query(query, [
             firstName,
             lastName,
-            dateOfBirth || null,   // 없으면 null 저장
-            gender || null,        // 없으면 null 저장
             selectedDojang,
             email,
             hashedPassword,
