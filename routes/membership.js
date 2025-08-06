@@ -55,8 +55,10 @@ router.get('/membership-info', verifyToken, async (req, res) => {
         students s
       JOIN
         programs p ON s.program_id = p.id
-   LEFT JOIN payinfull_payment pf 
-  ON pf.student_id = s.id AND pf.program_id = p.id AND p.payment_type = 'pay_in_full'
+  LEFT JOIN payinfull_payment pf 
+  ON pf.student_id = s.id 
+  AND pf.dojang_code = s.dojang_code 
+  AND p.payment_type = 'pay_in_full'
 
 LEFT JOIN program_payments pp 
   ON pp.student_id = s.id AND pp.program_id = p.id 
