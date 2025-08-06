@@ -157,8 +157,6 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
         SELECT
           first_name AS firstName,
           last_name AS lastName,
-          birth_date AS dateOfBirth,
-          gender,
           phone AS phoneNumber
         FROM parents
         WHERE id = ? AND dojang_code = ?;
