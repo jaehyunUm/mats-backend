@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 // POST /api/change-password
 router.post('/change-password', verifyToken, async (req, res) => {
