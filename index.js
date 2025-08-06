@@ -165,6 +165,8 @@ const bankaccountRoute = require('./routes/bankaccount');
 app.use('/api', bankaccountRoute);
 const websiteRoutes = require('./routes/website');
 app.use('/api', websiteRoutes);
+const changePasswordRoutes = require('./routes/changepassword');
+app.use('/api', changePasswordRoutes);
 
 // Webhook 엔드포인트 설정
 app.post('/webhook', (req, res) => {
