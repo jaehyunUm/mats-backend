@@ -19,7 +19,7 @@ router.get('/membership-info', verifyToken, async (req, res) => {
         s.last_name,
         p.name AS program_name,
         CASE 
-          WHEN p.payment_type = 'pay_in_full' THEN p.price
+          WHEN p.payment_type = 'pay_in_full' THEN pp.amount
           WHEN p.payment_type = 'monthly_pay' THEN mp.program_fee
           ELSE p.price
         END AS program_price,
@@ -55,8 +55,11 @@ router.get('/membership-info', verifyToken, async (req, res) => {
         students s
       JOIN
         programs p ON s.program_id = p.id
-      LEFT JOIN
-        payinfull_payment pf ON s.id = pf.student_id AND p.payment_type = 'pay_in_full'
+      LEFT JOIN program_payments pp 
+  ON pp.student_id = s.id 
+  AND pp.program_id = p.id 
+  AND pp.status = 'completed' 
+  AND pp.dojang_code = s.dojang_code
       LEFT JOIN
         monthly_payments mp ON s.id = mp.student_id AND p.payment_type = 'monthly_pay'
       WHERE
