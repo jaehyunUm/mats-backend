@@ -3,29 +3,30 @@ const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결 파일
 const nodemailer = require('nodemailer');
 
-
 // 인증 없이 누구나 접근 가능한 스케줄 API
 router.get('/public-get-schedule', async (req, res) => {
-    const { dojang_code } = req.query; // 쿼리 파라미터로 받기
-  
-    try {
-      const query = `
-        SELECT id, time, Mon, Tue, Wed, Thur, Fri, Sat, dojang_code
-        FROM schedule
-        WHERE dojang_code = ?
-      `;
-      const [results] = await db.query(query, [dojang_code]);
-  
-      if (results.length === 0) {
-        return res.status(404).json({ message: 'No schedule found for the dojang.' });
-      }
-  
-      res.status(200).json(results);
-    } catch (err) {
-      console.error('Error fetching schedule:', err);
-      res.status(500).json({ message: 'Error fetching schedule', error: err });
-    }
-  });
+  const { dojang_code } = req.query;
+  if (!dojang_code) {
+    return res.status(400).json({ message: 'dojang_code is required' });
+  }
+
+  try {
+    const query = `
+      SELECT id, time, Mon, Tue, Wed, Thur, Fri, Sat, dojang_code, sort_order
+      FROM schedule
+      WHERE dojang_code = ?
+      ORDER BY sort_order ASC, id ASC
+    `;
+    const [results] = await db.query(query, [dojang_code]);
+
+    // 빈 배열도 200으로
+    res.setHeader('Cache-Control', 'public, max-age=60'); // 선택: 60초 캐시
+    return res.status(200).json(results || []);
+  } catch (err) {
+    console.error('Error fetching schedule:', err);
+    return res.status(500).json({ message: 'Error fetching schedule' });
+  }
+});
 
   router.post('/send-trial-email', async (req, res) => {
     const { name, age, experience, belt, phone } = req.body;
