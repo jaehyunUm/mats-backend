@@ -5,137 +5,84 @@ const uuidv4 = require('uuid').v4;
 const verifyToken = require('../middleware/verifyToken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+
+const toSqlDate = (v) => {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;        // 2025-08-19
+    if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`;       // 2025-08  -> 2025-08-01
+    if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) return s.replace(/\//g, '-');
+    if (/^\d{4}\/\d{2}$/.test(s)) return s.replace(/\//g, '-') + '-01';
+    const d = new Date(s);
+    if (!isNaN(d)) return d.toISOString().slice(0, 10);
+  }
+  return null; // 도저히 못 맞추면 NULL
+};
+
 router.post("/register-student", verifyToken, async (req, res) => {
-  // ── 날짜 보정 헬퍼: 다양한 입력을 MySQL DATE(YYYY-MM-DD)로 정규화
-  const toSqlDate = (v) => {
-    if (v == null || v === "") return null;
-    if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
-
-    if (typeof v === "string") {
-      const s = v.trim();
-
-      // 2025-08-19
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-      // 2025-08  -> 2025-08-01
-      if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`;
-
-      // 2025/08  or 2025/08/19
-      if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) {
-        const t = s.replace(/\//g, "-");
-        return t;
-      }
-      if (/^\d{4}\/\d{2}$/.test(s)) {
-        const t = s.replace(/\//g, "-");
-        return `${t}-01`;
-      }
-
-      // 기타 파싱 가능한 케이스
-      const d = new Date(s);
-      if (!isNaN(d)) return d.toISOString().slice(0, 10);
-    }
-
-    // 여기서 null을 반환하면 INSERT 시 NULL로 저장됨 (컬럼이 NULL 허용이어야 함)
-    return null;
-  };
-
   try {
     const {
-      first_name,
-      last_name,
-      birth_date,
-      gender,
-      belt_rank,
-      belt_size,
-      parent_id,
-      profile_image,
-      program_id,
+      first_name, last_name, birth_date, gender,
+      belt_rank, belt_size, parent_id, profile_image, program_id
     } = req.body;
     const { dojang_code } = req.user;
 
-    if (!dojang_code) {
-      return res.status(400).json({ success: false, message: "Dojang code is missing" });
-    }
-
-    const safeFirstName   = first_name ?? null;
-    const safeLastName    = last_name ?? null;
-    const safeGender      = gender ?? null;
-    const safeBeltRank    = belt_rank != null ? String(belt_rank) : null;
-    const safeBeltSize    = belt_size ?? null;
-    const safeParentId    = parent_id != null ? parent_id : null;
-    const safeProgramId   = program_id ?? null;
-    const safeProfileImage= profile_image ?? null;
-
-    // 날짜 정규화
     const birthDateSQL = toSqlDate(birth_date);
+    console.log('[register-student] birth_date raw =', birth_date, '→ normalized =', birthDateSQL);
 
-    // 필수값 체크 (생일을 반드시 받아야 한다면 birthDateSQL도 체크)
-    if (!safeFirstName || !safeLastName || !safeGender || safeParentId === null) {
-      return res.status(400).json({ success: false, message: "Missing required student fields" });
+    // 필수값 체크 (생일 필수면 birthDateSQL도 검사)
+    if (!dojang_code) return res.status(400).json({ success:false, message:"Dojang code is missing" });
+    if (!first_name || !last_name || !gender || parent_id == null) {
+      return res.status(400).json({ success:false, message:"Missing required student fields" });
     }
 
-    // 생일을 반드시 요구한다면 주석 해제
-    // if (!birthDateSQL) {
-    //   return res.status(400).json({ success: false, message: "Invalid or missing birth_date" });
-    // }
-
-    // 기존 학생 여부 확인 (생일이 NULL일 수도 있으므로 조건 분기)
+    // 기존 학생 조회 (birth_date가 NULL일 수도 있으므로 분기)
     let existing;
     if (birthDateSQL === null) {
       [existing] = await db.query(
-        `SELECT id FROM students 
-         WHERE first_name = ? AND last_name = ? 
-           AND birth_date IS NULL
-           AND parent_id = ? AND dojang_code = ?`,
-        [safeFirstName, safeLastName, safeParentId, dojang_code]
+        `SELECT id FROM students
+         WHERE first_name=? AND last_name=? AND birth_date IS NULL
+           AND parent_id=? AND dojang_code=?`,
+        [first_name, last_name, parent_id, dojang_code]
       );
     } else {
       [existing] = await db.query(
-        `SELECT id FROM students 
-         WHERE first_name = ? AND last_name = ? 
-           AND birth_date = ?
-           AND parent_id = ? AND dojang_code = ?`,
-        [safeFirstName, safeLastName, birthDateSQL, safeParentId, dojang_code]
+        `SELECT id FROM students
+         WHERE first_name=? AND last_name=? AND birth_date=?
+           AND parent_id=? AND dojang_code=?`,
+        [first_name, last_name, birthDateSQL, parent_id, dojang_code]   // ← 여기도 normalized 사용
       );
     }
 
     let student_id;
-
     if (existing.length > 0) {
-      // 기존 학생 업데이트
       student_id = existing[0].id;
-
       await db.query(
-        `UPDATE students 
-           SET gender = ?, belt_rank = ?, belt_size = ?, profile_image = ?, program_id = ?, birth_date = ?
-         WHERE id = ?`,
-        [safeGender, safeBeltRank, safeBeltSize, safeProfileImage, safeProgramId, birthDateSQL, student_id]
+        `UPDATE students
+         SET gender=?, belt_rank=?, belt_size=?, profile_image=?, program_id=?, birth_date=?
+         WHERE id=?`,
+        [gender, String(belt_rank ?? ''), belt_size ?? null, profile_image ?? null, program_id ?? null, birthDateSQL, student_id]
       );
-
-      console.log("🟡 Existing student updated:", student_id);
     } else {
-      // 신규 등록
       const [result] = await db.execute(
-        `INSERT INTO students 
-         (first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id, dojang_code) 
+        `INSERT INTO students
+         (first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id, dojang_code)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [safeFirstName, safeLastName, birthDateSQL, safeGender, safeBeltRank, safeBeltSize, safeParentId, safeProfileImage, safeProgramId, dojang_code]
+        [first_name, last_name, birthDateSQL, gender, String(belt_rank ?? ''), belt_size ?? null, parent_id, profile_image ?? null, program_id ?? null, dojang_code] // ← ★ 세 번째 파라미터가 birthDateSQL
       );
       student_id = result.insertId;
-
-      console.log("🟢 New student inserted:", student_id);
     }
 
-    return res.status(201).json({ success: true, student_id });
+    return res.status(201).json({ success:true, student_id });
   } catch (error) {
     console.error("❌ ERROR: Failed to register or update student:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error. Please try again.",
-      error: error.message || "Unknown error",
-    });
+    return res.status(500).json({ success:false, message:"Server error. Please try again.", error: error.message || "Unknown error" });
   }
 });
+
 
 
 
