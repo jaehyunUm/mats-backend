@@ -147,10 +147,16 @@ router.post('/process-payment', verifyToken, async (req, res) => {
 
     // 학생 정보 처리
     let studentId = student_id;
-    const [existingStudent] = await connection.query(`
-      SELECT id FROM students WHERE first_name = ? AND last_name = ? AND DATE(birth_date) = ? AND dojang_code = ?
-    `, [student.firstName, student.lastName, student.dateOfBirth, dojang_code]);
-
+    const dobSQL = toSqlDate(student?.dateOfBirth);
+     console.log('[process-payment] DOB raw =', student?.dateOfBirth, '→', dobSQL);
+    
+     const [existingStudent] = await connection.query(
+       `SELECT id FROM students
+          WHERE first_name = ? AND last_name = ?
+            AND birth_date <=> ?         -- NULL-safe equality, 인덱스 사용
+            AND dojang_code = ?`,
+       [student.firstName, student.lastName, dobSQL, dojang_code]
+     );
     if (existingStudent.length > 0) {
       studentId = existingStudent[0].id;
       await connection.query(`
