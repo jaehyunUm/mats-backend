@@ -12,13 +12,56 @@ const toSqlDate = (v) => {
 
   if (typeof v === 'string') {
     const s = v.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;        // 2025-08-19
-    if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`;       // 2025-08  -> 2025-08-01
-    if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) return s.replace(/\//g, '-');
-    if (/^\d{4}\/\d{2}$/.test(s)) return s.replace(/\//g, '-') + '-01';
+    
+    // 완전한 날짜 형식 (YYYY-MM-DD)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      // 유효한 날짜인지 확인
+      const date = new Date(s);
+      if (!isNaN(date) && date.toISOString().slice(0, 10) === s) {
+        return s;
+      }
+    }
+    
+    // 년-월 형식 (YYYY-MM) -> 해당 월의 첫째 날로 설정
+    if (/^\d{4}-\d{2}$/.test(s)) {
+      const [year, month] = s.split('-');
+      const monthNum = parseInt(month, 10);
+      if (monthNum >= 1 && monthNum <= 12) {
+        return `${s}-01`;
+      }
+    }
+    
+    // 슬래시 형식 (YYYY/MM/DD)
+    if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) {
+      const normalized = s.replace(/\//g, '-');
+      const date = new Date(normalized);
+      if (!isNaN(date) && date.toISOString().slice(0, 10) === normalized) {
+        return normalized;
+      }
+    }
+    
+    // 슬래시 형식 (YYYY/MM) -> 해당 월의 첫째 날로 설정
+    if (/^\d{4}\/\d{2}$/.test(s)) {
+      const [year, month] = s.split('/');
+      const monthNum = parseInt(month, 10);
+      if (monthNum >= 1 && monthNum <= 12) {
+        return `${year}-${month.padStart(2, '0')}-01`;
+      }
+    }
+    
+    // 기타 형식 시도
     const d = new Date(s);
-    if (!isNaN(d)) return d.toISOString().slice(0, 10);
+    if (!isNaN(d)) {
+      const isoDate = d.toISOString().slice(0, 10);
+      // 유효한 날짜 범위 확인 (1900년 이후, 2100년 이전)
+      const year = parseInt(isoDate.split('-')[0], 10);
+      if (year >= 1900 && year <= 2100) {
+        return isoDate;
+      }
+    }
   }
+  
+  console.warn(`⚠️ Invalid date format: ${v}, returning null`);
   return null; // 도저히 못 맞추면 NULL
 };
 
@@ -60,6 +103,16 @@ router.post("/register-student", verifyToken, async (req, res) => {
     let student_id;
     if (existing.length > 0) {
       student_id = existing[0].id;
+      
+      // birthDateSQL 최종 검증 (UPDATE용)
+      if (birthDateSQL && !/^\d{4}-\d{2}-\d{2}$/.test(birthDateSQL)) {
+        console.error(`❌ Invalid birthDateSQL format for UPDATE: ${birthDateSQL}`);
+        return res.status(400).json({ 
+          success: false, 
+          message: "Invalid birth date format. Please provide a valid date (YYYY-MM-DD)." 
+        });
+      }
+      
       await db.query(
         `UPDATE students
          SET gender=?, belt_rank=?, belt_size=?, profile_image=?, program_id=?, birth_date=?
@@ -67,6 +120,15 @@ router.post("/register-student", verifyToken, async (req, res) => {
         [gender, String(belt_rank ?? ''), belt_size ?? null, profile_image ?? null, program_id ?? null, birthDateSQL, student_id]
       );
     } else {
+      // birthDateSQL 최종 검증
+      if (birthDateSQL && !/^\d{4}-\d{2}-\d{2}$/.test(birthDateSQL)) {
+        console.error(`❌ Invalid birthDateSQL format: ${birthDateSQL}`);
+        return res.status(400).json({ 
+          success: false, 
+          message: "Invalid birth date format. Please provide a valid date (YYYY-MM-DD)." 
+        });
+      }
+      
       const [result] = await db.execute(
         `INSERT INTO students
          (first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id, dojang_code)
