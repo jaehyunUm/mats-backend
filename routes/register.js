@@ -6,72 +6,55 @@ const verifyToken = require('../middleware/verifyToken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 
+// 안전한 날짜 정규화: YYYY-MM-DD만 최종 허용, YYYY-MM/YY/MM은 1일로 보정
 const toSqlDate = (v) => {
   if (v == null || v === '') return null;
-  if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+
+  // Date 객체
+  if (v instanceof Date && !isNaN(v)) {
+    return v.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  }
 
   if (typeof v === 'string') {
     const s = v.trim();
-    
-    // 완전한 날짜 형식 (YYYY-MM-DD)
+
+    // YYYY-MM-DD (정확히 일치)
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      // 유효한 날짜인지 확인
-      const date = new Date(s);
-      if (!isNaN(date) && date.toISOString().slice(0, 10) === s) {
-        return s;
-      }
+      const d = new Date(s);
+      if (!isNaN(d) && d.toISOString().slice(0, 10) === s) return s;
+      return null;
     }
-    
-    // 년-월 형식 (YYYY-MM) -> 해당 월의 첫째 날로 설정
+
+    // YYYY-MM → YYYY-MM-01
     if (/^\d{4}-\d{2}$/.test(s)) {
-      const [year, month] = s.split('-');
-      const monthNum = parseInt(month, 10);
-      if (monthNum >= 1 && monthNum <= 12) {
-        return `${s}-01`;
-      }
+      const [y, m] = s.split('-');
+      const mn = Number(m);
+      if (mn >= 1 && mn <= 12) return `${y}-${m.padStart(2, '0')}-01`;
+      return null;
     }
-    
-    // 슬래시 형식 (YYYY/MM/DD)
+
+    // YYYY/MM/DD → YYYY-MM-DD
     if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) {
-      const normalized = s.replace(/\//g, '-');
-      const date = new Date(normalized);
-      if (!isNaN(date) && date.toISOString().slice(0, 10) === normalized) {
-        return normalized;
-      }
+      const norm = s.replace(/\//g, '-');
+      const d = new Date(norm);
+      if (!isNaN(d) && d.toISOString().slice(0, 10) === norm) return norm;
+      return null;
     }
-    
-    // 슬래시 형식 (YYYY/MM) -> 해당 월의 첫째 날로 설정
+
+    // YYYY/MM → YYYY-MM-01
     if (/^\d{4}\/\d{2}$/.test(s)) {
-      const [year, month] = s.split('/');
-      const monthNum = parseInt(month, 10);
-      if (monthNum >= 1 && monthNum <= 12) {
-        return `${year}-${month.padStart(2, '0')}-01`;
-      }
-    }
-    
-    // 기타 형식 시도
-    const d = new Date(s);
-    if (!isNaN(d)) {
-      const isoDate = d.toISOString().slice(0, 10);
-      // 유효한 날짜 범위 확인 (1900년 이후, 2100년 이전)
-      const year = parseInt(isoDate.split('-')[0], 10);
-      if (year >= 1900 && year <= 2100) {
-        return isoDate;
-      }
+      const [y, m] = s.split('/');
+      const mn = Number(m);
+      if (mn >= 1 && mn <= 12) return `${y}-${m.padStart(2, '0')}-01`;
+      return null;
     }
   }
-  
-  console.warn(`⚠️ Invalid date format: ${v}, returning null`);
-  return null; // 도저히 못 맞추면 NULL
+
+  return null;
 };
 
-router.post("/register-student", verifyToken, async (req, res) => {
+router.post('/register-student', verifyToken, async (req, res) => {
   try {
-    // 1) 들어온 원본 확인 (짧게)
-    console.log("[register-student] body:", req.body);
-    console.log("[register-student] user:", { id: req.user?.id, dojang_code: req.user?.dojang_code });
-
-    // 2) 구조분해 + 타입/포맷 정규화
     const {
       first_name,
       last_name,
@@ -86,37 +69,49 @@ router.post("/register-student", verifyToken, async (req, res) => {
 
     const dojang_code = req.user?.dojang_code ?? null;
 
-    const firstName = String(first_name ?? "").trim();
-    const lastName  = String(last_name ?? "").trim();
-    const genderNorm = String(gender ?? "").toLowerCase().trim(); // enum: male|female|other
-    const beltRank   = String(belt_rank ?? "");                   // students.belt_rank: varchar(50)
-    const beltSize   = belt_size ?? null;                         // varchar(10) | null
-    const parentId   = parent_id != null ? Number(parent_id) : null;        // int | null
-    const programId  = program_id != null ? Number(program_id) : null;      // int | null
-    const profileImg = profile_image ?? null;                               // varchar(255) | null
-    const birthSQL   = toSqlDate(birth_date) ?? null;                       // 'YYYY-MM-DD' | null
+    // 정규화
+    const firstName  = String(first_name ?? '').trim();
+    const lastName   = String(last_name ?? '').trim();
+    const genderNorm = String(gender ?? '').toLowerCase().trim(); // enum: male|female|other
+    const beltRank   = String(belt_rank ?? '');                   // varchar
+    const beltSize   = belt_size ?? null;                         // varchar(10)|null
+    const parentId   = parent_id != null ? Number(parent_id) : null;      // int|null
+    const programId  = program_id != null ? Number(program_id) : null;    // int|null
+    let   birthSQL   = toSqlDate(birth_date) ?? null;                     // 'YYYY-MM-DD' | null
 
-    // 3) 필수값/형식 검증 (짧게, 명확하게)
-    if (!dojang_code) {
-      return res.status(400).json({ success: false, message: "Dojang code is missing" });
+    // YYYY-MM 방어 (혹시 남아있으면 즉시 차단)
+    if (birthSQL && /^\d{4}-\d{2}$/.test(birthSQL)) {
+      return res.status(400).json({ success: false, message: `Invalid birth date (missing day): ${birthSQL}` });
     }
-    if (!firstName || !lastName || !genderNorm || parentId == null) {
-      return res.status(400).json({ success: false, message: "Missing required student fields" });
-    }
-    if (!["male", "female", "other"].includes(genderNorm)) {
-      return res.status(400).json({ success: false, message: `Invalid gender: ${genderNorm}` });
-    }
-    if (Number.isNaN(parentId)) {
-      return res.status(400).json({ success: false, message: "Invalid parent_id" });
-    }
-    if (programId != null && Number.isNaN(programId)) {
-      return res.status(400).json({ success: false, message: "Invalid program_id" });
-    }
+    // 최종 포맷 검증
     if (birthSQL && !/^\d{4}-\d{2}-\d{2}$/.test(birthSQL)) {
       return res.status(400).json({ success: false, message: `Invalid birth date: ${birthSQL}` });
     }
 
-    // 4) 기존 학생 조회 (birth_date NULL/값 별도)
+    // 필수값/형식 검증
+    if (!dojang_code) {
+      return res.status(400).json({ success: false, message: 'Dojang code is missing' });
+    }
+    if (!firstName || !lastName || !genderNorm || parentId == null) {
+      return res.status(400).json({ success: false, message: 'Missing required student fields' });
+    }
+    if (!['male', 'female', 'other'].includes(genderNorm)) {
+      return res.status(400).json({ success: false, message: `Invalid gender: ${genderNorm}` });
+    }
+    if (Number.isNaN(parentId)) {
+      return res.status(400).json({ success: false, message: 'Invalid parent_id' });
+    }
+    if (programId != null && Number.isNaN(programId)) {
+      return res.status(400).json({ success: false, message: 'Invalid program_id' });
+    }
+
+    // FK 사전 검증: parent 존재 확인
+    const [[parentRow]] = await db.query('SELECT id FROM parents WHERE id = ?', [parentId]);
+    if (!parentRow) {
+      return res.status(400).json({ success: false, message: 'Parent not found' });
+    }
+
+    // 기존 학생 조회 (birth_date NULL/값 분기)
     let existing;
     if (birthSQL === null) {
       [existing] = await db.query(
@@ -137,9 +132,8 @@ router.post("/register-student", verifyToken, async (req, res) => {
     let student_id;
 
     if (existing.length > 0) {
-      // 5) UPDATE
+      // UPDATE
       student_id = existing[0].id;
-
       await db.query(
         `UPDATE students
            SET gender=?,
@@ -149,62 +143,36 @@ router.post("/register-student", verifyToken, async (req, res) => {
                program_id=?,
                birth_date=?
          WHERE id=?`,
-        [
-          genderNorm,
-          beltRank,
-          beltSize,
-          profileImg,
-          programId ?? null,
-          birthSQL, // null 가능
-          student_id,
-        ]
+        [genderNorm, beltRank, beltSize, profile_image ?? null, programId ?? null, birthSQL, student_id]
       );
     } else {
-      // 6) INSERT
+      // INSERT
       const [result] = await db.execute(
         `INSERT INTO students
            (first_name, last_name, birth_date, gender, belt_rank, belt_size,
             parent_id, profile_image, program_id, dojang_code)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          firstName,
-          lastName,
-          birthSQL,       // ★ 3번째가 DATE 컬럼
-          genderNorm,
-          beltRank,
-          beltSize,
-          parentId,
-          profileImg,
-          programId ?? null,
-          dojang_code,
-        ]
+        [firstName, lastName, birthSQL, genderNorm, beltRank, beltSize, parentId, profile_image ?? null, programId ?? null, dojang_code]
       );
       student_id = result.insertId;
     }
 
     return res.status(201).json({ success: true, student_id });
   } catch (error) {
-    // DB 에러 정보도 콘솔에 남겨서 원인 추적을 쉽게
-    console.error("❌ ERROR /register-student:", {
+    // FK 위반 명시 처리
+    if (error?.errno === 1452) {
+      console.error('FK ERROR (students.parent_id → parents.id):', error?.sqlMessage);
+      return res.status(400).json({ success: false, message: 'Invalid parent_id (not found in parents)' });
+    }
+    console.error('❌ ERROR /register-student:', {
       message: error.message,
       code: error.code,
       errno: error.errno,
       sqlMessage: error.sqlMessage,
-      stack: error.stack,
     });
-
-    // 응답에는 민감한 SQL 메시지는 숨기고, 개발환경이면 포함해도 됨
-    const debug =
-      process.env.NODE_ENV === "production"
-        ? undefined
-        : { code: error.code, errno: error.errno, sqlMessage: error.sqlMessage };
-
-    return res
-      .status(500)
-      .json({ success: false, message: "Server error. Please try again.", debug });
+    return res.status(500).json({ success: false, message: 'Server error. Please try again.' });
   }
 });
-
 
 
 
