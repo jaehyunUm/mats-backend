@@ -67,84 +67,141 @@ const toSqlDate = (v) => {
 
 router.post("/register-student", verifyToken, async (req, res) => {
   try {
-    console.log("[register-student] received body:", req.body);
-    console.log("[register-student] user from token:", req.user);
+    // 1) 들어온 원본 확인 (짧게)
+    console.log("[register-student] body:", req.body);
+    console.log("[register-student] user:", { id: req.user?.id, dojang_code: req.user?.dojang_code });
 
+    // 2) 구조분해 + 타입/포맷 정규화
     const {
-      first_name, last_name, birth_date, gender,
-      belt_rank, belt_size, parent_id, profile_image, program_id
-    } = req.body;
-    const { dojang_code } = req.user;
+      first_name,
+      last_name,
+      birth_date,
+      gender,
+      belt_rank,
+      belt_size,
+      parent_id,
+      profile_image,
+      program_id,
+    } = req.body || {};
 
-    const birthDateSQL = toSqlDate(birth_date);
-    console.log('[register-student] birth_date raw =', birth_date, '→ normalized =', birthDateSQL);
+    const dojang_code = req.user?.dojang_code ?? null;
 
-    // 필수값 체크 (생일 필수면 birthDateSQL도 검사)
-    if (!dojang_code) return res.status(400).json({ success:false, message:"Dojang code is missing" });
-    if (!first_name || !last_name || !gender || parent_id == null) {
-      return res.status(400).json({ success:false, message:"Missing required student fields" });
+    const firstName = String(first_name ?? "").trim();
+    const lastName  = String(last_name ?? "").trim();
+    const genderNorm = String(gender ?? "").toLowerCase().trim(); // enum: male|female|other
+    const beltRank   = String(belt_rank ?? "");                   // students.belt_rank: varchar(50)
+    const beltSize   = belt_size ?? null;                         // varchar(10) | null
+    const parentId   = parent_id != null ? Number(parent_id) : null;        // int | null
+    const programId  = program_id != null ? Number(program_id) : null;      // int | null
+    const profileImg = profile_image ?? null;                               // varchar(255) | null
+    const birthSQL   = toSqlDate(birth_date) ?? null;                       // 'YYYY-MM-DD' | null
+
+    // 3) 필수값/형식 검증 (짧게, 명확하게)
+    if (!dojang_code) {
+      return res.status(400).json({ success: false, message: "Dojang code is missing" });
+    }
+    if (!firstName || !lastName || !genderNorm || parentId == null) {
+      return res.status(400).json({ success: false, message: "Missing required student fields" });
+    }
+    if (!["male", "female", "other"].includes(genderNorm)) {
+      return res.status(400).json({ success: false, message: `Invalid gender: ${genderNorm}` });
+    }
+    if (Number.isNaN(parentId)) {
+      return res.status(400).json({ success: false, message: "Invalid parent_id" });
+    }
+    if (programId != null && Number.isNaN(programId)) {
+      return res.status(400).json({ success: false, message: "Invalid program_id" });
+    }
+    if (birthSQL && !/^\d{4}-\d{2}-\d{2}$/.test(birthSQL)) {
+      return res.status(400).json({ success: false, message: `Invalid birth date: ${birthSQL}` });
     }
 
-    // 기존 학생 조회 (birth_date가 NULL일 수도 있으므로 분기)
+    // 4) 기존 학생 조회 (birth_date NULL/값 별도)
     let existing;
-    if (birthDateSQL === null) {
+    if (birthSQL === null) {
       [existing] = await db.query(
         `SELECT id FROM students
          WHERE first_name=? AND last_name=? AND birth_date IS NULL
            AND parent_id=? AND dojang_code=?`,
-        [first_name, last_name, parent_id, dojang_code]
+        [firstName, lastName, parentId, dojang_code]
       );
     } else {
       [existing] = await db.query(
         `SELECT id FROM students
          WHERE first_name=? AND last_name=? AND birth_date=?
            AND parent_id=? AND dojang_code=?`,
-        [first_name, last_name, birthDateSQL, parent_id, dojang_code]   // ← 여기도 normalized 사용
+        [firstName, lastName, birthSQL, parentId, dojang_code]
       );
     }
 
     let student_id;
+
     if (existing.length > 0) {
+      // 5) UPDATE
       student_id = existing[0].id;
-      
-      // birthDateSQL 최종 검증 (UPDATE용)
-      if (birthDateSQL && !/^\d{4}-\d{2}-\d{2}$/.test(birthDateSQL)) {
-        console.error(`❌ Invalid birthDateSQL format for UPDATE: ${birthDateSQL}`);
-        return res.status(400).json({ 
-          success: false, 
-          message: "Invalid birth date format. Please provide a valid date (YYYY-MM-DD)." 
-        });
-      }
-      
+
       await db.query(
         `UPDATE students
-         SET gender=?, belt_rank=?, belt_size=?, profile_image=?, program_id=?, birth_date=?
+           SET gender=?,
+               belt_rank=?,
+               belt_size=?,
+               profile_image=?,
+               program_id=?,
+               birth_date=?
          WHERE id=?`,
-        [gender, String(belt_rank ?? ''), belt_size ?? null, profile_image ?? null, program_id ?? null, birthDateSQL, student_id]
+        [
+          genderNorm,
+          beltRank,
+          beltSize,
+          profileImg,
+          programId ?? null,
+          birthSQL, // null 가능
+          student_id,
+        ]
       );
     } else {
-      // birthDateSQL 최종 검증
-      if (birthDateSQL && !/^\d{4}-\d{2}-\d{2}$/.test(birthDateSQL)) {
-        console.error(`❌ Invalid birthDateSQL format: ${birthDateSQL}`);
-        return res.status(400).json({ 
-          success: false, 
-          message: "Invalid birth date format. Please provide a valid date (YYYY-MM-DD)." 
-        });
-      }
-      
+      // 6) INSERT
       const [result] = await db.execute(
         `INSERT INTO students
-         (first_name, last_name, birth_date, gender, belt_rank, belt_size, parent_id, profile_image, program_id, dojang_code)
+           (first_name, last_name, birth_date, gender, belt_rank, belt_size,
+            parent_id, profile_image, program_id, dojang_code)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [first_name, last_name, birthDateSQL, gender, String(belt_rank ?? ''), belt_size ?? null, parent_id, profile_image ?? null, program_id ?? null, dojang_code] // ← ★ 세 번째 파라미터가 birthDateSQL
+        [
+          firstName,
+          lastName,
+          birthSQL,       // ★ 3번째가 DATE 컬럼
+          genderNorm,
+          beltRank,
+          beltSize,
+          parentId,
+          profileImg,
+          programId ?? null,
+          dojang_code,
+        ]
       );
       student_id = result.insertId;
     }
 
-    return res.status(201).json({ success:true, student_id });
+    return res.status(201).json({ success: true, student_id });
   } catch (error) {
-    console.error("❌ ERROR: Failed to register or update student:", error);
-    return res.status(500).json({ success:false, message:"Server error. Please try again.", error: error.message || "Unknown error" });
+    // DB 에러 정보도 콘솔에 남겨서 원인 추적을 쉽게
+    console.error("❌ ERROR /register-student:", {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlMessage: error.sqlMessage,
+      stack: error.stack,
+    });
+
+    // 응답에는 민감한 SQL 메시지는 숨기고, 개발환경이면 포함해도 됨
+    const debug =
+      process.env.NODE_ENV === "production"
+        ? undefined
+        : { code: error.code, errno: error.errno, sqlMessage: error.sqlMessage };
+
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error. Please try again.", debug });
   }
 });
 
