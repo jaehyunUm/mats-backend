@@ -67,6 +67,9 @@ const toSqlDate = (v) => {
 
 router.post("/register-student", verifyToken, async (req, res) => {
   try {
+    console.log("[register-student] received body:", req.body);
+    console.log("[register-student] user from token:", req.user);
+
     const {
       first_name, last_name, birth_date, gender,
       belt_rank, belt_size, parent_id, profile_image, program_id
