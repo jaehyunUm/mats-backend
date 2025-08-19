@@ -53,65 +53,42 @@ const toSqlDate = (v) => {
   return null;
 };
 
-router.post('/register-student', verifyToken, async (req, res) => {
+router.post("/register-student", verifyToken, async (req, res) => {
   try {
     const {
-      first_name,
-      last_name,
-      birth_date,
-      gender,
-      belt_rank,
-      belt_size,
-      parent_id,
-      profile_image,
-      program_id,
+      first_name, last_name, birth_date, gender,
+      belt_rank, belt_size, parent_id, profile_image, program_id
     } = req.body || {};
-
     const dojang_code = req.user?.dojang_code ?? null;
 
     // 정규화
-    const firstName  = String(first_name ?? '').trim();
-    const lastName   = String(last_name ?? '').trim();
-    const genderNorm = String(gender ?? '').toLowerCase().trim(); // enum: male|female|other
-    const beltRank   = String(belt_rank ?? '');                   // varchar
-    const beltSize   = belt_size ?? null;                         // varchar(10)|null
-    const parentId   = parent_id != null ? Number(parent_id) : null;      // int|null
-    const programId  = program_id != null ? Number(program_id) : null;    // int|null
-    let   birthSQL   = toSqlDate(birth_date) ?? null;                     // 'YYYY-MM-DD' | null
+    const firstName = String(first_name ?? "").trim();
+    const lastName  = String(last_name ?? "").trim();
+    const genderNorm = String(gender ?? "").toLowerCase().trim();
+    const beltRank   = String(belt_rank ?? "");
+    const beltSize   = belt_size ?? null;
+    const parentId   = parent_id != null ? Number(parent_id) : null;
+    const programId  = program_id != null ? Number(program_id) : null;
+    const profileImg = profile_image ?? null;
+    const birthSQL   = toSqlDate(birth_date) ?? null;
 
-    // YYYY-MM 방어 (혹시 남아있으면 즉시 차단)
-    if (birthSQL && /^\d{4}-\d{2}$/.test(birthSQL)) {
-      return res.status(400).json({ success: false, message: `Invalid birth date (missing day): ${birthSQL}` });
-    }
-    // 최종 포맷 검증
-    if (birthSQL && !/^\d{4}-\d{2}-\d{2}$/.test(birthSQL)) {
-      return res.status(400).json({ success: false, message: `Invalid birth date: ${birthSQL}` });
-    }
+    console.log("🔍 [register-student] Raw body:", req.body);
+    console.log("🔍 [register-student] Normalized values:", {
+      firstName, lastName, genderNorm, beltRank, beltSize,
+      parentId, programId, profileImg, birthSQL, dojang_code
+    });
 
-    // 필수값/형식 검증
-    if (!dojang_code) {
-      return res.status(400).json({ success: false, message: 'Dojang code is missing' });
-    }
-    if (!firstName || !lastName || !genderNorm || parentId == null) {
-      return res.status(400).json({ success: false, message: 'Missing required student fields' });
-    }
-    if (!['male', 'female', 'other'].includes(genderNorm)) {
-      return res.status(400).json({ success: false, message: `Invalid gender: ${genderNorm}` });
-    }
-    if (Number.isNaN(parentId)) {
-      return res.status(400).json({ success: false, message: 'Invalid parent_id' });
-    }
-    if (programId != null && Number.isNaN(programId)) {
-      return res.status(400).json({ success: false, message: 'Invalid program_id' });
-    }
+    if (!dojang_code) return res.status(400).json({ success:false, message:"Dojang code is missing" });
+    if (!firstName || !lastName || !genderNorm || parentId == null)
+      return res.status(400).json({ success:false, message:"Missing required student fields" });
 
-    // FK 사전 검증: parent 존재 확인
-    const [[parentRow]] = await db.query('SELECT id FROM parents WHERE id = ?', [parentId]);
+    // ✅ 부모 존재 확인
+    const [[parentRow]] = await db.query("SELECT id FROM parents WHERE id = ?", [parentId]);
     if (!parentRow) {
-      return res.status(400).json({ success: false, message: 'Parent not found' });
+      return res.status(400).json({ success:false, message:"Parent not found" });
     }
 
-    // 기존 학생 조회 (birth_date NULL/값 분기)
+    // 기존 학생 조회
     let existing;
     if (birthSQL === null) {
       [existing] = await db.query(
@@ -130,49 +107,44 @@ router.post('/register-student', verifyToken, async (req, res) => {
     }
 
     let student_id;
-
     if (existing.length > 0) {
-      // UPDATE
       student_id = existing[0].id;
+      console.log("🔄 UPDATE student with:", {
+        genderNorm, beltRank, beltSize, profileImg, programId, birthSQL, student_id
+      });
       await db.query(
         `UPDATE students
-           SET gender=?,
-               belt_rank=?,
-               belt_size=?,
-               profile_image=?,
-               program_id=?,
-               birth_date=?
+           SET gender=?, belt_rank=?, belt_size=?, profile_image=?, program_id=?, birth_date=?
          WHERE id=?`,
-        [genderNorm, beltRank, beltSize, profile_image ?? null, programId ?? null, birthSQL, student_id]
+        [genderNorm, beltRank, beltSize, profileImg, programId ?? null, birthSQL, student_id]
       );
     } else {
-      // INSERT
+      console.log("🆕 INSERT student with:", {
+        firstName, lastName, birthSQL, genderNorm, beltRank, beltSize,
+        parentId, profileImg, programId, dojang_code
+      });
       const [result] = await db.execute(
         `INSERT INTO students
            (first_name, last_name, birth_date, gender, belt_rank, belt_size,
             parent_id, profile_image, program_id, dojang_code)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [firstName, lastName, birthSQL, genderNorm, beltRank, beltSize, parentId, profile_image ?? null, programId ?? null, dojang_code]
+        [firstName, lastName, birthSQL, genderNorm, beltRank, beltSize,
+         parentId, profileImg, programId ?? null, dojang_code]
       );
       student_id = result.insertId;
     }
 
-    return res.status(201).json({ success: true, student_id });
+    return res.status(201).json({ success:true, student_id });
   } catch (error) {
-    // FK 위반 명시 처리
     if (error?.errno === 1452) {
-      console.error('FK ERROR (students.parent_id → parents.id):', error?.sqlMessage);
-      return res.status(400).json({ success: false, message: 'Invalid parent_id (not found in parents)' });
+      console.error("❌ FK ERROR:", error?.sqlMessage);
+      return res.status(400).json({ success:false, message:"Invalid parent_id (not found in parents)" });
     }
-    console.error('❌ ERROR /register-student:', {
-      message: error.message,
-      code: error.code,
-      errno: error.errno,
-      sqlMessage: error.sqlMessage,
-    });
-    return res.status(500).json({ success: false, message: 'Server error. Please try again.' });
+    console.error("❌ ERROR /register-student:", error);
+    return res.status(500).json({ success:false, message:"Server error. Please try again." });
   }
 });
+
 
 
 
