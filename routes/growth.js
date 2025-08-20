@@ -11,27 +11,34 @@ router.get('/growth/history', verifyToken, async (req, res) => {
   }
 
   try {
-    // 등록/누적(월 스냅샷)
-    const [growthData] = await db.query(
+    // 1. Monthly 등록 집계
+    const [monthlyData] = await db.query(
       `
-      SELECT 
-        DATE_FORMAT(month, '%Y-%m-01') AS month_key,
-        SUM(registered_students) AS registered_students,
-        MAX(cumulative_students) AS cumulative_students
-      FROM student_growth
+      SELECT DATE_FORMAT(reg_date, '%Y-%m-01') AS month_key, COUNT(*) AS monthly_students
+      FROM monthly_payments
       WHERE dojang_code = ?
-      GROUP BY DATE_FORMAT(month, '%Y-%m-01')
-      ORDER BY DATE_FORMAT(month, '%Y-%m-01') ASC
+      GROUP BY DATE_FORMAT(reg_date, '%Y-%m-01')
+      ORDER BY DATE_FORMAT(reg_date, '%Y-%m-01') ASC
       `,
       [dojang_code]
     );
 
-    // 취소 집계(월별)
+    // 2. Pay-in-full 등록 집계
+    const [payinfullData] = await db.query(
+      `
+      SELECT DATE_FORMAT(reg_date, '%Y-%m-01') AS month_key, COUNT(*) AS payinfull_students
+      FROM payinfull_payments
+      WHERE dojang_code = ?
+      GROUP BY DATE_FORMAT(reg_date, '%Y-%m-01')
+      ORDER BY DATE_FORMAT(reg_date, '%Y-%m-01') ASC
+      `,
+      [dojang_code]
+    );
+
+    // 3. 취소 집계
     const [cancellationData] = await db.query(
       `
-      SELECT 
-        DATE_FORMAT(canceled_at, '%Y-%m-01') AS month_key,
-        COUNT(*) AS canceled_students
+      SELECT DATE_FORMAT(canceled_at, '%Y-%m-01') AS month_key, COUNT(*) AS canceled_students
       FROM subscription_cancellations
       WHERE dojang_code = ?
       GROUP BY DATE_FORMAT(canceled_at, '%Y-%m-01')
@@ -40,18 +47,33 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       [dojang_code]
     );
 
-    // 취소 Map
-    const cancMap = new Map(
-      cancellationData.map(({ month_key, canceled_students }) => [month_key, canceled_students])
-    );
+    // 4. 모든 month_key 모으기
+    const months = [
+      ...new Set([
+        ...monthlyData.map(r => r.month_key),
+        ...payinfullData.map(r => r.month_key),
+        ...cancellationData.map(r => r.month_key),
+      ])
+    ].sort();
 
-    // 머지
-    const history = growthData.map((g) => ({
-      month: g.month_key, // 'YYYY-MM-01'
-      registered_students: Number(g.registered_students) || 0,
-      canceled_students: cancMap.get(g.month_key) || 0,
-      cumulative_students: Number(g.cumulative_students) || 0,
-    }));
+    // 5. 누적 학생 수 계산
+    let cumulativeTotal = 0;
+    const history = months.map(month => {
+      const monthly = monthlyData.find(r => r.month_key === month)?.monthly_students || 0;
+      const payinfull = payinfullData.find(r => r.month_key === month)?.payinfull_students || 0;
+      const canceled = cancellationData.find(r => r.month_key === month)?.canceled_students || 0;
+
+      const newRegistrations = monthly + payinfull;
+      cumulativeTotal += newRegistrations;
+
+      return {
+        month,                    // "YYYY-MM-01"
+        monthly_students: monthly,
+        payinfull_students: payinfull,
+        canceled_students: canceled,
+        cumulative_students: cumulativeTotal, // ✅ 누적 학생 수
+      };
+    });
 
     res.status(200).json({ success: true, history });
   } catch (error) {
@@ -59,6 +81,8 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     res.status(500).json({ success: false, message: 'Error fetching growth history.' });
   }
 });
+
+
 
 
   
