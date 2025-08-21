@@ -383,64 +383,67 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
 
 router.delete('/students/:studentId', verifyToken, async (req, res) => {
   const { studentId } = req.params;
-  const { dojang_code } = req.user; // 토큰에서 추출한 도장 코드
+  const { dojang_code } = req.user;
 
+  const conn = await db.getConnection();
   try {
-    console.log(`Received delete request for student ID: ${studentId}, dojang_code: ${dojang_code}`);
+    await conn.beginTransaction();
 
-    // ✅ 학생 존재 여부 및 이미지 URL 조회
-    const [studentResult] = await db.query(
+    // ✅ 학생 확인
+    const [studentResult] = await conn.query(
       `SELECT id, profile_image FROM students WHERE id = ? AND dojang_code = ?`,
       [studentId, dojang_code]
     );
 
     if (studentResult.length === 0) {
-      console.warn(`⚠️ Student with ID ${studentId} not found in dojang ${dojang_code}`);
+      await conn.rollback();
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
 
     const imageUrl = studentResult[0].profile_image;
-    
-    // ✅ S3에서 이미지 삭제
+
+    // ✅ S3 이미지 삭제
     if (imageUrl) {
       const fileName = imageUrl.split('/').pop();
-      try {
-        await deleteFileFromS3(fileName, dojang_code);
-        console.log(`🧹 S3 file deleted: ${fileName}`);
-      } catch (s3Error) {
-        console.error('⚠️ Failed to delete student image from S3:', s3Error);
-        // 삭제 실패 시에도 학생 삭제는 계속 진행
+      if (fileName) {
+        try {
+          await deleteFileFromS3(fileName, dojang_code);
+        } catch (s3Error) {
+          console.error('⚠️ Failed to delete student image from S3:', s3Error);
+        }
       }
     }
 
-    // ✅ 학생 삭제 전에 연관된 데이터 삭제
-    console.log(`Deleting related data for student ID: ${studentId}`);
+    // ✅ 연관 데이터 삭제 (필요한 경우만 — FK CASCADE로 커버되는 건 생략 가능)
+    await conn.query(`DELETE FROM attendance WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
+    await conn.query(`DELETE FROM student_classes WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
+    await conn.query(`DELETE FROM monthly_payments WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
+    await conn.query(`DELETE FROM testlist WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
+    await conn.query(`DELETE FROM testresult WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
 
-    await db.query(`DELETE FROM attendance WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-    await db.query(`DELETE FROM student_classes WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-    await db.query(`DELETE FROM monthly_payments WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-    await db.query(`DELETE FROM testlist WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-    await db.query(`DELETE FROM testresult WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-
-    // ✅ 학생 자체 삭제
-    const [deleteResult] = await db.query(
+    // ✅ 학생 삭제 → 트리거가 student_growth에 canceled 기록 남김
+    const [deleteResult] = await conn.query(
       `DELETE FROM students WHERE id = ? AND dojang_code = ?`,
       [studentId, dojang_code]
     );
 
     if (deleteResult.affectedRows === 0) {
-      console.warn(`⚠️ No student deleted for ID: ${studentId} in dojang ${dojang_code}`);
+      await conn.rollback();
       return res.status(404).json({ success: false, message: 'Failed to delete student' });
     }
 
-    console.log(`✅ Student ID: ${studentId} successfully deleted.`);
+    await conn.commit();
     res.status(200).json({ success: true, message: 'Student deleted successfully' });
 
   } catch (error) {
+    await conn.rollback();
     console.error('❌ Error deleting student:', error);
     res.status(500).json({ success: false, message: 'An error occurred while deleting the student' });
+  } finally {
+    conn.release();
   }
 });
+
 
 router.get('/students/:parentId', verifyToken, async (req, res) => {
   const { parentId } = req.params;
