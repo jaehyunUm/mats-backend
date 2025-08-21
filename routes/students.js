@@ -405,12 +405,6 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
     const student = studentResult[0];
     const imageUrl = student.profile_image;
 
-    // ✅ 삭제 로그를 student_growth에 먼저 기록 (cancel)
-    await conn.query(
-      `INSERT INTO student_growth (student_id, parent_id, program_id, dojang_code, status, created_at)
-       VALUES (?, ?, ?, ?, 'canceled', NOW())`,
-      [student.id, student.parent_id, student.program_id, student.dojang_code]
-    );
 
     // ✅ S3 이미지 삭제
     if (imageUrl) {

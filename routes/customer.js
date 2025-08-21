@@ -23,62 +23,45 @@ const normalizeBrandName = (brand) => {
 };
   
 
-router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
+// ✅ Connected Account에서 SetupIntent 생성
+router.post('/setup-intent', verifyToken, async (req, res) => {
   const { customerId } = req.body;
   const { dojang_code } = req.user;
 
   try {
-    console.log("🔍 [SetupIntent] Received customerId:", customerId);
-    console.log("🔍 [SetupIntent] Received dojang_code:", dojang_code);
-
-    // 1. 도장 오너의 Stripe Account ID 조회
+    // 1. 도장 오너 Stripe Account ID 조회
     const [ownerRow] = await db.query(
       "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
       [dojang_code]
     );
-    console.log("🔍 [Debug] ownerRow:", ownerRow);
     if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
       return res.status(400).json({ success: false, message: "Stripe not connected" });
     }
     const stripeAccountId = ownerRow[0].stripe_account_id;
-    console.log("🔍 [Debug] Retrieved stripeAccountId:", stripeAccountId);
 
-    // 2. Stripe의 eventual consistency 문제 방지: 1초 대기
-    await new Promise(r => setTimeout(r, 1000));
+    // 2. SetupIntent 생성 (Connected Account에 귀속)
+    const setupIntent = await stripe.setupIntents.create(
+      {
+        customer: customerId,
+        payment_method_types: ['card'],
+      },
+      {
+        stripeAccount: stripeAccountId,   // ✅ 핵심
+      }
+    );
 
-    // 3. SetupIntent 생성
-    console.log("🔍 [SetupIntent] Creating SetupIntent with:", {
-      customerId,
-      stripeAccountId
-    });
-    const setupIntent = await createSetupIntentForConnectedAccount(customerId, stripeAccountId);
-    console.log("✅ SetupIntent created:", setupIntent.id);
-    console.log("✅ Client Secret:", setupIntent.client_secret);
-    
-    // 응답 형식 수정
-    res.json({ 
+    res.json({
       success: true,
       clientSecret: setupIntent.client_secret,
       setupIntentId: setupIntent.id,
-      status: setupIntent.status
+      status: setupIntent.status,
     });
   } catch (err) {
-    console.error('❌ [SetupIntent] Failed to create SetupIntent:', err);
-    console.error('❌ [SetupIntent] Error details:', {
-      type: err.type,
-      code: err.code,
-      message: err.message,
-      raw: err.raw
-    });
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to create SetupIntent', 
+    console.error('❌ [SetupIntent] Failed:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create SetupIntent',
       error: err.message,
-      stripeError: {
-        type: err.type,
-        code: err.code,
-        message: err.message
-      }
     });
   }
 });
