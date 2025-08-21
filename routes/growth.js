@@ -10,23 +10,23 @@ router.get('/growth/history', verifyToken, async (req, res) => {
   }
 
   try {
-    // 1. 프로그램별 등록 집계 (student_growth + programs 조인)
-    const [programStats] = await db.query(
-      `
-      SELECT 
-        p.id AS program_id,
-        p.name AS program_name,
-        DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key,
-        COUNT(DISTINCT g.student_id) AS student_count
-      FROM student_growth g
-      JOIN programs p ON g.program_id = p.id
-      WHERE g.dojang_code = ?
-        AND g.status = 'registered'
-      GROUP BY p.id, p.name, month_key
-      ORDER BY p.id, month_key ASC
-      `,
-      [dojang_code]
-    );
+   // 1. 프로그램별 등록/변경 집계 (student_growth + programs 조인)
+   const [programStats] = await db.query(
+    `
+    SELECT 
+      p.id AS program_id,
+      p.name AS program_name,
+      DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key,
+      COUNT(DISTINCT g.student_id) AS student_count
+    FROM student_growth g
+    JOIN programs p ON g.program_id = p.id
+    WHERE g.dojang_code = ?
+      AND g.status IN ('registered', 'updated')   -- ✅ 변경된 부분
+    GROUP BY p.id, p.name, month_key
+    ORDER BY p.id, month_key ASC
+    `,
+    [dojang_code]
+  );
 
     // 2. 취소 집계 (student_growth 에서 status=canceled)
     const [cancellationData] = await db.query(
