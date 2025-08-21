@@ -61,15 +61,15 @@ router.get('/owner/payment-history/test', verifyToken, async (req, res) => {
                 tp.amount, 
                 tp.payment_date, 
                 tp.status, 
-                s.first_name AS student_first_name, 
-                s.last_name AS student_last_name 
+                COALESCE(s.first_name, 'N/A') AS student_first_name, 
+                COALESCE(s.last_name, 'N/A') AS student_last_name
             FROM test_payments tp
-            JOIN students s ON tp.student_id = s.id
+            LEFT JOIN students s ON tp.student_id = s.id AND s.dojang_code = tp.dojang_code
             WHERE tp.dojang_code = ? 
-              AND s.dojang_code = ?
-              AND tp.status = 'completed'`;
+              AND tp.status = 'completed'
+            ORDER BY tp.payment_date DESC`;
 
-        const [rows] = await db.query(query, [dojang_code, dojang_code]);
+        const [rows] = await db.query(query, [dojang_code]);
 
         console.log("✅ [TEST] Query Result:", rows);
         res.json(rows);
@@ -93,16 +93,16 @@ router.get('/owner/payment-history/order', verifyToken, async (req, res) => {
                 ip.amount, 
                 ip.payment_date, 
                 ip.status, 
-                s.first_name, 
-                s.last_name
+                COALESCE(s.first_name, 'N/A') AS first_name, 
+                COALESCE(s.last_name, 'N/A') AS last_name
             FROM item_payments ip
-            JOIN items i ON ip.item_id = i.id
-            JOIN students s ON ip.student_id = s.id
+            LEFT JOIN items i ON ip.item_id = i.id AND i.dojang_code = ip.dojang_code
+            LEFT JOIN students s ON ip.student_id = s.id AND s.dojang_code = ip.dojang_code
             WHERE ip.dojang_code = ? 
-              AND s.dojang_code = ?
-              AND ip.status = 'completed'`;
+              AND ip.status = 'completed'
+            ORDER BY ip.payment_date DESC`;
 
-        const [rows] = await db.query(query, [dojang_code, dojang_code]);
+        const [rows] = await db.query(query, [dojang_code]);
 
         console.log("✅ [ORDER] Query Result:", rows);
         res.json(rows);
@@ -111,5 +111,6 @@ router.get('/owner/payment-history/order', verifyToken, async (req, res) => {
         res.status(500).json({ success: false, message: 'Error fetching order payment history' });
     }
 });
+
 
 module.exports = router;
