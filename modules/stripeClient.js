@@ -85,7 +85,8 @@ const createSetupIntentForConnectedAccount = async (customerId, stripeAccountId)
         stripeAccount: stripeAccountId,
       }
     );
-    console.log("✅ SetupIntent created:", setupIntent.id);
+    console.log("✅ SetupIntent created:", setupIntent.id, " (stripeAccount =", stripeAccountId, ")");
+   
     return setupIntent;
   } catch (error) {
     console.error("❌ Failed to create SetupIntent:", error);
