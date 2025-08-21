@@ -294,25 +294,22 @@ router.put('/students/parents/:id', verifyToken, async (req, res) => {
 
   try {
     const updateQuery = `
-      UPDATE parents 
-      SET 
-        first_name = ?, 
-        last_name = ?, 
-        birth_date = ?, 
-        gender = ?, 
-        phone = ?
-      WHERE id = ? AND dojang_code = ?
-    `;
+    UPDATE parents 
+    SET 
+      first_name = ?, 
+      last_name = ?, 
+      phone = ?
+    WHERE id = ? AND dojang_code = ?
+  `;
+  
+  await db.execute(updateQuery, [
+    parent.firstName || null,
+    parent.lastName || null,
+    parent.phone || null,
+    parentId,
+    dojang_code,
+  ]);
 
-    await db.execute(updateQuery, [
-      parent.firstName || null,
-      parent.lastName || null,
-      parent.birthDate || null,
-      parent.gender || null,
-      parent.phone || null,
-      parentId,
-      dojang_code,
-    ]);
 
     res.status(200).json({ success: true, message: 'Parent information updated successfully' }); // ✅ 수정됨
   } catch (error) {
