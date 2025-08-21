@@ -391,7 +391,9 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
 
     // ✅ 학생 확인
     const [studentResult] = await conn.query(
-      `SELECT id, profile_image FROM students WHERE id = ? AND dojang_code = ?`,
+      `SELECT id, parent_id, program_id, dojang_code, profile_image 
+       FROM students 
+       WHERE id = ? AND dojang_code = ?`,
       [studentId, dojang_code]
     );
 
@@ -400,7 +402,15 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
 
-    const imageUrl = studentResult[0].profile_image;
+    const student = studentResult[0];
+    const imageUrl = student.profile_image;
+
+    // ✅ 삭제 로그를 student_growth에 먼저 기록 (cancel)
+    await conn.query(
+      `INSERT INTO student_growth (student_id, parent_id, program_id, dojang_code, status, created_at)
+       VALUES (?, ?, ?, ?, 'canceled', NOW())`,
+      [student.id, student.parent_id, student.program_id, student.dojang_code]
+    );
 
     // ✅ S3 이미지 삭제
     if (imageUrl) {
@@ -410,18 +420,19 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
           await deleteFileFromS3(fileName, dojang_code);
         } catch (s3Error) {
           console.error('⚠️ Failed to delete student image from S3:', s3Error);
+          // 이미지 삭제 실패해도 계속 진행
         }
       }
     }
 
-    // ✅ 연관 데이터 삭제 (필요한 경우만 — FK CASCADE로 커버되는 건 생략 가능)
+    // ✅ 연관 데이터 삭제
     await conn.query(`DELETE FROM attendance WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM student_classes WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM monthly_payments WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM testlist WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM testresult WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
 
-    // ✅ 학생 삭제 → 트리거가 student_growth에 canceled 기록 남김
+    // ✅ 학생 자체 삭제
     const [deleteResult] = await conn.query(
       `DELETE FROM students WHERE id = ? AND dojang_code = ?`,
       [studentId, dojang_code]
@@ -443,6 +454,7 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
     conn.release();
   }
 });
+
 
 
 router.get('/students/:parentId', verifyToken, async (req, res) => {
