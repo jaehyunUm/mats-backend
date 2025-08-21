@@ -31,14 +31,13 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     // 2. 취소 집계 (student_growth 에서 status=canceled)
     const [cancellationData] = await db.query(
       `
-      SELECT 
-        DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key, 
-        COUNT(DISTINCT student_id) AS canceled_students
-      FROM student_growth
-      WHERE dojang_code = ?
-        AND status = 'canceled'
-      GROUP BY month_key
-      ORDER BY month_key ASC
+     SELECT 
+  DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key, 
+  COUNT(*) AS canceled_students
+FROM student_growth
+WHERE dojang_code = ?
+  AND status = 'canceled'
+GROUP BY month_key
       `,
       [dojang_code]
     );
