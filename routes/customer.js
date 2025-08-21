@@ -23,32 +23,22 @@ const normalizeBrandName = (brand) => {
 };
   
 
-// ✅ Connected Account에서 SetupIntent 생성
-router.post('/setup-intent', verifyToken, async (req, res) => {
+router.post('/stripe/setup-intent', verifyToken, async (req, res) => {
   const { customerId } = req.body;
   const { dojang_code } = req.user;
 
   try {
-    // 1. 도장 오너 Stripe Account ID 조회
     const [ownerRow] = await db.query(
       "SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?",
       [dojang_code]
     );
+
     if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
       return res.status(400).json({ success: false, message: "Stripe not connected" });
     }
-    const stripeAccountId = ownerRow[0].stripe_account_id;
 
-    // 2. SetupIntent 생성 (Connected Account에 귀속)
-    const setupIntent = await stripe.setupIntents.create(
-      {
-        customer: customerId,
-        payment_method_types: ['card'],
-      },
-      {
-        stripeAccount: stripeAccountId,   // ✅ 핵심
-      }
-    );
+    const stripeAccountId = ownerRow[0].stripe_account_id;
+    const setupIntent = await createSetupIntentForConnectedAccount(customerId, stripeAccountId);
 
     res.json({
       success: true,
@@ -57,12 +47,8 @@ router.post('/setup-intent', verifyToken, async (req, res) => {
       status: setupIntent.status,
     });
   } catch (err) {
-    console.error('❌ [SetupIntent] Failed:', err);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create SetupIntent',
-      error: err.message,
-    });
+    console.error("❌ [SetupIntent] Error:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
