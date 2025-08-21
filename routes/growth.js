@@ -11,32 +11,24 @@ router.get('/growth/history', verifyToken, async (req, res) => {
   }
 
   try {
+    // 1. 프로그램별 등록 집계 (students + programs 조인)
+    const [programStats] = await db.query(
+      `
+      SELECT 
+        p.id AS program_id,
+        p.name AS program_name,
+        DATE_FORMAT(s.created_at, '%Y-%m-01') AS month_key,
+        COUNT(s.id) AS student_count
+      FROM students s
+      JOIN programs p ON s.program_id = p.id
+      WHERE s.dojang_code = ?
+      GROUP BY p.id, p.name, DATE_FORMAT(s.created_at, '%Y-%m-01')
+      ORDER BY p.id, month_key ASC
+      `,
+      [dojang_code]
+    );
 
-   // 1. Monthly 등록 집계
-const [monthlyData] = await db.query(
-  `
-  SELECT DATE_FORMAT(payment_date, '%Y-%m-01') AS month_key, COUNT(*) AS monthly_students
-  FROM monthly_payments
-  WHERE dojang_code = ?
-  GROUP BY DATE_FORMAT(payment_date, '%Y-%m-01')
-  ORDER BY DATE_FORMAT(payment_date, '%Y-%m-01') ASC
-  `,
-  [dojang_code]
-);
-
-// 2. Pay-in-full 등록 집계
-const [payinfullData] = await db.query(
-  `
-  SELECT DATE_FORMAT(start_date, '%Y-%m-01') AS month_key, COUNT(*) AS payinfull_students
-  FROM payinfull_payment
-  WHERE dojang_code = ?
-  GROUP BY DATE_FORMAT(start_date, '%Y-%m-01')
-  ORDER BY DATE_FORMAT(start_date, '%Y-%m-01') ASC
-  `,
-  [dojang_code]
-);
-
-    // 3. 취소 집계
+    // 2. 취소 집계
     const [cancellationData] = await db.query(
       `
       SELECT DATE_FORMAT(canceled_at, '%Y-%m-01') AS month_key, COUNT(*) AS canceled_students
@@ -48,40 +40,43 @@ const [payinfullData] = await db.query(
       [dojang_code]
     );
 
-    // 4. 모든 month_key 모으기
+    // 3. 모든 month_key 모으기
     const months = [
       ...new Set([
-        ...monthlyData.map(r => r.month_key),
-        ...payinfullData.map(r => r.month_key),
+        ...programStats.map(r => r.month_key),
         ...cancellationData.map(r => r.month_key),
       ])
     ].sort();
 
-    // 5. 누적 학생 수 계산
-    let cumulativeTotal = 0;
+    // 4. 총 집계 (Free 제외)
     const history = months.map(month => {
-      const monthly = monthlyData.find(r => r.month_key === month)?.monthly_students || 0;
-      const payinfull = payinfullData.find(r => r.month_key === month)?.payinfull_students || 0;
       const canceled = cancellationData.find(r => r.month_key === month)?.canceled_students || 0;
 
-      const newRegistrations = monthly + payinfull;
-      cumulativeTotal += newRegistrations;
+      const totalWithoutFree = programStats
+        .filter(r => r.month_key === month && !r.program_name.toLowerCase().includes('free'))
+        .reduce((sum, r) => sum + r.student_count, 0);
 
       return {
-        month,                    // "YYYY-MM-01"
-        monthly_students: monthly,
-        payinfull_students: payinfull,
-        canceled_students: canceled,
-        cumulative_students: cumulativeTotal, // ✅ 누적 학생 수
+        month,                                // "YYYY-MM-01"
+        canceled_students: canceled,          // 취소 수
+        total_students: totalWithoutFree      // Free 제외한 전체 합산
       };
     });
 
-    res.status(200).json({ success: true, history });
+    // 5. 응답 (요청하신 순서대로)
+    res.status(200).json({ 
+      success: true, 
+      programStats,     // 1. 프로그램별 집계
+      cancellationData, // 2. 취소 집계
+      history           // 3. Free 제외한 총 집계
+    });
+
   } catch (error) {
     console.error('❌ Error fetching growth history:', error);
     res.status(500).json({ success: false, message: 'Error fetching growth history.' });
   }
 });
+
 
 
 
