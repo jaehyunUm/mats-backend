@@ -11,29 +11,30 @@ router.get('/growth/history', verifyToken, async (req, res) => {
   }
 
   try {
-    // 1. Monthly 등록 집계
-    const [monthlyData] = await db.query(
-      `
-      SELECT DATE_FORMAT(reg_date, '%Y-%m-01') AS month_key, COUNT(*) AS monthly_students
-      FROM monthly_payments
-      WHERE dojang_code = ?
-      GROUP BY DATE_FORMAT(reg_date, '%Y-%m-01')
-      ORDER BY DATE_FORMAT(reg_date, '%Y-%m-01') ASC
-      `,
-      [dojang_code]
-    );
 
-    // 2. Pay-in-full 등록 집계
-    const [payinfullData] = await db.query(
-      `
-      SELECT DATE_FORMAT(reg_date, '%Y-%m-01') AS month_key, COUNT(*) AS payinfull_students
-      FROM payinfull_payments
-      WHERE dojang_code = ?
-      GROUP BY DATE_FORMAT(reg_date, '%Y-%m-01')
-      ORDER BY DATE_FORMAT(reg_date, '%Y-%m-01') ASC
-      `,
-      [dojang_code]
-    );
+   // 1. Monthly 등록 집계
+const [monthlyData] = await db.query(
+  `
+  SELECT DATE_FORMAT(payment_date, '%Y-%m-01') AS month_key, COUNT(*) AS monthly_students
+  FROM monthly_payments
+  WHERE dojang_code = ?
+  GROUP BY DATE_FORMAT(payment_date, '%Y-%m-01')
+  ORDER BY DATE_FORMAT(payment_date, '%Y-%m-01') ASC
+  `,
+  [dojang_code]
+);
+
+// 2. Pay-in-full 등록 집계
+const [payinfullData] = await db.query(
+  `
+  SELECT DATE_FORMAT(start_date, '%Y-%m-01') AS month_key, COUNT(*) AS payinfull_students
+  FROM payinfull_payment
+  WHERE dojang_code = ?
+  GROUP BY DATE_FORMAT(start_date, '%Y-%m-01')
+  ORDER BY DATE_FORMAT(start_date, '%Y-%m-01') ASC
+  `,
+  [dojang_code]
+);
 
     // 3. 취소 집계
     const [cancellationData] = await db.query(
