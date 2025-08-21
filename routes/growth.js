@@ -10,31 +10,33 @@ router.get('/growth/history', verifyToken, async (req, res) => {
   }
 
   try {
-    // 1. 프로그램별 등록 집계 (students + programs 조인, UTC → America/New_York 변환)
+    // 1. 프로그램별 등록 집계 (student_growth + programs 조인)
     const [programStats] = await db.query(
       `
       SELECT 
         p.id AS program_id,
         p.name AS program_name,
-        DATE_FORMAT(CONVERT_TZ(s.created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key,
-        COUNT(s.id) AS student_count
-      FROM students s
-      JOIN programs p ON s.program_id = p.id
-      WHERE s.dojang_code = ?
+        DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key,
+        COUNT(DISTINCT g.student_id) AS student_count
+      FROM student_growth g
+      JOIN programs p ON g.program_id = p.id
+      WHERE g.dojang_code = ?
+        AND g.status = 'registered'
       GROUP BY p.id, p.name, month_key
       ORDER BY p.id, month_key ASC
       `,
       [dojang_code]
     );
 
-    // 2. 취소 집계 (UTC → America/New_York 변환)
+    // 2. 취소 집계 (student_growth 에서 status=canceled)
     const [cancellationData] = await db.query(
       `
       SELECT 
-        DATE_FORMAT(CONVERT_TZ(canceled_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key, 
-        COUNT(*) AS canceled_students
-      FROM subscription_cancellations
+        DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key, 
+        COUNT(DISTINCT student_id) AS canceled_students
+      FROM student_growth
       WHERE dojang_code = ?
+        AND status = 'canceled'
       GROUP BY month_key
       ORDER BY month_key ASC
       `,
@@ -49,7 +51,7 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       ])
     ].sort();
 
-    // 4. 총 집계 (Free 제외 + 취소 반영 → 누적 인원수)
+    // 4. 총 집계 (Free Trial 제외 + 취소 반영 → 누적 인원수)
     let cumulativeTotal = 0;
 
     const history = months.map(month => {
@@ -60,21 +62,22 @@ router.get('/growth/history', verifyToken, async (req, res) => {
         .reduce((sum, r) => sum + r.student_count, 0);
 
       const netThisMonth = newRegistrations - canceled;
-
       cumulativeTotal += netThisMonth;
 
       return {
-        month,                                
+        month,
+        registered: newRegistrations,
+        canceled,
         total_students: cumulativeTotal < 0 ? 0 : cumulativeTotal
       };
     });
 
-    // 5. 응답 (순서: 프로그램별 → 취소 → 총 집계)
+    // 5. 응답
     res.status(200).json({ 
       success: true, 
       programStats,     // 프로그램별 월별 등록
       cancellationData, // 월별 취소
-      history           // Free 제외 + 취소 반영된 누적 학생 수
+      history           // Free Trial 제외 + 취소 반영된 누적 학생 수
     });
 
   } catch (error) {
