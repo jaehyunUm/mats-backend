@@ -591,79 +591,62 @@ router.put('/update-belt-rank', verifyToken, async (req, res) => {
 });
 
 router.put('/update-belt-quantity', verifyToken, async (req, res) => {
-  const { student_id } = req.body;  // 프론트엔드에서 student_id로 보내고 있음
+  const { student_id } = req.body;
   const { dojang_code } = req.user;
   
   try {
     console.log(`🔎 Received belt update request for student ${student_id} in dojang ${dojang_code}`);
     
-    // ✅ 1️⃣ 학생의 현재 belt_rank 및 belt_size 가져오기 - id 필드 사용
+    // 1️⃣ 학생 벨트 정보 가져오기
     const [student] = await db.query(
       `SELECT belt_rank, belt_size FROM students WHERE id = ? AND dojang_code = ?`,
       [student_id, dojang_code]
     );
     
     if (student.length === 0) {
-      console.log(`⚠️ No student found with ID ${student_id}`);
       return res.status(404).json({ message: 'Student not found' });
     }
     
     let { belt_rank, belt_size } = student[0];
-    console.log(`✅ Student ${student_id} has new belt_rank ${belt_rank} and belt_size ${belt_size}`);
     
-    // ✅ 2️⃣ 승급한 벨트의 `belt_id` 가져오기
+    // 2️⃣ 해당 벨트 ID 찾기
     const [promotedBelt] = await db.query(
       `SELECT id FROM beltsystem WHERE belt_rank = ? AND dojang_code = ? LIMIT 1`,
       [belt_rank, dojang_code]
     );
     
-    if (promotedBelt.length === 0 || !promotedBelt[0]?.id) {
-      console.log(`⚠️ Promoted belt rank ${belt_rank} not found in beltsystem`);
+    if (promotedBelt.length === 0) {
       return res.status(404).json({ message: `Promoted belt rank ${belt_rank} not found in beltsystem` });
     }
     
     const promotedBeltId = promotedBelt[0].id;
-    console.log(`✅ Promoted belt ID: ${promotedBeltId}`);
-    
-    // ✅ 3️⃣ belt_sizes 테이블에서 해당 벨트 사이즈 존재 여부 확인
+
+    // 3️⃣ belt_sizes 테이블 확인 (없으면 그냥 통과)
     const [beltSizeData] = await db.query(
       `SELECT id, quantity FROM belt_sizes WHERE belt_id = ? AND size = ? AND dojang_code = ? LIMIT 1`,
       [promotedBeltId, belt_size, dojang_code]
     );
-    
+
     if (beltSizeData.length === 0) {
-      console.log(`⚠️ No matching belt size found for belt ID ${promotedBeltId} with size ${belt_size} in dojang ${dojang_code}`);
-      return res.status(404).json({ message: 'No matching belt size found in belt_sizes' });
+      console.log(`ℹ️ No matching belt size found for belt ID ${promotedBeltId}, skipping stock update.`);
+      return res.status(200).json({ success: true, message: 'Belt promoted but no size tracking required' });
     }
-    
+
     const currentQuantity = beltSizeData[0].quantity;
-    console.log(`✅ Current belt quantity: ${currentQuantity}`);
-    
-    // ✅ 4️⃣ 벨트, 사이즈, 수량 정보 자세히 로그 기록
-    console.log(`✅ Belt details - ID: ${promotedBeltId}, Size: ${belt_size}, Current Quantity: ${currentQuantity}`);
-    
-    // ✅ 5️⃣ 벨트 수량이 0이면 업데이트 방지
+
+    // 4️⃣ 수량 확인 후 감소
     if (currentQuantity <= 0) {
-      console.log(`⚠️ Belt size ${belt_size} for belt ID ${promotedBeltId} has no available stock.`);
       return res.status(400).json({ message: 'Insufficient belt stock' });
     }
-    
-    // ✅ 6️⃣ belt_sizes 테이블에서 해당 벨트 사이즈의 quantity 감소
+
     const updateQuery = `
       UPDATE belt_sizes
       SET quantity = quantity - 1
       WHERE belt_id = ? AND size = ? AND dojang_code = ? AND quantity > 0
     `;
     
-    const [updateResult] = await db.query(updateQuery, [promotedBeltId, belt_size, dojang_code]);
-    console.log(`✅ Update result:`, updateResult);
-    
-    if (updateResult.affectedRows === 0) {
-      console.log(`⚠️ Failed to update belt quantity for belt ID ${promotedBeltId} and size ${belt_size} in dojang ${dojang_code}`);
-      return res.status(400).json({ message: 'Failed to update belt quantity' });
-    }
-    
-    console.log(`✅ Belt quantity updated successfully for belt ID ${promotedBeltId} and size ${belt_size} in dojang ${dojang_code}`);
+    await db.query(updateQuery, [promotedBeltId, belt_size, dojang_code]);
+
     res.status(200).json({ success: true, message: 'Belt quantity updated successfully' });
     
   } catch (error) {
@@ -671,6 +654,7 @@ router.put('/update-belt-quantity', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Error updating belt quantity', details: error.toString() });
   }
 });
+
 
 router.post('/test-template', verifyToken, async (req, res) => {
   const { test_name, evaluation_type, test_type, duration, target_count } = req.body;
