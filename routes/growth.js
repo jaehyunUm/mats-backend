@@ -17,7 +17,7 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       p.id AS program_id,
       p.name AS program_name,
       DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', '-04:00'), '%Y-%m-01') AS month_key,
-      COUNT(DISTINCT g.student_id) AS student_count
+      COUNT(*) AS student_count
     FROM student_growth g
     JOIN programs p ON g.program_id = p.id
     WHERE g.dojang_code = ?
