@@ -6,56 +6,57 @@ const verifyToken = require('../middleware/verifyToken');
 
 // 벨트 데이터 저장 API
 router.post('/beltsystem', verifyToken, async (req, res) => {
-    const { dojang_code } = req.user;;
-    const { belt_color, stripe_color, sizes } = req.body;
+  const { dojang_code } = req.user;
+  const { belt_color, stripe_color, sizes } = req.body;
 
-    console.log("Received Data - Belt Color:", belt_color, "Stripe Color:", stripe_color, "Dojang Code:", dojang_code, "Sizes:", sizes);
+  console.log("Received Data - Belt Color:", belt_color, "Stripe Color:", stripe_color, "Dojang Code:", dojang_code, "Sizes:", sizes);
 
-    try {
-        // 벨트 색상 및 스트라이프 중복 여부 확인
-        const duplicateCheckQuery = `
-            SELECT COUNT(*) as count FROM beltsystem 
-            WHERE belt_color = ? AND stripe_color = ? AND dojang_code = ?
-        `;
-        const [checkResult] = await db.query(duplicateCheckQuery, [belt_color, stripe_color, dojang_code]);
+  try {
+      // 벨트 색상 및 스트라이프 중복 여부 확인
+      const duplicateCheckQuery = `
+          SELECT COUNT(*) as count FROM beltsystem 
+          WHERE belt_color = ? AND stripe_color = ? AND dojang_code = ?
+      `;
+      const [checkResult] = await db.query(duplicateCheckQuery, [belt_color, stripe_color, dojang_code]);
 
-        if (checkResult[0].count > 0) {
-            return res.status(409).json({ message: 'Belt with the same color and stripe already exists' });
-        }
+      if (checkResult[0].count > 0) {
+          return res.status(409).json({ message: 'Belt with the same color and stripe already exists' });
+      }
 
-        // 현재 최대 랭크 가져오기
-        const getMaxRankQuery = 'SELECT MAX(belt_rank) as maxRank FROM beltsystem WHERE dojang_code = ?';
-        const [rankResult] = await db.query(getMaxRankQuery, [dojang_code]);
+      // 현재 최대 랭크 가져오기
+      const getMaxRankQuery = 'SELECT MAX(belt_rank) as maxRank FROM beltsystem WHERE dojang_code = ?';
+      const [rankResult] = await db.query(getMaxRankQuery, [dojang_code]);
 
-        const maxRank = rankResult[0].maxRank || 0;
-        const newRank = maxRank + 1;
+      const maxRank = rankResult[0].maxRank || 0;
+      const newRank = maxRank + 1;
 
-        // 벨트 추가
-        const insertBeltQuery = `
-            INSERT INTO beltsystem (belt_color, stripe_color, belt_rank, dojang_code)
-            VALUES (?, ?, ?, ?)
-        `;
-        const [beltResult] = await db.query(insertBeltQuery, [belt_color, stripe_color, newRank, dojang_code]);
+      // 벨트 추가
+      const insertBeltQuery = `
+          INSERT INTO beltsystem (belt_color, stripe_color, belt_rank, dojang_code)
+          VALUES (?, ?, ?, ?)
+      `;
+      const [beltResult] = await db.query(insertBeltQuery, [belt_color, stripe_color, newRank, dojang_code]);
 
-        const beltId = beltResult.insertId; // 새로 추가된 벨트 ID
+      const beltId = beltResult.insertId; // 새로 추가된 벨트 ID
 
-        // belt_sizes 테이블에 사이즈와 수량 추가 (도장 코드 포함)
-        if (sizes && Array.isArray(sizes)) {
-            const insertSizesQuery = `
-                INSERT INTO belt_sizes (belt_id, size, quantity, dojang_code)
-                VALUES ?
-            `;
-            const sizeValues = sizes.map((size) => [beltId, size.size, size.quantity, dojang_code]); // ✅ dojang_code 추가
-            await db.query(insertSizesQuery, [sizeValues]);
-        }
+      // ✅ belt_sizes 입력은 sizes가 있고 배열에 값이 있을 때만 실행
+      if (sizes && Array.isArray(sizes) && sizes.length > 0) {
+          const insertSizesQuery = `
+              INSERT INTO belt_sizes (belt_id, size, quantity, dojang_code)
+              VALUES ?
+          `;
+          const sizeValues = sizes.map((size) => [beltId, size.size, size.quantity, dojang_code]);
+          await db.query(insertSizesQuery, [sizeValues]);
+      }
 
-        res.status(201).json({ message: 'Belt and sizes added successfully' });
+      res.status(201).json({ message: 'Belt added successfully' });
 
-    } catch (error) {
-        console.error('Error adding belt and sizes:', error);
-        res.status(500).json({ message: 'Failed to add belt and sizes' });
-    }
+  } catch (error) {
+      console.error('Error adding belt and sizes:', error);
+      res.status(500).json({ message: 'Failed to add belt' });
+  }
 });
+
 
   
   
