@@ -6,7 +6,6 @@ const { cardsApi} = require('../modules/stripeClient'); //
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { verifyWithApple } = require('../modules/appleValidator');
 
-const MATS_PRODUCT_ID = process.env.STRIPE_MATS_PRODUCT_ID;
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
@@ -216,124 +215,42 @@ router.get("/stripe/status", verifyToken, async (req, res) => {
 
 router.get('/stripe/plans', async (req, res) => {
   try {
-    // 0) 캐시 방지(중요)
-    res.set('Cache-Control', 'no-store');
+    const products = await stripe.products.list({ active: true });
 
-    // 1) 우선순위 A: 특정 lookup_key로 정확히 집어오기 (있으면 가장 안전)
-    if (MATS_LOOKUP_KEY) {
-      const byLookup = await stripe.prices.list({
-        lookup_keys: [MATS_LOOKUP_KEY],
-        active: true,
-        limit: 1,
-        expand: ['data.product'],
-      });
-      if (byLookup.data.length > 0) {
-        const p = byLookup.data[0];
-        const item = {
-          id: p.product.id,                                // 프런트의 key로 사용
-          name: p.product.name,
-          description: p.product.description,
-          price: p.unit_amount,                            // cents
-          priceId: p.id,                                   // 실제 결제에 쓸 price
-          interval: p.recurring?.interval || 'month',
-        };
-        return res.json({ items: [item] });
+    // 모든 가격 가져오기
+    const prices = await stripe.prices.list({
+      active: true,
+      expand: ['data.product']
+    });
+
+    // 하나의 Product당 가장 최근 Price만 추출
+    const latestPricePerProduct = {};
+
+    for (const price of prices.data) {
+      const productId = price.product.id;
+      if (
+        !latestPricePerProduct[productId] ||
+        new Date(price.created * 1000) > new Date(latestPricePerProduct[productId].created * 1000)
+      ) {
+        latestPricePerProduct[productId] = price;
       }
     }
 
-    // 2) 우선순위 B: product.default_price 사용 (대시보드에서 Default 지정한 그 가격)
-    //    ※ default_price가 inactive면 fallback으로 넘어감
-    if (MATS_PRODUCT_ID) {
-      const product = await stripe.products.retrieve(MATS_PRODUCT_ID, {
-        expand: ['default_price'],
-      });
+    const items = Object.values(latestPricePerProduct).map((price) => ({
+      id: price.product.id,
+      name: price.product.name,
+      description: price.product.description,
+      price: price.unit_amount,
+      priceId: price.id,
+      interval: price.recurring?.interval,
+    }));
 
-      const dp = product.default_price;
-      if (dp && dp.active) {
-        const item = {
-          id: product.id,
-          name: product.name,
-          description: product.description,
-          price: dp.unit_amount,
-          priceId: dp.id,
-          interval: dp.recurring?.interval || 'month',
-        };
-        return res.json({ items: [item] });
-      }
-
-      // 3) Fallback: 해당 제품의 "활성 price들" 중에서 원하는 기준으로 선택
-      //    - 여기서는 "가장 저렴한 금액"을 선택 (원하면 created 최신으로 바꿔도 됨)
-      const prices = await stripe.prices.list({
-        product: MATS_PRODUCT_ID,
-        active: true,
-        limit: 100,
-      });
-
-      if (prices.data.length === 0) {
-        return res.json({ items: [] });
-      }
-
-      // 원하는 기준 선택: (a) 최저가
-      const cheapest = prices.data.reduce((min, cur) =>
-        (min.unit_amount || Infinity) <= (cur.unit_amount || Infinity) ? min : cur
-      );
-
-      // (b) 최신 생성일 우선으로 쓰고 싶다면 위 reduce 대신 아래 사용
-      // const latest = prices.data.sort((a,b) => b.created - a.created)[0];
-
-      const picked = cheapest; // 또는 latest
-      const item = {
-        id: picked.product,
-        name: product.name,
-        description: product.description,
-        price: picked.unit_amount,
-        priceId: picked.id,
-        interval: picked.recurring?.interval || 'month',
-      };
-      return res.json({ items: [item] });
-    }
-
-    // 4) 제품 ID가 없으면(멀티 제품 운영 시) 활성 제품들 중 Default 우선으로 하나 고르기
-    const products = await stripe.products.list({ active: true, limit: 100 });
-    for (const prod of products.data) {
-      // default_price가 expand 안 되어 있으므로 개별 조회
-      const p = await stripe.products.retrieve(prod.id, { expand: ['default_price'] });
-      if (p.default_price && p.default_price.active) {
-        const dp = p.default_price;
-        const item = {
-          id: p.id,
-          name: p.name,
-          description: p.description,
-          price: dp.unit_amount,
-          priceId: dp.id,
-          interval: dp.recurring?.interval || 'month',
-        };
-        return res.json({ items: [item] });
-      }
-    }
-
-    // 그래도 못 찾으면 전부 price에서 active들 중 최신 하나
-    const any = await stripe.prices.list({ active: true, limit: 100, expand: ['data.product'] });
-    if (any.data.length > 0) {
-      const latest = any.data.sort((a, b) => b.created - a.created)[0];
-      const item = {
-        id: latest.product.id,
-        name: latest.product.name,
-        description: latest.product.description,
-        price: latest.unit_amount,
-        priceId: latest.id,
-        interval: latest.recurring?.interval || 'month',
-      };
-      return res.json({ items: [item] });
-    }
-
-    return res.json({ items: [] });
+    res.json({ items });
   } catch (error) {
     console.error('❌ Stripe Plans Fetch Error:', error);
-    return res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
-
 
   
 
