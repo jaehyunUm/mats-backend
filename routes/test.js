@@ -36,23 +36,30 @@ router.get('/get-test-condition/:belt_rank', verifyToken, async (req, res) => {
 });
 
 
-// 자녀 목록 가져오기 API
-router.get('/child', verifyToken, async (req, res) => {
-    const { dojang_code } = req.user; // 토큰에서 도장 코드 추출
-  
-    try {
-      const query = `
-        SELECT id, parent_id, first_name, last_name, birth_date, gender, belt_rank
-        FROM students
-        WHERE dojang_code = ?
-      `;
-      const [rows] = await db.query(query, [dojang_code]);
-      res.status(200).json(rows);
-    } catch (error) {
-      console.error("Error fetching children data:", error);
-      res.status(500).json({ message: "Failed to fetch children data" });
+// 자녀 목록 가져오기 API (부모 전용)
+router.get('/child/:parentId', verifyToken, async (req, res) => {
+  const { parentId } = req.params;
+  const { dojang_code } = req.user;
+
+  try {
+    const query = `
+      SELECT id, parent_id, first_name, last_name, birth_date, gender, belt_rank
+      FROM students
+      WHERE dojang_code = ? AND parent_id = ?
+    `;
+    const [rows] = await db.query(query, [dojang_code, parentId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "No children found for this parent." });
     }
-  });
+
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error("Error fetching children data:", error);
+    res.status(500).json({ message: "Failed to fetch children data" });
+  }
+});
+
 
 // 특정 벨트에서 출석한 횟수 조회 API
 router.get('/get-attendance/:childId/:beltRank', verifyToken, async (req, res) => {
