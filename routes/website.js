@@ -42,7 +42,7 @@ router.get('/public-get-schedule', async (req, res) => {
   
       const mailOptions = {
         from: 'saehan.jh@gmail.com',
-        to: 'saehan.jh@gmail.com',
+        to: 'jcworldtkd.jh@gmail.com',
         subject: 'New Free Trial Class Request',
         text: `
 New Trial Request:
