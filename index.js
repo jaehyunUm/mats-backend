@@ -188,9 +188,8 @@ app.post('/webhook', (req, res) => {
 });
 
 
-
-// 비밀번호 재설정 링크 전송
-app.post('/api/send-reset-link', async (req, res) => {
+// 비밀번호 재설정 코드 전송
+app.post('/api/send-reset-code', async (req, res) => {
   const { email } = req.body;
 
   console.log("📢 DEBUG: Password reset requested for email:", email);
@@ -202,6 +201,7 @@ app.post('/api/send-reset-link', async (req, res) => {
 
   const normalizedEmail = email.trim().toLowerCase();
   let user = null;
+  let tableName = null;
 
   try {
     console.log("📢 DEBUG: Checking 'users' table for email:", normalizedEmail);
@@ -212,7 +212,7 @@ app.post('/api/send-reset-link', async (req, res) => {
 
     if (userResults.length > 0) {
       user = userResults[0];
-      user.role = 'owner';
+      tableName = 'users';
     } else {
       console.log("📢 DEBUG: Checking 'parents' table for email:", normalizedEmail);
       const [parentResults] = await db.query(
@@ -222,7 +222,7 @@ app.post('/api/send-reset-link', async (req, res) => {
 
       if (parentResults.length > 0) {
         user = parentResults[0];
-        user.role = 'parent';
+        tableName = 'parents';
       }
     }
 
@@ -233,22 +233,26 @@ app.post('/api/send-reset-link', async (req, res) => {
 
     console.log("✅ User found:", user);
 
-    // JWT 토큰 생성 (1시간 유효)
-    const secretKey = process.env.JWT_SECRET || 'defaultSecretKey';
-    const token = jwt.sign({ email: user.email, role: user.role }, secretKey, { expiresIn: '1h' });
+    // 1. 6자리 무작위 인증 코드 생성
+    const resetCode = Math.floor(100000 + Math.random() * 900000); 
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10분 후 만료
 
-    const resetLink = `https://mats-backend.onrender.com/api/reset-password?token=${token}`;
-    console.log("📢 DEBUG: Generated Reset Link:", resetLink);
+    // 2. 데이터베이스에 코드와 만료 시간 저장
+    console.log("📢 DEBUG: Saving reset code to DB for table:", tableName);
+    await db.query(
+      `UPDATE ${tableName} SET reset_code = ?, reset_code_expires = ? WHERE email = ?`,
+      [resetCode.toString(), expiresAt, normalizedEmail]
+    );
 
+    // 3. 사용자에게 인증 코드를 포함한 이메일 전송
     const mailOptions = {
       from: process.env.EMAIL_USER || 'noreply@example.com',
       to: user.email,
-      subject: 'Password Reset',
-      text: `Click the link below to reset your password:\n\n${resetLink}`,
+      subject: 'Password Reset Code',
+      text: `Your password reset code is: ${resetCode}\n\nThis code is valid for 10 minutes.`,
       html: `
-        <p>Click the link below to reset your password:</p>
-        <p><a href="${resetLink}">${resetLink}</a></p>
-        <p>If the link doesn't work, copy and paste it into your app manually.</p>
+        <p>Your password reset code is: <strong>${resetCode}</strong></p>
+        <p>This code is valid for 10 minutes. If you did not request a password reset, please ignore this email.</p>
       `,
     };
 
@@ -261,7 +265,7 @@ app.post('/api/send-reset-link', async (req, res) => {
       }
 
       console.log("✅ Email sent:", info.response);
-      return res.status(200).json({ message: "Password reset link sent successfully" });
+      return res.status(200).json({ message: "Password reset code sent successfully" });
     });
 
   } catch (err) {
@@ -270,52 +274,62 @@ app.post('/api/send-reset-link', async (req, res) => {
   }
 });
 
+// 비밀번호 재설정
+app.post('/api/reset-password', async (req, res) => {
+  const { email, resetCode, newPassword } = req.body;
 
-app.get('/api/reset-password', (req, res) => {
-  const { token } = req.query;
-  if (!token) return res.send('Invalid or missing token');
-
-  // ✅ 앱으로 리디렉트
-  res.redirect(`matsapp://reset-password?token=${token}`);
-});
-
-// 패스워드 재설정
-app.post("/api/reset-password", async (req, res) => {
-  console.log("📢 DEBUG: Received request at /api/reset-password");
-  console.log("📢 DEBUG: Request Headers:", req.headers);
-  console.log("📢 DEBUG: Request Body:", req.body);
-
-  if (!req.body || !req.body.token || !req.body.newPassword) {
-      console.error("❌ ERROR: Invalid request body (req.body is undefined or missing values)");
-      return res.status(400).json({ message: "Invalid request. Token and new password are required." });
+  if (!email || !resetCode || !newPassword) {
+    return res.status(400).json({ message: 'Missing required fields' });
   }
 
-  const { token, newPassword } = req.body;
+  const normalizedEmail = email.trim().toLowerCase();
+  let user = null;
+  let tableName = null;
 
   try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const [results] = await db.query("SELECT * FROM users WHERE email = ?", [decoded.email]);
+    // 1. DB에서 이메일, 코드, 만료 시간 확인
+    const [userResults] = await db.query(
+      `SELECT * FROM users WHERE LOWER(email) = ? AND reset_code = ? AND reset_code_expires > NOW()`,
+      [normalizedEmail, resetCode]
+    );
 
-      if (results.length === 0) {
-          return res.status(404).json({ message: "User not found" });
+    if (userResults.length > 0) {
+      user = userResults[0];
+      tableName = 'users';
+    } else {
+      const [parentResults] = await db.query(
+        `SELECT * FROM parents WHERE LOWER(email) = ? AND reset_code = ? AND reset_code_expires > NOW()`,
+        [normalizedEmail, resetCode]
+      );
+      if (parentResults.length > 0) {
+        user = parentResults[0];
+        tableName = 'parents';
       }
+    }
 
-      // ✅ bcrypt를 사용하여 비밀번호 해싱
-      const hashedPassword = await bcrypt.hash(newPassword, 10); // ✅ 비밀번호 해싱
+    if (!user) {
+      console.error("❌ ERROR: Invalid or expired reset code for email:", normalizedEmail);
+      return res.status(400).json({ message: 'Invalid or expired code.' });
+    }
 
-      await db.query("UPDATE users SET password = ? WHERE email = ?", [hashedPassword, decoded.email]);
+    console.log("✅ User found with valid code:", user);
 
-       // ✅ 응답이 정상적으로 반환되는지 확인
-       const successResponse = { message: "Password has been reset successfully" };
-       console.log("📢 DEBUG: Sending Response:", successResponse);
-       return res.json(successResponse);
-   } catch (error) {
-       console.error("❌ ERROR resetting password:", error);
-       if (error.name === "TokenExpiredError") {
-           return res.status(400).json({ message: "Token has expired" });
-       }
-       return res.status(500).json({ message: "Internal server error" });
-   }
+    // 2. 새 비밀번호를 해시하여 업데이트
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    console.log("📢 DEBUG: Updating password for table:", tableName);
+    await db.query(
+      `UPDATE ${tableName} SET password = ?, reset_code = NULL, reset_code_expires = NULL WHERE email = ?`,
+      [hashedPassword, normalizedEmail]
+    );
+
+    console.log("✅ Password reset successfully for:", normalizedEmail);
+    return res.status(200).json({ message: 'Password reset successfully!' });
+
+  } catch (err) {
+    console.error("❌ ERROR: Database or bcrypt error:", err);
+    return res.status(500).json({ message: "Error resetting password", error: err.message });
+  }
 });
 
 
