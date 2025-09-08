@@ -5,7 +5,6 @@ const verifyToken = require('../middleware/verifyToken');
 const bcrypt = require('bcryptjs');
 
 
-// POST /api/change-password
 router.post('/change-password', verifyToken, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const { id, role } = req.user;

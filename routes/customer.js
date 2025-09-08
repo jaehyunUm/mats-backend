@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { client, createSetupIntentForConnectedAccount} = require('../modules/stripeClient');
-const { v4: uuidv4 } = require('uuid');
+const { createSetupIntentForConnectedAccount} = require('../modules/stripeClient');
+const stripe = require('../services/stripe'); // ✅ 중앙에서 관리되는 stripe 객체 가져오기
+
 const db = require('../db'); // DB 모듈 확인
 const verifyToken = require('../middleware/verifyToken');
 const normalizeBrandName = (brand) => {
@@ -85,8 +86,7 @@ router.post('/customer/create', verifyToken, async (req, res) => {
     }
 
     // ✅ 연결된 계정에서 customer 생성
-    const Stripe = require('stripe');
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); // 여기서 Secret Key 필요!
+ 
     const customer = await stripe.customers.create({
       name: cardholderName,
       email,
@@ -154,9 +154,7 @@ router.get('/stripe/account-id', verifyToken, async (req, res) => {
       
       const stripeAccountId = ownerRow[0].stripe_account_id;
       
-      // 2. 플랫폼 기본 Stripe 키로 인스턴스 생성
-      const Stripe = require('stripe');
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); // 플랫폼 기본 키 사용
+  
       
       // 3. customerId 찾기
       let customerId = req.body.customerId;
@@ -362,9 +360,6 @@ console.log("stripeAccountId:", stripeAccountId);
       }
       const customerId = cardRow[0].customer_id;
 
-      // 3. Stripe에서 paymentMethod detach
-      const Stripe = require('stripe');
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
       try {
         await stripe.paymentMethods.detach(card_id, { stripeAccount: stripeAccountId });
       } catch (err) {
@@ -413,9 +408,7 @@ console.log("stripeAccountId:", stripeAccountId);
       }
       const customerId = cardRow[0].customer_id;
 
-      // 3. Stripe에서 paymentMethod detach
-      const Stripe = require('stripe');
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
       try {
         await stripe.paymentMethods.detach(card_id, { stripeAccount: stripeAccountId });
       } catch (err) {
