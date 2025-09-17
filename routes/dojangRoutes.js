@@ -6,7 +6,7 @@ const verifyToken = require('../middleware/verifyToken');
 
 // 도장코드 목록 불러오기
 router.get('/dojangs', async (req, res) => {
-  const query = `SELECT dojang_name FROM dojangs`;
+    const query = `SELECT dojang_code, dojang_name FROM dojangs`;
 
     try {
         const [results] = await db.query(query);
