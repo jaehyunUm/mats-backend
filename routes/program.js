@@ -55,58 +55,60 @@ router.post('/create-program', verifyToken, async (req, res) => {
 
 // 모든 프로그램 정보를 가져오는 API
 router.get('/programs/details', verifyToken, async (req, res) => {
-    const { paymentType, operationType } = req.query; // programType 삭제
-    const { dojang_code } = req.user;;
+  const { paymentType, operationType } = req.query;
+  const { dojang_code } = req.user;
 
-    let sql = `
-        SELECT 
-            id, 
-            name, 
-            description, 
-            total_classes, 
-            classes_per_week, 
-            payment_type, 
-            operation_type, 
-            duration_months, 
-            price,
-            registration_fee  -- 등록비 추가
-        FROM programs
-        WHERE dojang_code = ?
-    `;
-    
-    const queryParams = [dojang_code];
+  let sql = `
+      SELECT 
+          id, 
+          name, 
+          description, 
+          total_classes, 
+          classes_per_week, 
+          payment_type, 
+          operation_type, 
+          duration_months, 
+          price,
+          registration_fee
+      FROM programs
+      WHERE dojang_code = ?
+  `;
+  
+  const queryParams = [dojang_code];
 
-    if (paymentType) {
-        sql += ` AND payment_type = ?`;
-        queryParams.push(paymentType);
-    }
-    if (operationType) {
-        sql += ` AND operation_type = ?`;
-        queryParams.push(operationType);
-    }
+  if (paymentType) {
+      sql += ` AND payment_type = ?`;
+      queryParams.push(paymentType);
+  }
+  if (operationType) {
+      sql += ` AND operation_type = ?`;
+      queryParams.push(operationType);
+  }
 
-    try {
-        const [results] = await db.query(sql, queryParams);
+  // ✅ ID 순서로 정렬하는 구문 추가
+  sql += ` ORDER BY id ASC`;
 
-        // 프로그램 데이터 매핑
-        const programs = results.map(row => ({
-            id: row.id,
-            name: row.name,
-            description: row.description,
-            totalClasses: row.total_classes,
-            classesPerWeek: row.classes_per_week,
-            paymentType: row.payment_type,
-            operationType: row.operation_type,
-            durationMonths: row.duration_months,
-            price: row.price,
-            registrationFee: row.registration_fee,  // 등록비 추가
-        }));
+  try {
+      const [results] = await db.query(sql, queryParams);
 
-        res.status(200).json(programs);
-    } catch (err) {
-        console.error('Error fetching program details:', err);
-        res.status(500).json({ message: 'Database error', error: err });
-    }
+      const programs = results.map(row => ({
+          id: row.id,
+          name: row.name,
+          description: row.description,
+          totalClasses: row.total_classes,
+          classesPerWeek: row.classes_per_week,
+          paymentType: row.payment_type,
+          operationType: row.operation_type,
+          durationMonths: row.duration_months,
+          price: row.price,
+          registrationFee: row.registration_fee,
+      }));
+
+      res.status(200).json(programs);
+  } catch (err) {
+      console.error('Error fetching program details:', err);
+      res.status(500).json({ message: 'Database error', error: err });
+  }
 });
 
 // 프로그램 삭제 API

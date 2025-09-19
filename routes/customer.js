@@ -136,11 +136,11 @@ router.get('/stripe/account-id', verifyToken, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
     
-    const { cardholderName, postalCode, country } = billingInfo;
-    if (!cardholderName || !postalCode || !country) {
-      return res.status(400).json({ success: false, message: 'Missing required billing info fields' });
-    }
-    
+ const { cardholderName, postalCode, country } = billingInfo;
+if (!cardholderName || !postalCode || !country) {
+  return res.status(400).json({ success: false, message: 'Missing required billing info fields' });
+}
+
     
     try {
       // 1. 도장 오너의 Stripe Account ID 가져오기 (프론트에서 stripeAccountId를 받지 않고, dojang_code로만 조회)
