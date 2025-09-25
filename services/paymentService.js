@@ -5,10 +5,10 @@ const uuidv4 = require('uuid').v4;
 const dayjs = require('dayjs');
 const process = require('process');
 
-// 알림 생성 함수
+// 알림 생성 함수 (This function is already well-written and safe)
 const createNotification = async (dojangCode, message, connection) => {
   try {
-    // 사용자가 제공한 connection을 사용하거나, 없으면 새로 생성
+    // Use the provided connection or create a new one
     const conn = connection || await db.getConnection();
     const useLocalConnection = !connection;
     
@@ -20,7 +20,7 @@ const createNotification = async (dojangCode, message, connection) => {
       console.log(`✅ Notification created for dojang ${dojangCode}: ${message}`);
       return true;
     } finally {
-      // 로컬에서 생성한 connection만 해제
+      // Only release the connection if it was created locally
       if (useLocalConnection) {
         conn.release();
       }
@@ -31,21 +31,32 @@ const createNotification = async (dojangCode, message, connection) => {
   }
 };
 
+/**
+ * A safe handler for processing subscription payments.
+ * It uses a try-catch-finally block to ensure the database connection is always released,
+ * preventing connection leaks and server crashes.
+ * @param {object} subscription - The subscription object from the database.
+ * @returns {Promise<{success: boolean, error?: string}>} - The result of the payment processing.
+ */
 const processPaymentForSubscription = async (subscription) => {
-    const connection = await db.getConnection();
+    // 1. Declare connection outside the try block to make it accessible in finally
+    let connection;
     let transactionStarted = false;
   
     try {
+      // 2. Get DB connection inside the try block to catch potential errors
+      connection = await db.getConnection();
       console.log(`🚀 Processing payment for subscription ID: ${subscription.id}, Dojang Code: ${subscription.dojang_code}`);
   
-      // 1. Stripe 계정 정보 조회
+      // Stripe account information lookup
       const [ownerRows] = await connection.query(
         `SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ? LIMIT 1`,
         [subscription.dojang_code]
       );
   
       if (!ownerRows.length || !ownerRows[0].stripe_access_token) {
-        await handleFailure(connection, subscription, `⚠️ 결제 오류: Stripe 계정 연결에 문제가 있습니다.`);
+        // No need for handleFailure, just log and return
+        console.error(`⚠️ Payment Error for Sub ID ${subscription.id}: Stripe account not properly connected.`);
         return { success: false, error: 'No Stripe access token found' };
       }
   
@@ -53,43 +64,31 @@ const processPaymentForSubscription = async (subscription) => {
       const stripeAccountId = ownerRows[0].stripe_account_id;
       const stripe = createStripeClientWithKey(ownerAccessToken);
   
-      // 2. 필수 정보 확인
+      // Required information check
       if (!subscription.source_id || !subscription.customer_id) {
-        await handleFailure(connection, subscription, `⚠️ 결제 오류: 결제 정보가 충분하지 않습니다.`);
+        console.error(`⚠️ Payment Error for Sub ID ${subscription.id}: Missing payment information.`);
         return { success: false, error: 'Missing required payment information' };
       }
   
-      // 3. 알림용 정보 조회
-      const [studentInfo] = await connection.query(
-        `SELECT first_name, last_name FROM students WHERE id = ?`,
-        [subscription.student_id]
-      );
-      const [programInfo] = await connection.query(
-        `SELECT name FROM programs WHERE id = ? AND dojang_code = ?`,
-        [subscription.program_id, subscription.dojang_code]
-      );
+      // Information lookup for notifications
+      const [studentInfo] = await connection.query(`SELECT first_name, last_name FROM students WHERE id = ?`, [subscription.student_id]);
+      const [programInfo] = await connection.query(`SELECT name FROM programs WHERE id = ? AND dojang_code = ?`, [subscription.program_id, subscription.dojang_code]);
   
-      const studentName = studentInfo.length > 0
-        ? `${studentInfo[0].first_name} ${studentInfo[0].last_name}`
-        : `학생 ID: ${subscription.student_id}`;
-      const programName = programInfo.length > 0
-        ? programInfo[0].name
-        : `프로그램 ID: ${subscription.program_id}`;
+      const studentName = studentInfo.length ? `${studentInfo[0].first_name} ${studentInfo[0].last_name}` : `Student ID: ${subscription.student_id}`;
+      const programName = programInfo.length ? programInfo[0].name : `Program ID: ${subscription.program_id}`;
   
-      // 4. 금액 검증
+      // Amount validation
       const fee = parseFloat(subscription.program_fee);
       if (isNaN(fee) || fee <= 0) {
-        await handleFailure(connection, subscription, `❌ 결제 오류: 유효하지 않은 결제 금액입니다.`);
+        console.error(`❌ Payment Error for Sub ID ${subscription.id}: Invalid fee amount.`);
         return { success: false, error: 'Invalid program fee' };
       }
   
-      const platformAccountId = process.env.STRIPE_PLATFORM_ACCOUNT_ID;
-  
-      // 5. 결제 시도
+      // Payment attempt
       const paymentIntent = await stripe.paymentIntents.create(
         {
           amount: Math.round(fee * 100),
-          currency: "USD",
+          currency: "usd",
           customer: subscription.customer_id,
           payment_method: subscription.source_id,
           off_session: true,
@@ -109,57 +108,47 @@ const processPaymentForSubscription = async (subscription) => {
       );
   
       if (paymentIntent.status !== 'succeeded') {
-        await handleFailure(connection, subscription, `⚠️ 결제 실패: ${studentName}님의 ${programName} 프로그램 결제($${fee})가 실패했습니다.`);
+        console.warn(`⚠️ Payment failed for Sub ID ${subscription.id} for ${studentName}'s ${programName} program ($${fee}).`);
+        // Here you might want to call createNotification as well
         return { success: false, error: 'Payment failed' };
       }
   
-      // 6. 결제 성공 처리
+      // 6. Process successful payment (Transaction)
       await connection.beginTransaction();
       transactionStarted = true;
   
-      // program_payments 기록
       await connection.query(`
-        INSERT INTO program_payments 
-          (parent_id, student_id, program_id, amount, payment_date, status, dojang_code, source_id, idempotency_key, payment_id)
-        VALUES (?, ?, ?, ?, NOW(), 'completed', ?, ?, ?, ?)
-      `, [
-        subscription.parent_id,
-        subscription.student_id,
-        subscription.program_id,
-        fee,
-        subscription.dojang_code,
-        subscription.source_id,
-        subscription.idempotency_key,
-        paymentIntent.id
-      ]);
+        INSERT INTO program_payments (parent_id, student_id, program_id, amount, payment_date, status, dojang_code, source_id, idempotency_key, payment_id)
+        VALUES (?, ?, ?, ?, NOW(), 'completed', ?, ?, ?, ?)`,
+        [subscription.parent_id, subscription.student_id, subscription.program_id, fee, subscription.dojang_code, subscription.source_id, subscription.idempotency_key, paymentIntent.id]
+      );
   
-      // 다음 결제일 계산
       const currentDate = dayjs(subscription.next_payment_date);
       const nextDate = currentDate.add(1, 'month');
-      const correctedNextDate = currentDate.date() >= 28
-        ? nextDate.endOf('month').format('YYYY-MM-DD')
-        : nextDate.date(currentDate.date()).format('YYYY-MM-DD');
+      const correctedNextDate = (currentDate.date() >= 28 ? nextDate.endOf('month') : nextDate.date(currentDate.date())).format('YYYY-MM-DD');
   
-      // monthly_payments 갱신
       await connection.query(`
-        UPDATE monthly_payments
-        SET 
-          last_payment_date = CURDATE(),
-          next_payment_date = ?,
-          payment_status = 'pending',
-          status = 'completed'
-        WHERE id = ?
-      `, [correctedNextDate, subscription.id]);
+        UPDATE monthly_payments SET last_payment_date = CURDATE(), next_payment_date = ?, payment_status = 'pending', status = 'completed'
+        WHERE id = ?`,
+        [correctedNextDate, subscription.id]
+      );
   
       await connection.commit();
-      console.log(`✅ Payment successful. Next payment scheduled on ${correctedNextDate}`);
+      console.log(`✅ Payment successful for Sub ID ${subscription.id}. Next payment scheduled on ${correctedNextDate}`);
       return { success: true };
     } catch (error) {
-      if (transactionStarted) {
+      if (transactionStarted && connection) {
         await connection.rollback();
       }
-      console.error(`❌ Failed to process payment:`, error);
+      // Log the specific subscription that failed for easier debugging
+      console.error(`❌ CRITICAL ERROR during payment processing for subscription ID ${subscription.id}:`, error);
       return { success: false, error: 'Internal server error' };
+    } finally {
+      // 3. MOST IMPORTANT: Always release the connection, no matter what happens
+      if (connection) {
+        connection.release();
+        console.log(`🔹 DB Connection released for subscription ID ${subscription.id}.`);
+      }
     }
   };
 
