@@ -226,7 +226,102 @@ router.get('/badges-with-results/:childId', verifyToken, async (req, res) => {
   }
 });
 
+router.post('/students/:studentId/goals', verifyToken, upload.single('image'), async (req, res) => {
+  const { studentId } = req.params;
+  const { dojang_code } = req.user; // ✅ verifyToken에서 사용자 정보 가져오기
 
+  if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Image file is required.' });
+  }
+
+  try {
+      // S3에 저장할 고유한 파일 이름 생성 (badge.js 스타일과 동일하게)
+      const timestamp = Date.now();
+      const originalname = req.file.originalname;
+      const fileExtension = originalname.split('.').pop();
+      const uniqueFileName = `goal_${studentId}_${timestamp}.${fileExtension}`;
+
+      // S3에 파일 업로드
+      const imageUrl = await uploadFileToS3(uniqueFileName, req.file.buffer, dojang_code);
+
+      // DB에 S3 URL 저장
+      const query = 'INSERT INTO goals (student_id, image_url) VALUES (?, ?)';
+      await db.query(query, [studentId, imageUrl]);
+      
+      res.status(201).json({ 
+          success: true, 
+          message: 'Goal image uploaded successfully.', 
+          imageUrl: imageUrl 
+      });
+
+  } catch (error) {
+      console.error('❌ Error uploading goal image:', error);
+      res.status(500).json({ success: false, message: 'Server error occurred.' });
+  }
+});
+
+// 2. 특정 학생의 연도별 목표 이미지 조회 API
+// GET /api/students/:studentId/goals?year=2025
+router.get('/students/:studentId/goals', verifyToken, async (req, res) => {
+  const { studentId } = req.params;
+  const { year } = req.query;
+  const { dojang_code } = req.user; // ✅ 사용자의 dojang_code 확인
+
+  if (!year) {
+      return res.status(400).json({ success: false, message: 'Year is required.' });
+  }
+
+  try {
+      // 학생이 해당 도장 소속인지 확인하는 로직을 추가할 수 있습니다 (선택사항).
+      const query = `
+          SELECT id, image_url, created_at 
+          FROM goals 
+          WHERE student_id = ? AND YEAR(created_at) = ? 
+          ORDER BY created_at ASC
+      `;
+      const [goals] = await db.query(query, [studentId, year]);
+      
+      res.status(200).json({ success: true, data: goals });
+
+  } catch (error) {
+      console.error('❌ Error fetching goals:', error);
+      res.status(500).json({ success: false, message: 'Server error occurred.' });
+  }
+});
+
+// 3. 목표 이미지 삭제 API
+// DELETE /api/goals/:goalId
+router.delete('/goals/:goalId', verifyToken, async (req, res) => {
+  const { goalId } = req.params;
+  const { dojang_code } = req.user; // ✅ verifyToken에서 사용자 정보 가져오기
+
+  try {
+      // 1. DB에서 goal 정보 조회
+      const [goalRows] = await db.query('SELECT image_url FROM goals WHERE id = ?', [goalId]);
+      
+      if (goalRows.length === 0) {
+          return res.status(404).json({ success: false, message: 'Goal record not found.' });
+      }
+      
+      const { image_url } = goalRows[0];
+      
+      // 2. S3에서 이미지 파일 삭제 (badge.js 스타일과 동일하게)
+      if (image_url) {
+          // S3 파일 이름(키) 추출
+          const fileName = image_url.split('/').pop(); 
+          await deleteFileFromS3(fileName, dojang_code);
+      }
+
+      // 3. 데이터베이스에서 goal 기록 삭제
+      await db.query('DELETE FROM goals WHERE id = ?', [goalId]);
+
+      res.status(200).json({ success: true, message: 'Goal record deleted successfully.' });
+
+  } catch (error) {
+      console.error('❌ Error deleting goal:', error);
+      res.status(500).json({ success: false, message: 'Server error occurred.' });
+  }
+});
 
 
 
