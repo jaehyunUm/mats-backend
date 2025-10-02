@@ -138,5 +138,42 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// ✅ Refresh Token으로 새로운 Access Token을 발급하는 엔드포인트
+router.post('/refresh-token', (req, res) => {
+  const { token: refreshToken } = req.body;
+
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'Refresh Token is required' });
+  }
+
+  // Refresh Token이 유효한지 확인
+  jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
+    if (err) {
+      // Refresh Token이 만료되었거나 유효하지 않으면 재로그인 필요
+      console.error('❌ Refresh Token is invalid or expired:', err.message);
+      return res.status(403).json({ message: 'Invalid Refresh Token. Please log in again.' });
+    }
+
+    // Refresh Token이 유효하면, 새로운 Access Token을 생성
+    const newAccessToken = jwt.sign(
+      {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        dojang_code: user.dojang_code,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' } // 새로운 Access Token의 유효기간
+    );
+
+    console.log('✅ [refresh-token] New Access Token issued for user:', user.id);
+    
+    res.json({
+      accessToken: newAccessToken
+    });
+  });
+});
+
+
 
 module.exports = router;
