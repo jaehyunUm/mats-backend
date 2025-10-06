@@ -364,11 +364,7 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
       WHERE student_id = ? AND dojang_code = ?;
     `;
 
-    const [result] = await db.query(updateQuery, updateValues);
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, message: 'No payment record found for the given student' });
-    }
+    await db.query(updateQuery, updateValues);
 
     res.status(200).json({ success: true, message: 'Payment information updated successfully' });
   } catch (error) {
