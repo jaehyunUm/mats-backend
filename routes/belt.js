@@ -317,4 +317,90 @@ router.get('/get-attendance-count/:studentId', verifyToken, async (req, res) => 
 });
 
 
+router.get('/eligible-test-students', verifyToken, async (req, res) => {
+  const { dojang_code } = req.user;
+
+  try {
+      // 1. 해당 도장의 모든 '활동중인' 학생 정보를 가져옵니다.
+      // (학생 테이블에 is_active 같은 컬럼이 있다고 가정)
+      const [students] = await db.execute(
+          'SELECT student_id, student_name, belt_rank, last_promotion_date FROM students WHERE dojang_code = ? AND is_active = 1',
+          [dojang_code]
+      );
+
+      // 2. 해당 도장의 모든 테스트 조건을 미리 가져옵니다.
+      const [conditions] = await db.execute(
+          'SELECT belt_min_rank, belt_max_rank, attendance_required FROM testcondition WHERE dojang_code = ?',
+          [dojang_code]
+      );
+
+      if (students.length === 0) {
+          return res.json([]); // 학생이 없으면 빈 배열 반환
+      }
+      if (conditions.length === 0) {
+          return res.status(404).json({ message: 'Test conditions not set for this dojang' });
+      }
+
+      // 3. 각 학생의 자격 요건을 비동기적으로 확인합니다.
+      const eligibilityChecks = students.map(async (student) => {
+          const nextBeltRank = student.belt_rank + 1;
+
+          // 학생의 다음 벨트 랭크에 해당하는 조건을 찾습니다.
+          const requiredCondition = conditions.find(c => nextBeltRank >= c.belt_min_rank && nextBeltRank <= c.belt_max_rank);
+
+          // 조건이 없으면 자격 미달로 처리
+          if (!requiredCondition) {
+              return null;
+          }
+          
+          // 4. (중요) 마지막 승급일 이후의 출석 횟수를 계산합니다.
+          // last_promotion_date가 없다면, 총 출석일수로 계산할 수밖에 없습니다.
+          // 정확성을 위해 'students' 테이블에 last_promotion_date 컬럼을 추가하는 것을 강력히 추천합니다.
+          const [attendanceResult] = await db.execute(
+              'SELECT COUNT(*) AS count FROM attendance WHERE student_id = ? AND dojang_code = ? AND attendance_date > ?',
+              [student.student_id, dojang_code, student.last_promotion_date || '1970-01-01']
+          );
+          const currentAttendance = attendanceResult[0].count;
+
+          // 5. 출석 조건을 만족하는지 확인합니다.
+          if (currentAttendance >= requiredCondition.attendance_required) {
+              return {
+                  studentId: student.student_id,
+                  studentName: student.student_name,
+                  currentBeltRank: student.belt_rank,
+                  currentAttendance: currentAttendance,
+                  requiredAttendance: requiredCondition.attendance_required,
+                  isEligible: true
+              };
+          } else {
+              // (선택사항) 조건에 맞지 않는 학생 정보도 포함하고 싶다면 아래 주석을 해제하세요.
+              /*
+              return {
+                  studentId: student.student_id,
+                  studentName: student.student_name,
+                  currentBeltRank: student.belt_rank,
+                  currentAttendance: currentAttendance,
+                  requiredAttendance: requiredCondition.attendance_required,
+                  isEligible: false
+              };
+              */
+             return null;
+          }
+      });
+
+      // 모든 학생의 자격 요건 확인이 끝날 때까지 기다립니다.
+      const results = await Promise.all(eligibilityChecks);
+      
+      // null 값(자격 미달)을 제거하고 최종 목록을 반환합니다.
+      const eligibleStudents = results.filter(student => student !== null);
+      
+      res.json(eligibleStudents);
+
+  } catch (error) {
+      console.error('Error fetching eligible students:', error);
+      res.status(500).json({ message: 'Failed to fetch eligible students' });
+  }
+});
+
+
 module.exports = router;
