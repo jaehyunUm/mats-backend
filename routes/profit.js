@@ -112,5 +112,38 @@ router.get('/owner/payment-history/order', verifyToken, async (req, res) => {
     }
 });
 
+// ✅ 월별 결제 예정 내역 조회 (도장 오너)
+router.get('/owner/payment-history/monthly', verifyToken, async (req, res) => {
+    try {
+        const { dojang_code } = req.user;
+
+        console.log("🔹 [MONTHLY] Request Received - Dojang Code:", dojang_code);
+
+        const query = `
+            SELECT
+                mp.id,
+                mp.next_payment_date AS payment_date,
+                mp.program_fee AS amount,
+                p.name AS program_name,
+                s.first_name,
+                s.last_name
+            FROM monthly_payments mp
+            LEFT JOIN programs p ON p.id = mp.program_id AND p.dojang_code = mp.dojang_code
+            LEFT JOIN students s ON mp.student_id = s.id AND s.dojang_code = mp.dojang_code
+            WHERE mp.dojang_code = ?
+            AND mp.status = 'completed'
+            ORDER BY mp.next_payment_date DESC`;
+
+        const [rows] = await db.query(query, [dojang_code]);
+        
+        console.log(`✅ [MONTHLY] Found ${rows.length} upcoming monthly payment records`);
+        res.json(rows);
+
+    } catch (error) {
+        console.error('❌ [MONTHLY] Error fetching monthly payment history:', error);
+        res.status(500).json({ success: false, message: 'Error fetching monthly payment history' });
+    }
+});
+
 
 module.exports = router;
