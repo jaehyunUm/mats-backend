@@ -317,17 +317,22 @@ router.get('/get-attendance-count/:studentId', verifyToken, async (req, res) => 
 });
 
 
+// GET /eligible-test-students
 router.get('/eligible-test-students', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   try {
-      // 1. 해당 도장의 모든 '활동중인' 학생 정보를 가져옵니다.
+      // [수정] 3가지 문제점을 모두 반영한 SQL 쿼리
       const [students] = await db.execute(
-          'SELECT student_id, student_name, belt_rank FROM students WHERE dojang_code = ? AND is_active = 1',
+          `SELECT 
+              id AS student_id, 
+              CONCAT(first_name, ' ', last_name) AS student_name, 
+              belt_rank 
+          FROM students 
+          WHERE dojang_code = ?`, // is_active = 1 조건 삭제
           [dojang_code]
       );
 
-      // 2. 해당 도장의 모든 테스트 조건을 미리 가져옵니다.
       const [conditions] = await db.execute(
           'SELECT belt_min_rank, belt_max_rank, attendance_required FROM testcondition WHERE dojang_code = ?',
           [dojang_code]
@@ -336,24 +341,18 @@ router.get('/eligible-test-students', verifyToken, async (req, res) => {
       if (students.length === 0) return res.json([]);
       if (conditions.length === 0) return res.status(404).json({ message: 'Test conditions not set' });
 
-      // 3. 각 학생의 자격 요건을 확인합니다.
       const eligibilityChecks = students.map(async (student) => {
           const nextBeltRank = student.belt_rank + 1;
-
-          // 다음 벨트에 해당하는 조건을 찾습니다.
           const requiredCondition = conditions.find(c => nextBeltRank >= c.belt_min_rank && nextBeltRank <= c.belt_max_rank);
 
           if (!requiredCondition) return null;
           
-          // 4. (핵심) 학생의 현재 출석 횟수를 가져옵니다.
-          // 승급 시 출석이 초기화되므로, 단순히 COUNT만 하면 됩니다.
           const [attendanceResult] = await db.execute(
               'SELECT COUNT(*) AS count FROM attendance WHERE student_id = ? AND dojang_code = ?',
               [student.student_id, dojang_code]
           );
           const currentAttendance = attendanceResult[0].count;
 
-          // 5. 출석 조건을 만족하는지 확인합니다.
           if (currentAttendance >= requiredCondition.attendance_required) {
               return {
                   studentId: student.student_id,
@@ -363,7 +362,7 @@ router.get('/eligible-test-students', verifyToken, async (req, res) => {
                   requiredAttendance: requiredCondition.attendance_required,
               };
           }
-          return null; // 조건 미달
+          return null;
       });
 
       const results = await Promise.all(eligibilityChecks);
