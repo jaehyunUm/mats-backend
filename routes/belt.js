@@ -323,14 +323,13 @@ router.get('/eligible-test-students', verifyToken, async (req, res) => {
   console.log(`\n[API CALL] /eligible-test-students for dojang_code: ${dojang_code}`);
 
   try {
-      // [수정] 3가지 문제점을 모두 반영한 SQL 쿼리
       const [students] = await db.execute(
           `SELECT 
               id AS student_id, 
               CONCAT(first_name, ' ', last_name) AS student_name, 
               belt_rank 
           FROM students 
-          WHERE dojang_code = ?`, // is_active = 1 조건 삭제
+          WHERE dojang_code = ?`,
           [dojang_code]
       );
 
@@ -339,22 +338,35 @@ router.get('/eligible-test-students', verifyToken, async (req, res) => {
           [dojang_code]
       );
 
+      // --- [디버깅 로그 1] --- 초기 데이터 확인
+      console.log(`[Step 1] Found ${students.length} students and ${conditions.length} test conditions.`);
+
       if (students.length === 0) return res.json([]);
       if (conditions.length === 0) return res.status(404).json({ message: 'Test conditions not set' });
 
       const eligibilityChecks = students.map(async (student) => {
+          
+          // --- [디버깅 로그 2] --- 각 학생별 자격 검사 과정 추적
+          console.log(`\n--- [Student Check] Checking for: ${student.student_name} (ID: ${student.student_id}) ---`);
+
           const nextBeltRank = student.belt_rank + 1;
           const requiredCondition = conditions.find(c => nextBeltRank >= c.belt_min_rank && nextBeltRank <= c.belt_max_rank);
 
-          if (!requiredCondition) return null;
+          if (!requiredCondition) {
+              console.log(`  -> ❌ FAIL: No test condition found for next belt rank (${nextBeltRank}).`);
+              return null;
+          }
+          console.log(`  -> Next Belt Rank: ${nextBeltRank}, Required Attendance: ${requiredCondition.attendance_required}`);
           
           const [attendanceResult] = await db.execute(
               'SELECT COUNT(*) AS count FROM attendance WHERE student_id = ? AND dojang_code = ?',
               [student.student_id, dojang_code]
           );
           const currentAttendance = attendanceResult[0].count;
+          console.log(`  -> Current Attendance: ${currentAttendance}`);
 
           if (currentAttendance >= requiredCondition.attendance_required) {
+              console.log(`  -> ✅ PASS: Attendance condition met.`);
               return {
                   studentId: student.student_id,
                   studentName: student.student_name,
@@ -362,12 +374,18 @@ router.get('/eligible-test-students', verifyToken, async (req, res) => {
                   currentAttendance: currentAttendance,
                   requiredAttendance: requiredCondition.attendance_required,
               };
+          } else {
+              console.log(`  -> ❌ FAIL: Attendance condition not met.`);
+              return null;
           }
-          return null;
       });
 
       const results = await Promise.all(eligibilityChecks);
       const eligibleStudents = results.filter(student => student !== null);
+      
+      // --- [디버깅 로그 3] --- 최종 결과 확인
+      console.log(`\n[Final Result] Total ${eligibleStudents.length} students are eligible for the test.`);
+      console.log(eligibleStudents); // 최종 데이터 객체 확인
       
       res.json(eligibleStudents);
 
