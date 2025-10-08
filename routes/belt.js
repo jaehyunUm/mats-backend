@@ -320,6 +320,7 @@ router.get('/get-attendance-count/:studentId', verifyToken, async (req, res) => 
 // GET /eligible-test-students
 router.get('/eligible-test-students', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
+  console.log(`\n[API CALL] /eligible-test-students for dojang_code: ${dojang_code}`);
 
   try {
       // [수정] 3가지 문제점을 모두 반영한 SQL 쿼리
