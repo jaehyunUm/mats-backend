@@ -105,7 +105,7 @@ router.post('/login', async (req, res) => {
         dojang_code: user.dojang_code,
       },
       process.env.REFRESH_TOKEN_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '30d' }
     );
 
     console.log('✅ [login] 로그인 성공 - 응답 전송');
