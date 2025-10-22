@@ -94,7 +94,7 @@ router.post('/login', async (req, res) => {
         dojang_code: user.dojang_code,
       },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '30d' }
     );
 
     const refreshToken = jwt.sign(
