@@ -150,21 +150,22 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       }
     }
     
-    // ✅ 학부모 정보 조회
-    let parent = null;
-    if (student.parentId) {
-      const parentQuery = `
-        SELECT
-          first_name AS firstName,
-          last_name AS lastName,
-          phone AS phoneNumber
-        FROM parents
-        WHERE id = ? AND dojang_code = ?;
-      `;
-      
-      const [parentResult] = await db.query(parentQuery, [student.parentId, dojang_code]);
-      parent = parentResult.length > 0 ? parentResult[0] : null;
-    }
+      // ✅ 학부모 정보 조회
+      let parent = null;
+      if (student.parentId) {
+        const parentQuery = `
+          SELECT
+            first_name AS firstName,
+            last_name AS lastName,
+            phone AS phoneNumber,
+            email  -- 이메일 필드를 여기에 추가합니다.
+          FROM parents
+          WHERE id = ? AND dojang_code = ?;
+        `;
+        
+        const [parentResult] = await db.query(parentQuery, [student.parentId, dojang_code]);
+        parent = parentResult.length > 0 ? parentResult[0] : null;
+      }
     
     // ✅ 학생의 클래스 정보 조회
     const classQuery = `
