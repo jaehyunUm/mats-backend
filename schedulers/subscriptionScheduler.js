@@ -59,7 +59,7 @@ async function processSubscriptions() {
   }
 })();
 
-cron.schedule('* * * * *', () => {
+cron.schedule('0 3 * * *', () => {
   console.log(`[${new Date().toISOString()}] Running scheduled subscription job...`);
   try {
     processSubscriptions()
