@@ -600,10 +600,14 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     if (connection) {
       await connection.rollback();
     }
+    
+    // 💡 [수정] Stripe나 DB에서 발생한 실제 오류 메시지를 사용합니다.
+    const specificErrorMessage = error.message || "Error processing payment";
+    console.error("❌ Payment processing failed:", specificErrorMessage); // 서버 로그에 구체적인 오류 기록
+
     return res.status(500).json({ 
       success: false, 
-      message: "Error processing payment", 
-      error: error.message 
+      message: specificErrorMessage // ⭐️ 'message' 필드에 구체적인 오류를 담아 전송
     });
   } finally {
     if (connection) {
