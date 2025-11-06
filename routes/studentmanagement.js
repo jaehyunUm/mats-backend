@@ -68,15 +68,14 @@ router.get('/students', verifyToken, async (req, res) => {
           -- 1. 현재 출석 횟수 집계
           COALESCE(att.attendance_count, 0) AS attendance,
           
-          -- ⭐ 2. 테스트 필요 출석 횟수를 서브쿼리로 가져와 단일 값으로 보장
+          -- 2. 테스트 필요 출석 횟수
           COALESCE(
             (
               SELECT tc.attendance_required
               FROM testcondition tc
               WHERE s.belt_rank BETWEEN tc.belt_min_rank AND tc.belt_max_rank 
                 AND tc.dojang_code = s.dojang_code
-              -- 만약 여러 개가 매칭된다면, 여기서 하나만 선택하도록 제한 (예: 가장 낮은 등급 요구사항 선택)
-              ORDER BY tc.belt_min_rank DESC  -- 또는 다른 기준으로 정렬 후
+              ORDER BY tc.belt_min_rank DESC 
               LIMIT 1
             ), 0) AS required_attendance
           
@@ -94,7 +93,7 @@ router.get('/students', verifyToken, async (req, res) => {
               student_id, 
               COUNT(id) AS attendance_count
             FROM 
-              attendance_records 
+              attendance  /* ⭐⭐⭐ 이 부분이 'attendance'로 수정됨! ⭐⭐⭐ */
             WHERE 
               dojang_code = ? 
             GROUP BY 
@@ -105,13 +104,13 @@ router.get('/students', verifyToken, async (req, res) => {
           s.dojang_code = ?
       `;
       
-      // SQL 쿼리에 dojangCode 변수를 두 번 바인딩합니다 (att 서브쿼리 및 메인 WHERE 절)
+      // SQL 쿼리에 dojangCode 변수를 두 번 바인딩
       const [students] = await db.query(sql, [dojangCode, dojangCode]);
       res.status(200).json(students);
     } catch (err) {
       console.error('Error fetching students:', err);
-      // 디버깅을 위해 에러 객체 전체를 포함하여 응답합니다.
-      res.status(500).json({ message: 'Database error', error: err.message, stack: err.stack });
+      // 최종적으로 에러 메시지를 간결하게 반환합니다.
+      res.status(500).json({ message: 'Database error occurred while fetching students.' });
     }
 });
 
