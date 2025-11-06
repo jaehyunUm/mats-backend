@@ -243,22 +243,31 @@ router.post('/process-payment', verifyToken, async (req, res) => {
 
     console.log("✅ Student ID confirmed:", studentId);
 
-    // 수업 등록 처리
-    const [existingClasses] = await connection.query(`
-      SELECT class_id FROM student_classes WHERE student_id = ? AND dojang_code = ?
+   // ⭐⭐⭐ 수업 등록 처리: 기존 클래스 전체 삭제 후 새 클래스 전체 등록 ⭐⭐⭐
+
+    // 1. 기존 클래스 연결 모두 삭제
+    await connection.query(`
+      DELETE FROM student_classes 
+      WHERE student_id = ? AND dojang_code = ?
     `, [studentId, dojang_code]);
+    console.log(`✅ Cleared all previous classes for student ${studentId}.`);
 
-    const existingClassIds = new Set(existingClasses.map(row => row.class_id));
-
-    for (const class_id of classes) {
-      if (!existingClassIds.has(class_id)) {
-        await connection.query(`
-          INSERT INTO student_classes (student_id, class_id, dojang_code)
-          VALUES (?, ?, ?)
-        `, [studentId, class_id, dojang_code]);
-      }
+    // 2. 새 클래스 전체 등록
+    if (classes && classes.length > 0) {
+      const classInsertValues = classes.map(class_id => [studentId, class_id, dojang_code]);
+      
+      // Bulk Insert를 위한 SQL 구문 준비
+      const insertSQL = `
+        INSERT INTO student_classes (student_id, class_id, dojang_code)
+        VALUES ?
+      `;
+      await connection.query(insertSQL, [classInsertValues]);
+      console.log(`✅ New classes (${classes.length}) successfully enrolled.`);
+    } else {
+      console.log("⚠️ No new classes provided for enrollment.");
     }
-    console.log("✅ Classes enrollment completed");
+    
+    // ⭐⭐⭐ 수업 등록 처리 종료 ⭐⭐⭐
 
     // 결제 ID 및 idempotencyKey 생성
     const mainPaymentId = uuidv4();
