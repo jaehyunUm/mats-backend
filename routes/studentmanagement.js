@@ -55,33 +55,30 @@ router.get('/students', verifyToken, async (req, res) => {
 
   router.get('/studentmanagement', verifyToken, async (req, res) => {
     try {
-      // dojang_code를 변수로 추출하여 SQL injection 방지 및 가독성 향상
       const dojangCode = req.user.dojang_code; 
       
       const sql = `
         SELECT
-          s.id,
-          s.parent_id,
-          s.first_name,
-          s.last_name,
-          s.gender,
-          s.birth_date,
+          s.*,
           TIMESTAMPDIFF(YEAR, s.birth_date, CURDATE()) AS age,
-          s.belt_rank,
           b.belt_color,
           b.stripe_color,
-          s.program_id,
           p.name AS program_name,
-          s.profile_image,
-          s.belt_size,
-          s.dojang_code,
-          s.created_at,
           
-          -- ⭐ 1. 현재 출석 횟수 (attendance_records 테이블 사용)
+          -- 1. 현재 출석 횟수 집계
           COALESCE(att.attendance_count, 0) AS attendance,
           
-          -- ⭐ 2. 테스트 필요 출석 횟수 (testcondition 테이블 사용)
-          COALESCE(tc.attendance_required, 0) AS required_attendance 
+          -- ⭐ 2. 테스트 필요 출석 횟수를 서브쿼리로 가져와 단일 값으로 보장
+          COALESCE(
+            (
+              SELECT tc.attendance_required
+              FROM testcondition tc
+              WHERE s.belt_rank BETWEEN tc.belt_min_rank AND tc.belt_max_rank 
+                AND tc.dojang_code = s.dojang_code
+              -- 만약 여러 개가 매칭된다면, 여기서 하나만 선택하도록 제한 (예: 가장 낮은 등급 요구사항 선택)
+              ORDER BY tc.belt_min_rank DESC  -- 또는 다른 기준으로 정렬 후
+              LIMIT 1
+            ), 0) AS required_attendance
           
         FROM
           students s
@@ -90,7 +87,7 @@ router.get('/students', verifyToken, async (req, res) => {
         LEFT JOIN
           programs p ON s.program_id = p.id
           
-        -- ⭐ 3. 현재 출석 횟수를 가져오는 서브쿼리 조인
+        -- 3. 현재 출석 횟수를 가져오는 서브쿼리 조인
         LEFT JOIN
           ( 
             SELECT 
@@ -104,12 +101,6 @@ router.get('/students', verifyToken, async (req, res) => {
               student_id
           ) AS att ON s.id = att.student_id
           
-        -- ⭐ 4. 테스트 조건을 가져오는 테이블 조인
-        LEFT JOIN
-          testcondition tc ON 
-          s.belt_rank BETWEEN tc.belt_min_rank AND tc.belt_max_rank 
-          AND s.dojang_code = tc.dojang_code
-          
         WHERE
           s.dojang_code = ?
       `;
@@ -119,11 +110,10 @@ router.get('/students', verifyToken, async (req, res) => {
       res.status(200).json(students);
     } catch (err) {
       console.error('Error fetching students:', err);
-      // 에러가 발생한 경우 클라이언트에서 에러를 처리할 수 있도록 응답합니다.
-      res.status(500).json({ message: 'Database error', error: err.message });
+      // 디버깅을 위해 에러 객체 전체를 포함하여 응답합니다.
+      res.status(500).json({ message: 'Database error', error: err.message, stack: err.stack });
     }
 });
-
 
 router.get('/programs/basic', verifyToken, async (req, res) => {
     const { dojang_code } = req.user;
