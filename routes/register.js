@@ -114,9 +114,22 @@ router.post("/register-student", verifyToken, async (req, res) => {
       });
       await db.query(
         `UPDATE students
-           SET gender=?, belt_rank=?, belt_size=?, profile_image=?, program_id=?, birth_date=?
+           SET gender=?, 
+               belt_rank=?, 
+               belt_size=?, 
+               program_id=?, 
+               birth_date=?,
+               profile_image = COALESCE(?, profile_image) 
          WHERE id=?`,
-        [genderNorm, beltRank, beltSize, profileImg, programId ?? null, birthSQL, student_id]
+        [
+          genderNorm, 
+          beltRank, 
+          beltSize, 
+          programId ?? null, 
+          birthSQL, 
+          profileImg, // 👈 COALESCE의 첫 번째 인자로 profileImg(NULL일 수 있음)를 전달
+          student_id
+        ]
       );
     } else {
       console.log("🆕 INSERT student with:", {
