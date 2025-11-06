@@ -223,17 +223,16 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       studentId = existingStudent[0].id;
       await connection.query(`
         UPDATE students 
-        SET program_id = ?, belt_rank = ?, gender = ?, belt_size = ?, parent_id = ? 
+        SET 
+          program_id = ?,
+          parent_id = ?  
         WHERE id = ?
       `, [
-        program.id,
-        student.belt_rank,
-        student.gender,
-        student.beltSize || null,
-        parent_id || null,
+        program.id,        // 새 프로그램 ID
+        parent_id || null, // 부모 ID
         studentId
       ]);
-      console.log("✅ Student record updated:", studentId);
+      console.log("✅ Student record updated (Program Change ONLY):", studentId);
     } else {
       console.error("❌ Student not found with provided information");
       await connection.rollback();
