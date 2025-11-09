@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middleware/verifyToken');
 const db = require('../db');
-
+const { createStripeClientWithKey } = require('../modules/stripeClient');
 // 자녀 정보 API
 router.get('/membership-info', verifyToken, async (req, res) => {
   const parentId = req.query.parent_id;
