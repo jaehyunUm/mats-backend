@@ -557,43 +557,50 @@ router.post('/save-evaluation', verifyToken, async (req, res) => {
 
 
 
-// 학생 삭제 API
-router.delete('/delete-student/:studentId/:testType', verifyToken, async (req, res) => {
-  const { studentId, testType } = req.params;
-  const { dojang_code } = req.user;
-
-  try {
-    // testlist 테이블에서 해당 학생 삭제
-    await db.execute(
-      `DELETE FROM testlist WHERE student_id = ? AND test_name = ? AND dojang_code = ?`,
-      [studentId, testType, dojang_code]
-    );
-    res.json({ message: 'Student removed from test list' });
-  } catch (error) {
-    console.error('Error deleting student from test list:', error);
-    res.status(500).json({ message: 'Failed to remove student from test list' });
-  }
-});
-
-// 벨트 랭크 업데이트 API
+// 벨트 랭크 업데이트 및 출석 초기화 API
 router.put('/update-belt-rank', verifyToken, async (req, res) => {
-  const { student_id } = req.body; // student_id만 필요
+  const { student_id } = req.body; // 프론트에서 받은 학생 ID
   const { dojang_code } = req.user;
 
+  // 1. 유효성 검사
+  if (!student_id) {
+    return res.status(400).json({ message: 'Student ID is required' });
+  }
+
   try {
-    const [result] = await db.execute(
-      `UPDATE students SET belt_rank = belt_rank + 1 WHERE id = ? AND dojang_code = ?`,
+    // 2. 트랜잭션 시작: 두 개 이상의 작업을 한 묶음으로 처리
+    await db.query('START TRANSACTION');
+
+    // 3. (기존 로직) 학생의 벨트 랭크 + 1
+    const [updateResult] = await db.execute(
+      `UPDATE students SET belt_rank = belt_rank + 1 
+       WHERE id = ? AND dojang_code = ?`,
       [student_id, dojang_code]
     );
 
-    if (result.affectedRows > 0) {
-      res.json({ message: 'Belt rank updated successfully' });
+    // 4. 벨트 업데이트가 성공했는지 확인
+    if (updateResult.affectedRows > 0) {
+      // 5. ✨ (추가된 로직) 해당 학생의 출석(attendance) 기록 삭제
+      await db.execute(
+        `DELETE FROM attendance 
+         WHERE student_id = ? AND dojang_code = ?`,
+        [student_id, dojang_code]
+      );
+      
+      // 6. 모든 작업이 성공했으므로 트랜잭션 완료
+      await db.query('COMMIT');
+      res.json({ message: 'Belt rank updated and attendance reset successfully' });
+
     } else {
+      // 7. 벨트를 업데이트할 학생이 없음 (롤백하고 404 반환)
+      await db.query('ROLLBACK');
       res.status(404).json({ message: 'Student not found or not associated with this dojang' });
     }
   } catch (error) {
-    console.error('Error updating belt rank:', error);
-    res.status(500).json({ message: 'Failed to update belt rank' });
+    // 8. 중간에 에러 발생 시 모든 변경 사항 되돌리기
+    await db.query('ROLLBACK');
+    console.error('Error during belt update and attendance reset:', error);
+    res.status(500).json({ message: 'Failed to update belt rank and reset attendance' });
   }
 });
 
