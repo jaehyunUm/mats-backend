@@ -6,6 +6,180 @@ const { cardsApi} = require('../modules/stripeClient'); //
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { verifyWithApple } = require('../modules/appleValidator');
 
+router.post('/verify-receipt', verifyToken, async (req, res) => {
+  console.log('📥 [verify-receipt] ====== 요청 시작 ======');
+  console.log('🕒 [verify-receipt] 요청 시간:', new Date().toISOString());
+  
+  const { receipt, productId, environment } = req.body;
+  const { dojang_code } = req.user; // verifyToken에서 제공
+
+  console.log('👤 [verify-receipt] 사용자 dojang_code:', dojang_code);
+  console.log('📨 [verify-receipt] receipt (first 30 chars):', receipt?.slice?.(0, 30));
+  console.log('🆔 [verify-receipt] productId:', productId);
+  console.log('🌍 [verify-receipt] environment (from app):', environment);
+
+  if (!receipt) {
+    console.warn('⚠️ [verify-receipt] No receipt provided');
+    return res.status(400).json({ success: false, message: 'Receipt is required' });
+  }
+  if (!dojang_code) {
+    console.warn('⚠️ [verify-receipt] No dojang_code found in token');
+    return res.status(400).json({ success: false, message: 'Invalid user token' });
+  }
+
+  try {
+    console.log('🍎 [verify-receipt] Apple 서버로 receipt 검증 요청 중...');
+    const result = await verifyWithApple(receipt);
+
+    console.log('🧾 [verify-receipt] Apple verify result status:', result.status);
+    console.log('🌍 [verify-receipt] Receipt environment used:', result._environmentUsed);
+
+    if (result.status !== 0) {
+      console.error('❌ [verify-receipt] Verification failed with status:', result.status);
+      return res.status(400).json({
+        success: false,
+        message: `Invalid receipt (Status: ${result.status})`,
+        status: result.status
+      });
+    }
+
+    const latestReceipts = Array.isArray(result.latest_receipt_info) ? result.latest_receipt_info : [];
+    const mostRecent = latestReceipts.sort((a, b) => Number(b.expires_date_ms) - Number(a.expires_date_ms))[0];
+
+    console.log('📊 [verify-receipt] 총 receipt 개수:', latestReceipts.length);
+
+    if (!mostRecent) {
+      console.warn('⚠️ [verify-receipt] No valid receipt info found after sorting');
+      return res.json({
+        success: true,
+        alreadySubscribed: false,
+        message: 'No subscription info found in receipt'
+      });
+    }
+
+    const now = Date.now();
+    const expiresMs = Number(mostRecent.expires_date_ms);
+    const expiresDate = new Date(expiresMs); // DB 저장을 위한 Date 객체
+    const isCanceled = !!mostRecent.cancellation_date;
+    const isExpired = expiresMs <= now;
+    const isSandbox = result._environmentUsed === 'sandbox';
+
+    console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
+    console.log('🕒 [verify-receipt] Current time (ms):', now);
+    console.log('🚫 [verify-receipt] Is canceled:', isCanceled);
+    console.log('⏰ [verify-receipt] Is expired:', isExpired);
+    console.log('🧪 [verify-receipt] Is sandbox:', isSandbox);
+
+    // --------------------------------------------------
+    // 시나리오 1: 구독이 취소된 경우 (isCanceled = true)
+    // --------------------------------------------------
+    if (isCanceled) {
+      console.warn('🚫 [verify-receipt] Subscription was cancelled by the user');
+      
+      // 기간이 만료되었으면 DB 'inactive' 처리
+      if (isExpired) {
+        console.log('⌛️ [verify-receipt] Cancelled subscription has expired - updating DB');
+        try {
+          const [updateResult] = await db.query(
+            'UPDATE users SET subscription_status = ?, subscription_expires_at = ? WHERE dojang_code = ?',
+            ['inactive', expiresDate, dojang_code]
+          );
+          console.log('🧹 [verify-receipt] user status set to "inactive" (cancelled & expired) - affected rows:', updateResult.affectedRows);
+        } catch (dbError) {
+          console.error('❌ [verify-receipt] DB 업데이트 실패 (cancelled & expired):', dbError);
+        }
+        
+        return res.json({
+          success: true,
+          alreadySubscribed: false,
+          cancelled: true,
+          expired: true,
+          expiresAt: expiresMs,
+          message: 'Cancelled subscription has expired - access revoked'
+        });
+      } 
+      // 기간이 남아있으면 (Apple 정책) DB는 건드리지 않고, '아직 구독 중'으로 응답
+      else {
+        console.log('✅ [verify-receipt] Cancelled subscription still active until expiration');
+        return res.json({
+          success: true,
+          alreadySubscribed: true, // ⭐️ 여전히 구독 중임
+          cancelled: true,
+          expiresAt: expiresMs,
+          message: 'Subscription cancelled but still active until expiration'
+        });
+      }
+    }
+
+    // --------------------------------------------------
+    // 시나리오 2: 구독이 활성 상태인 경우 (Active)
+    // --------------------------------------------------
+    if (!isExpired) { // (expiresMs > now)
+      console.log('✅ [verify-receipt] Active subscription. Updating DB...');
+      try {
+        // ⭐️⭐️⭐️ 중요: 구독 상태와 만료일을 DB에 저장/업데이트 ⭐️⭐️⭐️
+        const [updateResult] = await db.query(
+          'UPDATE users SET subscription_status = ?, subscription_expires_at = ? WHERE dojang_code = ?',
+          ['active', expiresDate, dojang_code]
+        );
+        console.log('💾 [verify-receipt] user status set to "active" - affected rows:', updateResult.affectedRows);
+      } catch (dbError) {
+        console.error('❌ [verify-receipt] DB 업데이트 실패 (active):', dbError);
+      }
+      
+      return res.json({
+        success: true,
+        alreadySubscribed: true,
+        expiresAt: expiresMs,
+        sandboxMode: isSandbox
+      });
+    }
+
+    // --------------------------------------------------
+    // 시나리오 3: 구독이 만료된 경우 (Expired)
+    // --------------------------------------------------
+    if (isExpired) {
+      console.warn('⌛️ [verify-receipt] [production/sandbox] subscription expired. Updating DB...');
+      try {
+        // ⭐️⭐️⭐️ 중요: 구독 상태를 'inactive'로 변경 ⭐️⭐️⭐️
+        const [updateResult] = await db.query(
+          'UPDATE users SET subscription_status = ?, subscription_expires_at = ? WHERE dojang_code = ?',
+          ['inactive', expiresDate, dojang_code]
+        );
+        console.log('🧹 [verify-receipt] user status set to "inactive" (expired) - affected rows:', updateResult.affectedRows);
+      } catch (dbError) {
+        console.error('❌ [verify-receipt] DB 업데이트 실패 (expired):', dbError);
+      }
+
+      return res.json({
+        success: true,
+        alreadySubscribed: false,
+        expired: true,
+        expiresAt: expiresMs,
+        sandboxMode: isSandbox
+      });
+    }
+
+    // --------------------------------------------------
+    // (Fallback) - 혹시 모를 예외
+    // --------------------------------------------------
+    console.log('🔚 [verify-receipt] Not subscribed. Sending fallback');
+    return res.json({
+      success: true,
+      alreadySubscribed: false,
+    });
+
+  } catch (error) {
+    console.error('🔥 [verify-receipt] Error verifying receipt:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error verifying receipt'
+    });
+  } finally {
+    console.log('📤 [verify-receipt] ====== 요청 완료 ======');
+  }
+});
+
 
 router.post('/subscription/cancel', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
@@ -488,216 +662,7 @@ router.post('/card-save', verifyToken, async (req, res) => {
 
 
 
-// 🔐 receipt 검증 엔드포인트
-router.post('/verify-receipt', verifyToken, async (req, res) => {
-  console.log('📥 [verify-receipt] ====== 요청 시작 ======');
-  console.log('🕒 [verify-receipt] 요청 시간:', new Date().toISOString());
-  console.log('👤 [verify-receipt] 사용자 dojang_code:', req.user?.dojang_code);
-  console.log('📨 [verify-receipt] receipt (first 30 chars):', req.body.receipt?.slice?.(0, 30));
-  console.log('🆔 [verify-receipt] productId:', req.body.productId);
-  console.log('🌍 [verify-receipt] environment:', req.body.environment);
 
-  const { receipt } = req.body;
-  const { dojang_code } = req.user;
-
-  if (!receipt) {
-    console.warn('⚠️ [verify-receipt] No receipt provided');
-    return res.status(400).json({ success: false, message: 'Receipt is required' });
-  }
-
-  try {
-    console.log('🍎 [verify-receipt] Apple 서버로 receipt 검증 요청 중...');
-    const result = await verifyWithApple(receipt);
-
-    console.log('🧾 [verify-receipt] Apple verify result status:', result.status);
-    console.log('🌍 [verify-receipt] Receipt environment used:', result._environmentUsed);
-
-    if (result.status !== 0) {
-      console.error('❌ [verify-receipt] Verification failed with status:', result.status);
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid receipt',
-        status: result.status
-      });
-    }
-
-    const latestReceipts = Array.isArray(result.latest_receipt_info) ? result.latest_receipt_info : [];
-    const mostRecent = latestReceipts.sort((a, b) => Number(b.expires_date_ms) - Number(a.expires_date_ms))[0];
-
-    console.log('🧾 [verify-receipt] Apple most recent receipt info:', mostRecent);
-    console.log('📊 [verify-receipt] 총 receipt 개수:', latestReceipts.length);
-
-    if (!mostRecent) {
-      console.warn('⚠️ [verify-receipt] No valid receipt found after sorting');
-      return res.json({
-        success: true,
-        alreadySubscribed: false
-      });
-    }
-
-    const now = Date.now();
-    const expiresMs = Number(mostRecent.expires_date_ms);
-    const isCanceled = !!mostRecent.cancellation_date;
-    const isExpired = expiresMs <= now;
-    const isSandbox = result._environmentUsed === 'sandbox';
-
-    console.log('📅 [verify-receipt] Subscription expires at (ms):', expiresMs);
-    console.log('🕒 [verify-receipt] Current time (ms):', now);
-    console.log('🚫 [verify-receipt] Is canceled:', isCanceled);
-    console.log('⏰ [verify-receipt] Is expired:', isExpired);
-    console.log('🧪 [verify-receipt] Is sandbox:', isSandbox);
-
-    // 🚫 취소된 경우 → Apple 정책에 따라 기간이 남아있으면 삭제하지 않음
-    if (isCanceled) {
-      console.warn('🚫 [verify-receipt] Subscription was cancelled by the user');
-      console.log('📅 [verify-receipt] Cancellation date:', mostRecent.cancellation_date);
-      console.log('📅 [verify-receipt] Original expiration date:', mostRecent.expires_date_ms);
-      console.log('🕒 [verify-receipt] Current time:', new Date().toISOString());
-
-      // Apple 정책: 취소해도 기간이 남아있으면 계속 사용 가능
-      if (isExpired) {
-        // 기간이 끝났으면 삭제
-        console.log('⌛️ [verify-receipt] Cancelled subscription has expired - deleting from DB');
-        
-        try {
-          console.log('🗑️ [verify-receipt] DB 삭제 시도 중... dojang_code:', dojang_code);
-          const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-          console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (cancelled & expired) - affected rows:', deleteResult[0].affectedRows);
-        } catch (dbError) {
-          console.error('❌ [verify-receipt] DB 삭제 실패 (cancelled & expired):', dbError);
-        }
-
-        return res.json({
-          success: true,
-          alreadySubscribed: false,
-          cancelled: true,
-          expired: true,
-          expiresAt: expiresMs,
-          cancellationDate: mostRecent.cancellation_date,
-          message: 'Cancelled subscription has expired - access revoked'
-        });
-      } else {
-        // 기간이 남아있으면 삭제하지 않음 (Apple 정책)
-        console.log('✅ [verify-receipt] Cancelled subscription still active until expiration - keeping in DB');
-        
-        return res.json({
-          success: true,
-          alreadySubscribed: true,  // 여전히 구독 중 (기간이 남아있음)
-          cancelled: true,
-          expiresAt: expiresMs,
-          cancellationDate: mostRecent.cancellation_date,
-          message: 'Subscription cancelled but still active until expiration'
-        });
-      }
-    }
-
-    // 🧪 Sandbox 테스트 상황
-    if (isSandbox) {
-      if (isExpired) {
-        console.log('🧪 [verify-receipt] [sandbox] expired → treat as inactive');
-        
-        // 먼저 해당 레코드가 존재하는지 확인
-        try {
-          console.log('🔍 [verify-receipt] Sandbox DB에서 기존 레코드 확인 중... dojang_code:', dojang_code);
-          const [existingRows] = await db.query('SELECT * FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-          console.log('📊 [verify-receipt] Sandbox 기존 레코드 개수:', existingRows.length);
-          
-          if (existingRows.length > 0) {
-            console.log('📋 [verify-receipt] Sandbox 기존 레코드:', existingRows[0]);
-          }
-        } catch (checkError) {
-          console.error('❌ [verify-receipt] Sandbox 기존 레코드 확인 실패:', checkError);
-        }
-        
-        // Sandbox에서도 만료된 구독은 DB에서 삭제
-        try {
-          console.log('🗑️ [verify-receipt] Sandbox DB 삭제 시도 중... dojang_code:', dojang_code);
-          const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-          console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (sandbox expired) - affected rows:', deleteResult[0].affectedRows);
-        } catch (dbError) {
-          console.error('❌ [verify-receipt] DB 삭제 실패 (sandbox expired):', dbError);
-        }
-        
-        return res.json({
-          success: true,
-          alreadySubscribed: false,
-          sandboxMode: true,
-          originalExpired: true,
-          message: 'Sandbox subscription expired - access revoked'
-        });
-      } else {
-        console.log('🧪 [verify-receipt] [sandbox] active subscription');
-        return res.json({
-          success: true,
-          alreadySubscribed: true,
-          expiresAt: expiresMs,
-          sandboxMode: true,
-          originalExpired: false
-        });
-      }
-    }
-
-    // ✅ 유효한 구독
-    if (expiresMs > now) {
-      const responsePayload = {
-        success: true,
-        alreadySubscribed: true,
-        expiresAt: expiresMs,
-      };
-      console.log('✅ [verify-receipt] Active subscription. Sending:', responsePayload);
-      return res.json(responsePayload);
-    }
-
-    // 🔚 만료된 구독 (production) → 삭제 후 응답
-    if (isExpired) {
-      console.warn('⌛️ [verify-receipt] [production] subscription expired');
-
-      // 먼저 해당 레코드가 존재하는지 확인
-      try {
-        console.log('🔍 [verify-receipt] Production DB에서 기존 레코드 확인 중... dojang_code:', dojang_code);
-        const [existingRows] = await db.query('SELECT * FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-        console.log('📊 [verify-receipt] Production 기존 레코드 개수:', existingRows.length);
-        
-        if (existingRows.length > 0) {
-          console.log('📋 [verify-receipt] Production 기존 레코드:', existingRows[0]);
-        }
-      } catch (checkError) {
-        console.error('❌ [verify-receipt] Production 기존 레코드 확인 실패:', checkError);
-      }
-
-      try {
-        console.log('🗑️ [verify-receipt] Production DB 삭제 시도 중... dojang_code:', dojang_code);
-        const deleteResult = await db.query('DELETE FROM owner_bank_accounts WHERE dojang_code = ?', [dojang_code]);
-        console.log('🧹 [verify-receipt] owner_bank_accounts entry deleted (expired) - affected rows:', deleteResult[0].affectedRows);
-      } catch (dbError) {
-        console.error('❌ [verify-receipt] DB 삭제 실패 (expired):', dbError);
-      }
-
-      return res.json({
-        success: true,
-        alreadySubscribed: false,
-        expired: true,
-        expiresAt: expiresMs
-      });
-    }
-
-    // fallback
-    console.log('🔚 [verify-receipt] Not subscribed. Sending fallback');
-    return res.json({
-      success: true,
-      alreadySubscribed: false,
-    });
-
-  } catch (error) {
-    console.error('🔥 [verify-receipt] Error verifying receipt:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error verifying receipt'
-    });
-  } finally {
-    console.log('📤 [verify-receipt] ====== 요청 완료 ======');
-  }
-});
 
 
 
