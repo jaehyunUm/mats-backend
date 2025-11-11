@@ -11,9 +11,32 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
   console.log('🕒 [verify-receipt] 요청 시간:', new Date().toISOString());
   
   const { receipt, productId, environment } = req.body;
-  const { dojang_code } = req.user; // verifyToken에서 제공
+  
+  // ⭐️ 'id'와 'dojang_code'를 토큰에서 추출
+  const { id: userId, dojang_code } = req.user; 
 
+  console.log('👤 [verify-receipt] 사용자 ID:', userId); // ⭐️ ID 로그 추가
   console.log('👤 [verify-receipt] 사용자 dojang_code:', dojang_code);
+
+  // 💡====== [특별 예외 처리] ======💡
+  // ID 1 (saehan.jh@gmail.com)은 "영구 테스트 계정"입니다.
+  // 만료된 샌드박스 영수증이 DB의 '2050년' 테스트 데이터를 덮어쓰는 것을 방지하기 위해,
+  // 이 계정에 대해서는 실제 영수증 검증 로직을 건너뜁니다.
+  if (userId === 1) { 
+    console.warn('🟡 [verify-receipt] 예외 처리: ID 1 (테스트 계정) 영수증 검증을 건너뜁니다.');
+    console.warn('🟡 [verify-receipt] DB 덮어쓰기 방지됨.');
+    
+    // 프론트엔드(handleExistingPurchase)가 혼동하지 않고 
+    // finishTransaction을 호출할 수 있도록 'alreadySubscribed: true'로 응답합니다.
+    return res.json({
+      success: true,
+      alreadySubscribed: true, // '이미 구독 중'으로 응답
+      message: 'Skipping receipt validation for dev account (ID 1)'
+    });
+  }
+  // 💡===============================💡
+
+  // (ID 1이 아닌 일반 유저들만 이 아래 로직을 실행합니다)
   console.log('📨 [verify-receipt] receipt (first 30 chars):', receipt?.slice?.(0, 30));
   console.log('🆔 [verify-receipt] productId:', productId);
   console.log('🌍 [verify-receipt] environment (from app):', environment);
@@ -23,7 +46,7 @@ router.post('/verify-receipt', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Receipt is required' });
   }
   if (!dojang_code) {
-    console.warn('⚠️ [verify-receipt] No dojang_code found in token');
+    console.warn('⚠️ [verify-receipt] No dojang_code found in token (Not ID 1)');
     return res.status(400).json({ success: false, message: 'Invalid user token' });
   }
 
