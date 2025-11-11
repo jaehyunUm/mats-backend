@@ -309,13 +309,39 @@ router.post("/stripe/subscription/create", verifyToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    // Stripe 구독 생성
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: planId }],
       default_payment_method: paymentMethodId,
       expand: ['latest_invoice.payment_intent'],
     });
+
+    console.log('✅ [Stripe Create] Stripe 구독 생성 완료. Status:', subscription.status);
+
+    // ⭐️======= 바로 이 부분입니다! =======⭐️
+    // Stripe 구독 상태 (예: 'active', 'trialing')
+    const stripeStatus = subscription.status; 
+    
+    // 만료일 (Stripe는 초 단위 timestamp를 주므로 1000을 곱함)
+    const expiresMs = subscription.current_period_end * 1000;
+    const expiresDate = new Date(expiresMs);
+
+    try {
+      console.log('💾 [Stripe Create] users 테이블 업데이트 시도...');
+      
+      // ⭐️⭐️⭐️ Apple 로직과 동일하게 users 테이블을 업데이트합니다 ⭐️⭐️⭐️
+      const [updateResult] = await db.query(
+        'UPDATE users SET subscription_status = ?, subscription_expires_at = ? WHERE dojang_code = ?',
+        // ⭐️ dojang_code가 필요해서, 토큰에서 userId와 dojang_code를 모두 가져와야 합니다.
+        [stripeStatus, expiresDate, req.user.dojang_code] 
+      );
+      console.log('💾 [Stripe Create] users 테이블 업데이트 완료. AFFECTED ROWS:', updateResult.affectedRows);
+    } catch (dbError) {
+      console.error('❌ [Stripe Create] DB 업데이트 실패:', dbError);
+    }
+    // ⭐️=====================================⭐️
+
+    console.log('📤 [Stripe Create] 프론트엔드로 성공 응답 전송');
 
     res.status(200).json({
       success: true,
