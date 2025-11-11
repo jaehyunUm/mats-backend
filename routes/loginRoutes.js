@@ -187,7 +187,7 @@ router.post('/refresh-token', (req, res) => {
   });
 });
 
-JavaScript
+
 // ✅ (추가된) 이메일 찾기 (아이디 찾기) 엔드포인트
 router.post('/find-email', async (req, res) => {
   console.log('🔍 [find-email] ====== 이메일 찾기 요청 시작 ======');
