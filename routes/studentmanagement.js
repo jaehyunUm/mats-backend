@@ -41,17 +41,50 @@ router.get('/students/program/:programName', verifyToken, async (req, res) => {
   
   
 
-// 전체 학생 목록 가져오기
+// 학생 검색 (전체 목록 겸용)
 router.get('/students', verifyToken, async (req, res) => {
-    try {
-      const sql = `SELECT * FROM students WHERE dojang_code = ?`;
-      const [students] = await db.query(sql, [req.user.dojang_code]);
-      res.status(200).json(students);
-    } catch (err) {
-      console.error('Error fetching students:', err);
-      res.status(500).json({ message: 'Database error', error: err });
+  // 1. 프론트엔드에서 보낸 검색어(?search=...)를 받습니다.
+  const { search } = req.query;
+
+  try {
+    // 2. 기본 SQL 쿼리 (JOIN은 동일)
+    let sql = `
+      SELECT 
+        s.*, 
+        p.name AS program_name 
+      FROM 
+        students AS s
+      LEFT JOIN 
+        programs AS p ON s.program_id = p.id
+      WHERE 
+        s.dojang_code = ?
+    `;
+    
+    const params = [req.user.dojang_code];
+
+    // 3. 만약 'search' 쿼리 파라미터가 존재하면, 검색 조건(AND)을 추가
+    if (search) {
+      sql += `
+        AND (
+          s.first_name LIKE ? OR
+          s.last_name LIKE ? OR
+          p.name LIKE ?
+        )
+      `;
+      // 'John' -> '%John%' (부분 일치 검색)
+      const searchTerm = `%${search}%`;
+      params.push(searchTerm, searchTerm, searchTerm);
     }
-  });
+    
+    // 4. 최종 SQL 실행 (검색어가 없으면 전체 목록, 있으면 필터링된 목록)
+    const [students] = await db.query(sql, params);
+    res.status(200).json(students);
+
+  } catch (err) {
+    console.error('Error fetching students:', err);
+    res.status(500).json({ message: 'Database error', error: err });
+  }
+});
 
   router.get('/studentmanagement', verifyToken, async (req, res) => {
     try {
