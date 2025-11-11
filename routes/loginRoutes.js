@@ -188,13 +188,13 @@ router.post('/refresh-token', (req, res) => {
 });
 
 
-// ✅ (추가된) 이메일 찾기 (아이디 찾기) 엔드포인트
+// ✅ (수정된) 이메일 찾기 (아이디 찾기) 엔드포인트
 router.post('/find-email', async (req, res) => {
   console.log('🔍 [find-email] ====== 이메일 찾기 요청 시작 ======');
   console.log('🕒 [find-email] 요청 시간:', new Date().toISOString());
   
   const { first_name, last_name, phone } = req.body;
-  console.log('📝 [find-email] 요청 정보:', { first_name, last_name, phone });
+  console.log('📝 [find-email] 요청 정보 (원본):', { first_name, last_name, phone });
 
   // --- 1. 입력값 유효성 검사 ---
   if (!first_name || !last_name || !phone) {
@@ -202,8 +202,15 @@ router.post('/find-email', async (req, res) => {
     return res.status(400).json({ message: 'First name, last name, and phone are required' });
   }
 
+  // ⭐️⭐️⭐️ [수정된 부분] ⭐️⭐️⭐️
+  // phone 값에서 숫자(0-9)를 제외한 모든 문자(하이픈, 괄호, 공백 등)를 제거합니다.
+  const sanitizedPhone = phone.replace(/\D/g, '');
+  console.log('🧼 [find-email] 정리된 전화번호:', sanitizedPhone);
+  // ⭐️⭐️⭐️ [수정 완료] ⭐️⭐️⭐️
+
   try {
-    const queryParams = [first_name, last_name, phone];
+    // ⭐️ [수정된 부분] 쿼리 파라미터로 'sanitizedPhone' 사용
+    const queryParams = [first_name, last_name, sanitizedPhone];
 
     // --- 2. users 테이블(Owner)에서 검색 ---
     const queryUsers = `
@@ -244,12 +251,6 @@ router.post('/find-email', async (req, res) => {
     // 일치하는 이메일을 찾은 경우
     console.log('✅ [find-email] 최종 이메일 목록:', emailList);
 
-    // ⭐️ 보안 참고:
-    // 실제 운영 환경에서는 이메일 주소 전체를 반환하는 대신,
-    // 마스킹 처리된 이메일(e.g., s****n@g***.com)을 반환하거나,
-    // "해당 정보와 일치하는 이메일로 안내 메일을 보냈습니다."라고 응답하는 것이 더 안전합니다.
-    // 여기서는 요청하신 대로 찾은 이메일 목록을 반환합니다.
-    
     return res.status(200).json({
       message: 'Email(s) found successfully',
       emails: emailList // 찾은 이메일 목록을 배열로 반환
