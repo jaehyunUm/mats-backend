@@ -202,29 +202,36 @@ router.post('/find-email', async (req, res) => {
     return res.status(400).json({ message: 'First name, last name, and phone are required' });
   }
 
-  // ⭐️⭐️⭐️ [수정된 부분] ⭐️⭐️⭐️
-  // phone 값에서 숫자(0-9)를 제외한 모든 문자(하이픈, 괄호, 공백 등)를 제거합니다.
-  const sanitizedPhone = phone.replace(/\D/g, '');
-  console.log('🧼 [find-email] 정리된 전화번호:', sanitizedPhone);
-  // ⭐️⭐️⭐️ [수정 완료] ⭐️⭐️⭐️
-
-  try {
-    // ⭐️ [수정된 부분] 쿼리 파라미터로 'sanitizedPhone' 사용
-    const queryParams = [first_name, last_name, sanitizedPhone];
-
-    // --- 2. users 테이블(Owner)에서 검색 ---
-    const queryUsers = `
-      SELECT email FROM users 
-      WHERE first_name = ? AND last_name = ? AND phone = ?
-    `;
-    const [userResults] = await db.query(queryUsers, queryParams);
-    
-    // --- 3. parents 테이블에서 검색 ---
-    const queryParents = `
-      SELECT email FROM parents 
-      WHERE first_name = ? AND last_name = ? AND phone = ?
-    `;
-    const [parentResults] = await db.query(queryParents, queryParams);
+   // ⭐️ [수정 1] 숫자 아닌 문자 제거 (전화번호)
+   const sanitizedPhone = phone.replace(/\D/g, '');
+  
+   // ⭐️ [수정 2] 앞뒤 공백 제거 (이름)
+   const trimmedFirstName = first_name.trim();
+   const trimmedLastName = last_name.trim();
+ 
+   console.log('🧼 [find-email] 정리된 검색어:', { trimmedFirstName, trimmedLastName, sanitizedPhone });
+ 
+ 
+   try {
+     // ⭐️ [수정 3] 정리된 변수를 쿼리 파라미터로 사용
+     const queryParams = [trimmedFirstName, trimmedLastName, sanitizedPhone];
+ 
+     // --- 2. users 테이블(Owner)에서 검색 ---
+     // ⭐️ [수정 4] LOWER() 함수를 사용해 대소문자 구분 없이 검색
+     const queryUsers = `
+       SELECT email FROM users 
+       WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND phone = ?
+     `;
+     const [userResults] = await db.query(queryUsers, queryParams);
+     
+     // --- 3. parents 테이블에서 검색 ---
+     // ⭐️ [수정 4] (동일하게 적용)
+     const queryParents = `
+       SELECT email FROM parents 
+       WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND phone = ?
+     `;
+     const [parentResults] = await db.query(queryParents, queryParams);
+ 
 
     // --- 4. 결과 취합 (Set을 사용해 중복 이메일 자동 제거) ---
     const foundEmails = new Set();
