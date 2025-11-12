@@ -60,7 +60,7 @@ async function processSubscriptions() {
 })();
 
 // cron.schedule('0 3 * * *', () => { // <--- 기존 코드
-cron.schedule('*/5 * * * *', () => { // <--- 5분마다 실행되도록 수정
+cron.schedule('*/1 * * * *', () => { // <--- 5분마다 실행되도록 수정
   console.log(`[${new Date().toISOString()}] Running scheduled subscription job...`);
   try {
     processSubscriptions()
