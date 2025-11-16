@@ -57,7 +57,7 @@ router.post("/register-student", verifyToken, async (req, res) => {
   try {
     const {
       first_name, last_name, birth_date, gender,
-      belt_rank, belt_size, parent_id, profile_image, program_id
+      belt_rank, belt_size, parent_id, profile_image, program_id, is_paid_flow
     } = req.body || {};
     const dojang_code = req.user?.dojang_code ?? null;
 
@@ -145,6 +145,23 @@ router.post("/register-student", verifyToken, async (req, res) => {
          parentId, profileImg, programId ?? null, dojang_code]
       );
       student_id = result.insertId;
+
+      if (!is_paid_flow) { // 👈 is_paid_flow가 true가 아닐 때만 실행
+        try {
+          const programName = program_id ? `(Program ID: ${program_id})` : '';
+          const notificationMessage = `New free trial registered: ${firstName} ${lastName} ${programName}.`;
+
+          await db.query(
+            `INSERT INTO notifications (dojang_code, message) VALUES (?, ?)`,
+            [dojang_code, notificationMessage]
+          );
+          console.log("✅ Notification created for new free trial student.");
+
+        } catch (notificationError) {
+          console.error("⚠️ Failed to create notification, but student was registered:", notificationError);
+        }
+      }
+
     }
 
     return res.status(201).json({ success:true, student_id });
@@ -196,8 +213,10 @@ router.post('/process-payment', verifyToken, async (req, res) => {
   }
 
   if (
-    !student_id ||
+    // !student_id, // 👈 제거
     !student ||
+    !student.firstName || // 👈 학생 이름 등으로 대체
+    !student.lastName ||
     !program ||
     !classes ||
     isNaN(amountValue) ||
@@ -220,40 +239,85 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    // 학생 정보 처리
-    let studentId = student_id;
-    const dobSQL = toSqlDate(student?.dateOfBirth);
-     console.log('[process-payment] DOB raw =', student?.dateOfBirth, '→', dobSQL);
+   // ⭐️ [시작] /register-student 로직 통합 (삽입할 코드) ⭐️
+    // (student_id는 req.body에서 오지만, 신규 등록 시 null일 수 있습니다)
+    let studentId = student_id; 
     
-     const [existingStudent] = await connection.query(
-       `SELECT id FROM students
-          WHERE first_name = ? AND last_name = ?
-            AND birth_date <=> ?         -- NULL-safe equality, 인덱스 사용
-            AND dojang_code = ?`,
-       [student.firstName, student.lastName, dobSQL, dojang_code]
-     );
+    const { 
+      firstName, lastName, dateOfBirth, gender, 
+      belt_rank, beltSize, profileImage 
+    } = student; // 'student' 객체에서 모든 정보 추출
+    const programId = program.id; // 결제하려는 프로그램 ID
+
+    // 데이터 정규화
+    const dobSQL = toSqlDate(dateOfBirth) ?? null;
+    const genderNorm = String(gender ?? "").toLowerCase().trim();
+    const beltRank = String(belt_rank ?? "");
+    const beltSizeNorm = beltSize ?? null;
+    const profileImg = profileImage ?? null;
+
+    console.log("🔍 [process-payment] 학생 정보 처리 시작.");
+
+    // 1. 기존 학생 조회 (이름, 생년월일, 부모ID, 도장코드로)
+    const [existingStudent] = await connection.query(
+      `SELECT id FROM students
+        WHERE first_name = ? AND last_name = ?
+          AND birth_date <=> ?         -- NULL-safe equality
+          AND parent_id = ?
+          AND dojang_code = ?`,
+      [firstName, lastName, dobSQL, parent_id, dojang_code]
+    );
+
     if (existingStudent.length > 0) {
+      // 2a. [업데이트]
       studentId = existingStudent[0].id;
-      await connection.query(`
-        UPDATE students 
-        SET 
-          program_id = ?,
-          parent_id = ?  
-        WHERE id = ?
-      `, [
-        program.id,        // 새 프로그램 ID
-        parent_id || null, // 부모 ID
-        studentId
-      ]);
-      console.log("✅ Student record updated (Program Change ONLY):", studentId);
+      console.log("🔄 [process-payment] 기존 학생 업데이트:", studentId);
+      
+      // /register-student의 상세 업데이트 로직 사용
+      await connection.query(
+        `UPDATE students
+           SET gender=?, 
+               belt_rank=?, 
+               belt_size=?, 
+               program_id=?, 
+               birth_date=?,
+               profile_image = COALESCE(?, profile_image) 
+         WHERE id=?`,
+        [
+          genderNorm, 
+          beltRank, 
+          beltSizeNorm, 
+          programId, 
+          dobSQL, 
+          profileImg, 
+          studentId
+        ]
+      );
     } else {
-      console.error("❌ Student not found with provided information");
-      await connection.rollback();
-      connection.release();
-      return res.status(400).json({ success: false, message: "Student not found. Please register first." });
+      // 2b. [신규 삽입]
+      console.log("🆕 [process-payment] 신규 학생 삽입...");
+      const [result] = await connection.query(
+        `INSERT INTO students
+           (first_name, last_name, birth_date, gender, belt_rank, belt_size,
+            parent_id, profile_image, program_id, dojang_code)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          firstName, lastName, dobSQL, genderNorm, beltRank, beltSizeNorm,
+          parent_id, profileImg, programId, dojang_code
+        ]
+      );
+      studentId = result.insertId;
+      console.log("✅ [process-payment] 신규 학생 생성 완료:", studentId);
+    }
+    
+    // 3. studentId가 확정되었는지 최종 확인
+    if (!studentId) {
+        // 이 경우는 로직상 발생하면 안 됨
+        throw new Error("Student ID could not be determined after insert/update.");
     }
 
-    console.log("✅ Student ID confirmed:", studentId);
+    console.log("✅ Student ID confirmed for transaction:", studentId);
+    // ⭐️ [로직 통합 끝] ⭐️
 
    // ⭐⭐⭐ 수업 등록 처리: 기존 클래스 전체 삭제 후 새 클래스 전체 등록 ⭐⭐⭐
 
@@ -604,6 +668,23 @@ router.post('/process-payment', verifyToken, async (req, res) => {
               last_payment_date = payment_date
           WHERE payment_id = ?
         `, [mainPaymentId]);
+      }
+
+      try {
+        // req.body에서 학생 이름과 프로그램 이름을 가져옵니다.
+        const studentName = `${student.firstName || ''} ${student.lastName || ''}`;
+        const programName = program.name || 'Unknown Program';
+        const notificationMessage = `New paid registration: ${studentName} joined ${programName}.`;
+
+        await connection.query(
+          `INSERT INTO notifications (dojang_code, message) VALUES (?, ?)`,
+          [dojang_code, notificationMessage]
+        );
+        console.log("✅ Notification created for new payment.");
+
+      } catch (notificationError) {
+        // 알림이 실패해도 결제는 롤백하지 않도록 별도 try/catch로 감쌉니다.
+        console.error("⚠️ Failed to create notification, but payment was successful:", notificationError);
       }
 
       // 트랜잭션 커밋

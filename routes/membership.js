@@ -82,6 +82,7 @@ router.get('/membership-info', verifyToken, async (req, res) => {
           AND pp.program_id = p.id 
           AND pp.status = 'completed' 
           AND pp.dojang_code = s.dojang_code
+          AND p.payment_type = 'pay_in_full'
       LEFT JOIN
         monthly_payments mp ON s.id = mp.student_id 
           AND p.payment_type = 'monthly_pay'

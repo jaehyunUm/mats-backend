@@ -42,6 +42,7 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       LEFT JOIN programs p ON g.program_id = p.id
       WHERE g.dojang_code = ?
         AND g.status = 'canceled'
+        AND g.student_id IS NOT NULL -- ⭐️⭐️⭐️ 이 줄을 추가 ⭐️⭐️⭐️
         AND (p.name IS NULL OR LOWER(p.name) NOT LIKE '%free trial%')
       GROUP BY month_key
       ORDER BY month_key ASC;
