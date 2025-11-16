@@ -383,7 +383,8 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    // ✅ 학생 확인
+    // ✅ 1. 학생 확인 (기존과 동일)
+    // ⭐️ "canceled" 기록을 남기기 위해 parent_id와 program_id를 가져옵니다.
     const [studentResult] = await conn.query(
       `SELECT id, parent_id, program_id, dojang_code, profile_image 
        FROM students 
@@ -399,8 +400,7 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
     const student = studentResult[0];
     const imageUrl = student.profile_image;
 
-
-    // ✅ S3 이미지 삭제
+    // ✅ 2. S3 이미지 삭제 (기존과 동일)
     if (imageUrl) {
       const fileName = imageUrl.split('/').pop();
       if (fileName) {
@@ -413,31 +413,65 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
       }
     }
 
-    // ✅ 연관 데이터 삭제
+    // ✅ 3. ⭐️ [신규] "canceled" 기록 남기기 (해결책 B의 핵심)
+    // 이 로직은 1단계 DB FK 변경이 완료된 후에만 정상 동작합니다.
+    await conn.query(
+      `INSERT INTO student_growth 
+         (student_id, parent_id, program_id, dojang_code, status, created_at) 
+       VALUES (?, ?, ?, ?, 'canceled', NOW())`,
+      [
+        studentId, 
+        student.parent_id, 
+        student.program_id, // ⭐️ 학생의 "마지막" 프로그램을 기록
+        dojang_code
+      ]
+    );
+
+    // ✅ 4. ⭐️ [변경] 연관 데이터 정리
+    
+    // (기존과 동일) 출석, 수업, 테스트 목록/결과는 삭제
     await conn.query(`DELETE FROM attendance WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM student_classes WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-    await conn.query(`DELETE FROM monthly_payments WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM testlist WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM testresult WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-
-    // ✅ 학생 자체 삭제
-    const [deleteResult] = await conn.query(
-      `DELETE FROM students WHERE id = ? AND dojang_code = ?`,
+    
+    // ⭐️ [변경] 월간 결제는 삭제(DELETE) 대신 'canceled'로 상태 변경 (기록 보존)
+    await conn.query(
+      `UPDATE monthly_payments SET status = 'canceled' 
+       WHERE student_id = ? AND dojang_code = ? AND status = 'pending'`, 
       [studentId, dojang_code]
     );
 
-    if (deleteResult.affectedRows === 0) {
+    // ⭐️ [추가] Pay-in-full 학생이면 남은 횟수 0으로 (비활성화)
+    await conn.query(
+      `UPDATE payinfull_payment SET remaining_classes = 0 
+       WHERE student_id = ? AND dojang_code = ?`,
+      [studentId, dojang_code]
+    );
+
+    // ✅ 5. ⭐️ [핵심 변경] "Hard Delete" 대신 "Soft Delete" (비활성화)
+    // program_id를 NULL로 만들어 "무소속" 상태로 변경합니다.
+    const [updateResult] = await conn.query(
+      `UPDATE students SET program_id = NULL 
+       WHERE id = ? AND dojang_code = ?`,
+      [studentId, dojang_code]
+    );
+
+    if (updateResult.affectedRows === 0) {
       await conn.rollback();
-      return res.status(404).json({ success: false, message: 'Failed to delete student' });
+      return res.status(404).json({ success: false, message: 'Failed to deactivate student' });
     }
 
     await conn.commit();
-    res.status(200).json({ success: true, message: 'Student deleted successfully' });
+    res.status(200).json({ success: true, message: 'Student deactivated successfully' }); // ⭐️ 메시지 변경
 
   } catch (error) {
     await conn.rollback();
-    console.error('❌ Error deleting student:', error);
-    res.status(500).json({ success: false, message: 'An error occurred while deleting the student' });
+    
+    // ⭐️ [중요] 1단계(DB FK 변경)를 완료하면, 이 API가 아닌 다른 곳에서
+    // 'DELETE FROM students'를 시도할 경우 여기서 FK 에러가 잡힐 수 있습니다.
+    console.error('❌ Error deactivating student:', error);
+    res.status(500).json({ success: false, message: 'An error occurred while deactivating the student' });
   } finally {
     conn.release();
   }

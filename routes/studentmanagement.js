@@ -135,6 +135,7 @@ router.get('/students', verifyToken, async (req, res) => {
           
         WHERE
           s.dojang_code = ?
+          AND s.program_id IS NOT NULL -- ⭐️ 이 줄을 추가
       `;
       
       // SQL 쿼리에 dojangCode 변수를 두 번 바인딩
