@@ -113,6 +113,7 @@ router.get('/owner/payment-history/order', verifyToken, async (req, res) => {
 });
 
 // ✅ 월별 결제 예정 내역 조회 (도장 오너)
+// ✅ 월별 결제 예정 내역 조회 (도장 오너)
 router.get('/owner/payment-history/monthly', verifyToken, async (req, res) => {
     try {
         const { dojang_code } = req.user;
@@ -132,11 +133,12 @@ router.get('/owner/payment-history/monthly', verifyToken, async (req, res) => {
             LEFT JOIN students s ON mp.student_id = s.id AND s.dojang_code = mp.dojang_code
             WHERE mp.dojang_code = ?
             AND mp.status = 'completed'
+            AND mp.program_fee > 0 -- ✅ 0원 초과(유료 결제 대상)인 경우만 조회
             ORDER BY mp.next_payment_date DESC`;
 
         const [rows] = await db.query(query, [dojang_code]);
         
-        console.log(`✅ [MONTHLY] Found ${rows.length} upcoming monthly payment records`);
+        console.log(`✅ [MONTHLY] Found ${rows.length} billable upcoming monthly payment records`);
         res.json(rows);
 
     } catch (error) {
