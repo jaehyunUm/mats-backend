@@ -674,7 +674,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         // req.body에서 학생 이름과 프로그램 이름을 가져옵니다.
         const studentName = `${student.firstName || ''} ${student.lastName || ''}`;
         const programName = program.name || 'Unknown Program';
-        const notificationMessage = `New paid registration: ${studentName} joined ${programName}.`;
+        const notificationMessage = ` registration: ${studentName} joined ${programName}.`;
 
         await connection.query(
           `INSERT INTO notifications (dojang_code, message) VALUES (?, ?)`,
