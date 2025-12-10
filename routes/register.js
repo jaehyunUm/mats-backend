@@ -674,7 +674,18 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         // req.body에서 학생 이름과 프로그램 이름을 가져옵니다.
         const studentName = `${student.firstName || ''} ${student.lastName || ''}`;
         const programName = program.name || 'Unknown Program';
-        const notificationMessage = ` registration: ${studentName} joined ${programName}.`;
+        
+        // ✅ [수정] 메시지 생성 로직 변경
+        let notificationMessage = ` registration: ${studentName} joined ${programName}`;
+
+        // 유니폼이 있으면 메시지 뒤에 내용을 추가합니다.
+        if (uniforms && uniforms.length > 0) {
+          // 예: " and purchased uniform(s): V-Neck Uniform, T-Shirt"
+          const uniformNames = uniforms.map(u => u.name).join(', ');
+          notificationMessage += ` and purchased uniform(s): ${uniformNames}`;
+        }
+
+        notificationMessage += `.`; // 마침표로 마무리
 
         await connection.query(
           `INSERT INTO notifications (dojang_code, message) VALUES (?, ?)`,
