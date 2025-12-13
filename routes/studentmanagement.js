@@ -41,28 +41,17 @@ router.get('/students/program/:programName', verifyToken, async (req, res) => {
   
   
 
-// 학생 검색 및 전체 목록 조회 API
+// 학생 검색 (전체 목록 겸용)
 router.get('/students', verifyToken, async (req, res) => {
   // 1. 프론트엔드에서 보낸 검색어(?search=...)를 받습니다.
   const { search } = req.query;
-  const { dojang_code } = req.user; // 토큰에서 도장 코드 추출
 
   try {
-    // 2. SQL 쿼리 작성
-    // - students 테이블(s)을 기준
-    // - programs 테이블(p)을 LEFT JOIN하여 프로그램 이름 가져오기
-    // - [핵심] 서브쿼리를 사용하여 attendance 테이블에서 'present' 상태인 출석 수 카운트
+    // 2. 기본 SQL 쿼리 (JOIN은 동일)
     let sql = `
       SELECT 
         s.*, 
-        p.name AS program_name,
-        (
-          SELECT COUNT(*) 
-          FROM attendance AS a 
-          WHERE a.student_id = s.id 
-            AND a.status = 'present' 
-            AND a.dojang_code = s.dojang_code
-        ) AS attendance_count
+        p.name AS program_name 
       FROM 
         students AS s
       LEFT JOIN 
@@ -71,8 +60,7 @@ router.get('/students', verifyToken, async (req, res) => {
         s.dojang_code = ?
     `;
     
-    // 기본 파라미터 (도장 코드)
-    const params = [dojang_code];
+    const params = [req.user.dojang_code];
 
     // 3. 만약 'search' 쿼리 파라미터가 존재하면, 검색 조건(AND)을 추가
     if (search) {
@@ -83,23 +71,17 @@ router.get('/students', verifyToken, async (req, res) => {
           p.name LIKE ?
         )
       `;
-      // 검색어 앞뒤에 %를 붙여 부분 일치 검색 ('John' -> '%John%')
+      // 'John' -> '%John%' (부분 일치 검색)
       const searchTerm = `%${search}%`;
-      // 이름(성, 이름) 또는 프로그램 이름에 검색어가 포함되는지 확인
       params.push(searchTerm, searchTerm, searchTerm);
     }
     
-    // 4. 최신순 정렬 (선택 사항, 필요 없으면 제거 가능)
-    sql += ` ORDER BY s.first_name ASC`;
-
-    // 5. 최종 SQL 실행
+    // 4. 최종 SQL 실행 (검색어가 없으면 전체 목록, 있으면 필터링된 목록)
     const [students] = await db.query(sql, params);
-    
-    // 6. 결과 전송
     res.status(200).json(students);
 
   } catch (err) {
-    console.error('❌ Error fetching students:', err);
+    console.error('Error fetching students:', err);
     res.status(500).json({ message: 'Database error', error: err });
   }
 });
