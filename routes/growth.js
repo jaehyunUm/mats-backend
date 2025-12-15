@@ -202,7 +202,6 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     }
   
     try {
-      // student_growth(취소기록) + students(이름) + programs(프로그램명) 조인
       const query = `
         SELECT 
           sg.id,
