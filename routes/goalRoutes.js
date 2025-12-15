@@ -113,9 +113,8 @@ router.delete('/goals/:goalId', verifyToken, async (req, res) => {
 });
 
 // ==========================================
-// 2. Student Notes (코멘트) API 섹션
+// 2. Student Notes (코멘트) API 섹션 (수정됨)
 // ==========================================
-// 기존 코드 스타일(async/await)에 맞춰 변환했습니다.
 
 // 2-1. 특정 학생의 모든 노트 가져오기
 // GET /api/student-notes/:studentId
@@ -123,8 +122,10 @@ router.get('/student-notes/:studentId', verifyToken, async (req, res) => {
     const { studentId } = req.params;
     
     try {
+        // [수정] note_content -> content 로 변경
+        // [추가] 작성자(author_name)와 카테고리(category)도 가져오도록 수정
         const query = `
-            SELECT id, note_content, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as date 
+            SELECT id, content, author_name, category, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as date 
             FROM student_notes 
             WHERE student_id = ? 
             ORDER BY created_at DESC
@@ -142,16 +143,24 @@ router.get('/student-notes/:studentId', verifyToken, async (req, res) => {
 // 2-2. 노트 추가하기
 // POST /api/add-note
 router.post('/add-note', verifyToken, async (req, res) => {
-    const { student_id, note_content } = req.body;
+    // [수정] 프론트엔드에서 보낼 데이터 이름도 content, author_name, category로 받음
+    const { student_id, content, author_name, category } = req.body;
 
-    if (!student_id || !note_content) {
-        return res.status(400).json({ success: false, message: 'Missing data' });
+    // [수정] note_content -> content 검사
+    if (!student_id || !content) {
+        return res.status(400).json({ success: false, message: 'Missing data (student_id or content)' });
     }
 
     try {
-        const query = 'INSERT INTO student_notes (student_id, note_content) VALUES (?, ?)';
+        // [수정] DB 컬럼명 content 로 변경
+        // [추가] author_name, category 추가
+        const query = 'INSERT INTO student_notes (student_id, content, author_name, category) VALUES (?, ?, ?, ?)';
         
-        const [result] = await db.query(query, [student_id, note_content]);
+        // 작성자가 없으면 'Master Um', 카테고리 없으면 'General'로 기본값 설정
+        const finalAuthor = author_name || 'Master Um';
+        const finalCategory = category || 'General';
+
+        const [result] = await db.query(query, [student_id, content, finalAuthor, finalCategory]);
         
         res.json({ success: true, message: 'Note added successfully', id: result.insertId });
 
@@ -161,7 +170,7 @@ router.post('/add-note', verifyToken, async (req, res) => {
     }
 });
   
-// 2-3. 노트 삭제하기
+// 2-3. 노트 삭제하기 (이건 수정할 필요 없음, 잘 되어 있음)
 // DELETE /api/delete-note/:noteId
 router.delete('/delete-note/:noteId', verifyToken, async (req, res) => {
     const { noteId } = req.params;
@@ -178,5 +187,7 @@ router.delete('/delete-note/:noteId', verifyToken, async (req, res) => {
         res.status(500).json({ success: false, message: 'DB Error' });
     }
 });
+
+module.exports = router;
 
 module.exports = router;
