@@ -193,7 +193,7 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     }
   });
   
-  router.get('/canceled-students-list', verifyToken, async (req, res) => {
+  router.get('/growth/canceled-students-list', verifyToken, async (req, res) => {
     const { year } = req.query;
     const { dojang_code } = req.user;
   
