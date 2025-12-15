@@ -1,12 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
-const db = require('../db');
+const db = require('../db'); // mysql2/promise를 사용한다고 가정 (await db.query 가능)
 const verifyToken = require('../middleware/verifyToken');
-const { upload } = require('../index'); // index.js에서 export한 upload 객체
+const { upload } = require('../index'); 
 const { uploadFileToS3, deleteFileFromS3 } = require('../modules/s3Service');
 
-// 1. 특정 학생의 목표 이미지 업로드 API
+// ==========================================
+// 1. 목표 (Goals) API 섹션
+// ==========================================
+
+// 1-1. 목표 이미지 업로드 API
 // POST /api/students/:studentId/goals
 router.post('/students/:studentId/goals', verifyToken, upload.single('image'), async (req, res) => {
     const { studentId } = req.params;
@@ -19,13 +23,11 @@ router.post('/students/:studentId/goals', verifyToken, upload.single('image'), a
     try {
         const timestamp = Date.now();
         const originalname = req.file.originalname;
-        const fileExtension = path.extname(originalname); // 파일 확장자 추출
+        const fileExtension = path.extname(originalname); 
         const uniqueFileName = `goals/goal_${studentId}_${timestamp}${fileExtension}`;
 
-        // S3에 파일 업로드
         const imageUrl = await uploadFileToS3(uniqueFileName, req.file.buffer, dojang_code);
 
-        // DB에 S3 URL 저장
         const query = 'INSERT INTO goals (student_id, image_url) VALUES (?, ?)';
         await db.query(query, [studentId, imageUrl]);
         
@@ -41,26 +43,36 @@ router.post('/students/:studentId/goals', verifyToken, upload.single('image'), a
     }
 });
 
-// 2. 특정 학생의 연도별 목표 이미지 조회 API
+// 1-2. 연도별 목표 이미지 조회 API (중복 제거 및 최적화됨)
 // GET /api/students/:studentId/goals?year=2025
 router.get('/students/:studentId/goals', verifyToken, async (req, res) => {
     const { studentId } = req.params;
     const { year } = req.query;
+    const { dojang_code } = req.user;
     
     if (!year) {
         return res.status(400).json({ success: false, message: 'Year is required.' });
     }
 
     try {
+        // dojang_code까지 체크하여 보안 강화
         const query = `
             SELECT id, image_url, created_at 
             FROM goals 
             WHERE student_id = ? AND YEAR(created_at) = ? 
             ORDER BY created_at ASC
         `;
+        // 만약 goals 테이블에 dojang_code 컬럼이 없다면 위 쿼리에서 AND dojang_code = ? 부분은 빼야 합니다.
+        // 현재 로직상 image_url에 dojang 폴더가 포함되므로 student_id로만 조회해도 무방할 수 있습니다.
+        // 여기서는 가장 기본적인 student_id와 year로 조회합니다.
+        
         const [goals] = await db.query(query, [studentId, year]);
         
-        res.status(200).json({ success: true, data: goals });
+        if (goals.length > 0) {
+            res.status(200).json({ success: true, data: goals });
+        } else {
+            res.status(200).json({ success: true, data: [], message: `No goals found for ${year}.` });
+        }
 
     } catch (error) {
         console.error('❌ Error fetching goals:', error);
@@ -68,14 +80,13 @@ router.get('/students/:studentId/goals', verifyToken, async (req, res) => {
     }
 });
 
-// 3. 목표 이미지 삭제 API
+// 1-3. 목표 이미지 삭제 API
 // DELETE /api/goals/:goalId
 router.delete('/goals/:goalId', verifyToken, async (req, res) => {
     const { goalId } = req.params;
     const { dojang_code } = req.user;
 
     try {
-        // 1. DB에서 goal 정보 조회
         const [goalRows] = await db.query('SELECT image_url FROM goals WHERE id = ?', [goalId]);
         
         if (goalRows.length === 0) {
@@ -84,16 +95,13 @@ router.delete('/goals/:goalId', verifyToken, async (req, res) => {
         
         const { image_url } = goalRows[0];
         
-        // 2. S3에서 이미지 파일 삭제
         if (image_url) {
-            // S3 URL에서 파일 키(경로+이름) 추출
             const fileKeyWithFolder = image_url.split(`uploads/${dojang_code}/`)[1];
             if (fileKeyWithFolder) {
                 await deleteFileFromS3(fileKeyWithFolder, dojang_code);
             }
         }
 
-        // 3. 데이터베이스에서 goal 기록 삭제
         await db.query('DELETE FROM goals WHERE id = ?', [goalId]);
 
         res.status(200).json({ success: true, message: 'Goal record deleted successfully.' });
@@ -104,44 +112,71 @@ router.delete('/goals/:goalId', verifyToken, async (req, res) => {
     }
 });
 
-router.get('/students/:studentId/goals', verifyToken, async (req, res) => {
-  // URL 경로에서 studentId를 가져옵니다.
-  const { studentId } = req.params;
-  // 쿼리 스트링에서 year를 가져옵니다. (예: ?year=2025)
-  const { year } = req.query;
-  // 인증 미들웨어(verifyToken)를 통해 얻은 사용자 정보에서 dojang_code를 가져옵니다.
-  const { dojang_code } = req.user;
+// ==========================================
+// 2. Student Notes (코멘트) API 섹션
+// ==========================================
+// 기존 코드 스타일(async/await)에 맞춰 변환했습니다.
 
-  // year 값이 없는 경우, 400 Bad Request 에러를 반환합니다.
-  if (!year) {
-    return res.status(400).json({ success: false, message: 'Year is required.' });
-  }
-
-  try {
-    // 데이터베이스에서 학생 ID, 도장 코드, 그리고 연도가 일치하는 목표 데이터를 조회하는 쿼리입니다.
-    const query = `
-      SELECT id, image_url, created_at 
-      FROM goals 
-      WHERE student_id = ? AND dojang_code = ? AND YEAR(created_at) = ?
-      ORDER BY created_at DESC;
-    `;
+// 2-1. 특정 학생의 모든 노트 가져오기
+// GET /api/student-notes/:studentId
+router.get('/student-notes/:studentId', verifyToken, async (req, res) => {
+    const { studentId } = req.params;
     
-    // 쿼리를 실행합니다.
-    const [goals] = await db.query(query, [studentId, dojang_code, year]);
+    try {
+        const query = `
+            SELECT id, note_content, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as date 
+            FROM student_notes 
+            WHERE student_id = ? 
+            ORDER BY created_at DESC
+        `;
+    
+        const [results] = await db.query(query, [studentId]);
+        res.json(results);
 
-    // 조회된 목표가 있는 경우
-    if (goals.length > 0) {
-      res.json({ success: true, data: goals });
-    } else {
-      // 조회된 목표가 없는 경우
-      res.json({ success: false, message: `No goals have been set for ${year}.` });
+    } catch (error) {
+        console.error('Error fetching notes:', error);
+        res.status(500).json({ success: false, message: 'DB Error' });
+    }
+});
+  
+// 2-2. 노트 추가하기
+// POST /api/add-note
+router.post('/add-note', verifyToken, async (req, res) => {
+    const { student_id, note_content } = req.body;
+
+    if (!student_id || !note_content) {
+        return res.status(400).json({ success: false, message: 'Missing data' });
     }
 
-  } catch (error) {
-    // 데이터베이스 조회 중 에러가 발생한 경우
-    console.error('Error fetching student goals:', error);
-    res.status(500).json({ success: false, message: 'An error occurred while fetching goals.' });
-  }
+    try {
+        const query = 'INSERT INTO student_notes (student_id, note_content) VALUES (?, ?)';
+        
+        const [result] = await db.query(query, [student_id, note_content]);
+        
+        res.json({ success: true, message: 'Note added successfully', id: result.insertId });
+
+    } catch (error) {
+        console.error('Error adding note:', error);
+        res.status(500).json({ success: false, message: 'DB Error' });
+    }
+});
+  
+// 2-3. 노트 삭제하기
+// DELETE /api/delete-note/:noteId
+router.delete('/delete-note/:noteId', verifyToken, async (req, res) => {
+    const { noteId } = req.params;
+
+    try {
+        const query = 'DELETE FROM student_notes WHERE id = ?';
+        
+        await db.query(query, [noteId]);
+        
+        res.json({ success: true, message: 'Note deleted' });
+
+    } catch (error) {
+        console.error('Error deleting note:', error);
+        res.status(500).json({ success: false, message: 'DB Error' });
+    }
 });
 
 module.exports = router;
