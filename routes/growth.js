@@ -202,13 +202,15 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     }
   
     try {
+      // ⭐️ 수정된 쿼리
+      // programs 테이블의 컬럼명은 'name'이므로, 'p.name'을 가져와서 'program_name'이라는 별명을 붙여줍니다.
       const query = `
         SELECT 
           sg.id,
           sg.created_at as cancel_date,
           s.first_name,
           s.last_name,
-          p.program_name
+          p.name AS program_name 
         FROM student_growth sg
         JOIN students s ON sg.student_id = s.id
         LEFT JOIN programs p ON sg.program_id = p.id
