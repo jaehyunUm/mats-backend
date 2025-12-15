@@ -119,12 +119,6 @@ router.get('/growth/history', verifyToken, async (req, res) => {
   }
 });
 
-
-
-
-
-
-
   
   router.get('/revenue/history', verifyToken, async (req, res) => {
     const { dojang_code } = req.user;
@@ -199,6 +193,46 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     }
   });
   
+  router.get('/canceled-students-list', verifyToken, async (req, res) => {
+    const { year } = req.query;
+    const { dojang_code } = req.user;
   
+    if (!year) {
+      return res.status(400).json({ success: false, message: 'Year is required' });
+    }
+  
+    try {
+      // student_growth(취소기록) + students(이름) + programs(프로그램명) 조인
+      const query = `
+        SELECT 
+          sg.id,
+          sg.created_at as cancel_date,
+          s.first_name,
+          s.last_name,
+          p.program_name
+        FROM student_growth sg
+        JOIN students s ON sg.student_id = s.id
+        LEFT JOIN programs p ON sg.program_id = p.id
+        WHERE sg.status = 'canceled'
+          AND sg.dojang_code = ?
+          AND YEAR(sg.created_at) = ?
+        ORDER BY sg.created_at DESC
+      `;
+  
+      const [rows] = await db.query(query, [dojang_code, year]);
+      
+      // 날짜 포맷팅 (YYYY-MM-DD)
+      const formattedRows = rows.map(row => ({
+        ...row,
+        cancel_date: new Date(row.cancel_date).toISOString().split('T')[0]
+      }));
+  
+      res.json({ success: true, data: formattedRows });
+  
+    } catch (error) {
+      console.error('Error fetching canceled students:', error);
+      res.status(500).json({ success: false, message: 'Server error' });
+    }
+  });
   
 module.exports = router; // ✅ 라우터 내보내기
