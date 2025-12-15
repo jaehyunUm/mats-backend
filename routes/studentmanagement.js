@@ -42,27 +42,70 @@ router.get('/students/program/:programName', verifyToken, async (req, res) => {
   
 
 // 학생 검색 (전체 목록 겸용)
+// 학생 검색 (전체 목록 겸용 + 출석/심사 정보 포함)
 router.get('/students', verifyToken, async (req, res) => {
-  // 1. 프론트엔드에서 보낸 검색어(?search=...)를 받습니다.
   const { search } = req.query;
+  const dojangCode = req.user.dojang_code;
 
   try {
-    // 2. 기본 SQL 쿼리 (JOIN은 동일)
+    // 1. studentmanagement와 동일한 SELECT 및 JOIN 구조 사용
     let sql = `
       SELECT 
-        s.*, 
-        p.name AS program_name 
+        s.*,
+        TIMESTAMPDIFF(YEAR, s.birth_date, CURDATE()) AS age,
+        b.belt_color,
+        b.stripe_color,
+        p.name AS program_name,
+        
+        -- 현재 출석 횟수 (attendance 테이블 집계)
+        COALESCE(att.attendance_count, 0) AS attendance,
+        
+        -- 테스트 필요 출석 횟수 (testcondition 테이블 조회)
+        COALESCE(
+          (
+            SELECT tc.attendance_required
+            FROM testcondition tc
+            WHERE s.belt_rank BETWEEN tc.belt_min_rank AND tc.belt_max_rank 
+              AND tc.dojang_code = s.dojang_code
+            ORDER BY tc.belt_min_rank DESC 
+            LIMIT 1
+          ), 0) AS required_attendance
+
       FROM 
         students AS s
+      
+      -- 벨트 정보 조인
+      LEFT JOIN 
+        beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
+      
+      -- 프로그램 정보 조인
       LEFT JOIN 
         programs AS p ON s.program_id = p.id
+      
+      -- 출석 정보 서브쿼리 조인 (studentmanagement 로직 참고)
+      LEFT JOIN
+        ( 
+          SELECT 
+            student_id, 
+            COUNT(id) AS attendance_count
+          FROM 
+            attendance 
+          WHERE 
+            dojang_code = ? 
+          GROUP BY 
+            student_id
+        ) AS att ON s.id = att.student_id
+
       WHERE 
         s.dojang_code = ?
     `;
-    
-    const params = [req.user.dojang_code];
 
-    // 3. 만약 'search' 쿼리 파라미터가 존재하면, 검색 조건(AND)을 추가
+    // 2. 파라미터 초기화
+    // 첫 번째 ?는 attendance 서브쿼리의 dojang_code
+    // 두 번째 ?는 메인 WHERE 절의 s.dojang_code
+    const params = [dojangCode, dojangCode];
+
+    // 3. 검색어('search')가 있을 경우 조건 추가
     if (search) {
       sql += `
         AND (
@@ -71,12 +114,12 @@ router.get('/students', verifyToken, async (req, res) => {
           p.name LIKE ?
         )
       `;
-      // 'John' -> '%John%' (부분 일치 검색)
       const searchTerm = `%${search}%`;
+      // 검색어 파라미터 3개 추가
       params.push(searchTerm, searchTerm, searchTerm);
     }
     
-    // 4. 최종 SQL 실행 (검색어가 없으면 전체 목록, 있으면 필터링된 목록)
+    // 4. 쿼리 실행
     const [students] = await db.query(sql, params);
     res.status(200).json(students);
 
