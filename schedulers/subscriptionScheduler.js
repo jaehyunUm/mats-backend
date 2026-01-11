@@ -1,4 +1,4 @@
-const { processPaymentForSubscription } = require("../services/paymentService");
+const { processPaymentForSubscription, createNotification } = require("../services/paymentService"); 
 const cron = require("node-cron");
 const db = require("../db");
 
@@ -23,18 +23,28 @@ async function processSubscriptions() {
     let failCount = 0;
 
     for (const subscription of subscriptions) {
-      console.log(`Processing subscription ID: ${subscription.id} for Parent ID: ${subscription.parent_id}`);
-      console.log("source_id:", subscription.source_id);
+      console.log(`Processing subscription ID: ${subscription.id}`);
 
+      // ⭐️ source_id 누락 시 알림 추가
       if (!subscription.source_id) {
-        console.error(`❌ Missing source_id for subscription ID ${subscription.id}. Skipping payment.`);
+        const msg = `Payment skipped for Subscription #${subscription.id}: Missing payment method (Source ID).`;
+        console.error(`❌ ${msg}`);
+        // 알림 생성
+        await createNotification(subscription.dojang_code, msg); // paymentService에서 import 필요
         failCount++;
         continue;
       }
 
       try {
-        await processPaymentForSubscription(subscription);
-        successCount++;
+        // 결과값을 받아서 처리 (선택사항, 이미 내부에서 알림을 보냄)
+        const result = await processPaymentForSubscription(subscription);
+        
+        if (result.success) {
+            successCount++;
+        } else {
+            failCount++;
+            // 여기서 별도로 알림을 보낼 필요는 없습니다. (함수 내부에서 처리됨)
+        }
       } catch (error) {
         console.error(`❌ Error processing subscription ID ${subscription.id}:`, error.message);
         failCount++;

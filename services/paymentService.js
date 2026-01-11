@@ -4,8 +4,7 @@ const uuidv4 = require('uuid').v4;
 const dayjs = require('dayjs');
 const process = require('process');
 
-// ✅ 알림 생성 함수 (기존 코드)
-// 이 함수는 이미 알림을 DB에 저장하도록 잘 작성되어 있습니다.
+// ✅ 알림 생성 함수
 const createNotification = async (dojangCode, message, connection) => {
   try {
     // connection이 있으면 사용하고, 없으면 새로 만듭니다.
@@ -13,8 +12,6 @@ const createNotification = async (dojangCode, message, connection) => {
     const useLocalConnection = !connection;
     
     try {
-      // ⭐️ 'date' 컬럼은 DEFAULT CURRENT_TIMESTAMP로 자동 생성되므로 
-      // ⭐️ 'is_read'는 DEFAULT 0 (또는 false)로 설정되어 있다고 가정합니다.
       await conn.query(
         `INSERT INTO notifications (dojang_code, message) VALUES (?, ?)`,
         [dojangCode, message]
@@ -33,81 +30,92 @@ const createNotification = async (dojangCode, message, connection) => {
   }
 };
 
-/**
- * 구독 결제를 안전하게 처리하는 핸들러입니다.
- * 결제 실패 시 실패 사유를 포함한 알림을 생성합니다.
- * @param {object} subscription - The subscription object from the database.
- * @returns {Promise<{success: boolean, error?: string}>} - The result of the payment processing.
- */
 const processPaymentForSubscription = async (subscription) => {
   let connection;
   let transactionStarted = false;
 
   let studentName = `Student ID: ${subscription.student_id}`;
-  let programName = `Program ID: ${subscription.program_id}`;
-  const fee = parseFloat(subscription.program_fee); // 여기서 0원이 들어옵니다.
+  const fee = parseFloat(subscription.program_fee);
 
   try {
     connection = await db.getConnection();
     console.log(`🚀 Processing Subscription ID: ${subscription.id} (Fee: $${fee})`);
 
-    // 학생/프로그램 이름 조회 (생략 가능하지만 알림용으로 유지)
+    // 0. 학생 이름 조회 (알림 메시지용)
     try {
       const [studentInfo] = await connection.query(`SELECT first_name, last_name FROM students WHERE id = ?`, [subscription.student_id]);
       if (studentInfo.length) studentName = `${studentInfo[0].first_name} ${studentInfo[0].last_name}`;
-    } catch (e) {}
+    } catch (e) {
+        // 이름 조회 실패해도 로직은 계속 진행
+    }
 
-    // 1. 유효성 검사: 0원은 OK, 음수만 에러
+    // 1. 유효성 검사
     if (isNaN(fee) || fee < 0) {
+      const errorMsg = `Payment failed for ${studentName}: Invalid fee amount ($${fee}).`;
+      await createNotification(subscription.dojang_code, errorMsg); // 🔔 알림 생성
       return { success: false, error: 'Invalid fee (negative)' };
     }
 
-    let paymentIntentId = `family_bundle_${uuidv4()}`; // 0원일 때 사용할 가짜 ID
+    let paymentIntentId = `family_bundle_${uuidv4()}`; // 0원 결제 시 사용할 기본 ID
 
-    // 2. 금액이 0보다 클 때만 Stripe 청구 (가족 대표)
+    // 2. Stripe 결제 시도 (금액이 0보다 클 때만)
     if (fee > 0) {
         const [ownerRows] = await connection.query(
           `SELECT stripe_access_token, stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ? LIMIT 1`,
           [subscription.dojang_code]
         );
+
+        if (!ownerRows || ownerRows.length === 0) {
+             const noBankMsg = `Payment failed for ${studentName}: Dojo bank account not found.`;
+             await createNotification(subscription.dojang_code, noBankMsg);
+             return { success: false, error: 'No bank account' };
+        }
     
-        // ... (Stripe 토큰 체크 로직 생략) ...
         const stripe = createStripeClientWithKey(ownerRows[0].stripe_access_token);
 
-        // Stripe 결제 실행
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(fee * 100),
-            currency: "usd",
-            customer: subscription.customer_id,
-            payment_method: subscription.source_id,
-            off_session: true,
-            confirm: true,
-            metadata: {
-              subscription_id: subscription.id,
-              student_id: subscription.student_id, // 대표 학생 ID만 기록됨
-              note: "Family Bundle Payment" // 메타데이터에 표시해주면 좋음
-            },
-          },
-          { idempotencyKey: subscription.idempotency_key || uuidv4(), stripeAccount: ownerRows[0].stripe_account_id }
-        );
-    
-        if (paymentIntent.status !== 'succeeded') {
-           // 실패 로직...
-           return { success: false, error: 'Failed' };
+        try {
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: Math.round(fee * 100),
+                currency: "usd",
+                customer: subscription.customer_id,
+                payment_method: subscription.source_id,
+                off_session: true,
+                confirm: true,
+                metadata: {
+                  subscription_id: subscription.id,
+                  student_id: subscription.student_id,
+                  note: "Family Bundle Payment" 
+                },
+              },
+              { idempotencyKey: subscription.idempotency_key || uuidv4(), stripeAccount: ownerRows[0].stripe_account_id }
+            );
+        
+            // Stripe 결제 실패 (상태가 succeeded가 아닐 때)
+            if (paymentIntent.status !== 'succeeded') {
+               const failMsg = `Payment failed for ${studentName}: Stripe status is ${paymentIntent.status}`;
+               await createNotification(subscription.dojang_code, failMsg); // 🔔 알림 생성
+               return { success: false, error: 'Failed' };
+            }
+            paymentIntentId = paymentIntent.id;
+
+        } catch (stripeError) {
+            // Stripe 자체 에러 (카드 거절, 잔액 부족 등)
+            console.error("Stripe Error:", stripeError.message);
+            const stripeFailMsg = `Payment declined for ${studentName}: ${stripeError.message}`;
+            
+            await createNotification(subscription.dojang_code, stripeFailMsg); // 🔔 알림 생성
+            
+            // ⭐️ 중요: 여기서 throw 하지 않고 return false로 함수를 종료합니다.
+            // throw를 하면 아래 메인 catch 블록으로 넘어가서 'System Error' 알림이 중복으로 발생할 수 있습니다.
+            return { success: false, error: stripeError.message };
         }
-        paymentIntentId = paymentIntent.id; // 진짜 결제 ID
-    } 
-    // 3. 금액이 0원이면 (나머지 가족)
-    else {
-        console.log(`ℹ️ [Family Bundle] Skipping Stripe charge for ${studentName}. Amount is $0.`);
-        // 여기서 바로 DB 업데이트로 넘어갑니다.
     }
 
-    // 4. DB 업데이트 (0원인 가족도 날짜는 갱신되어야 함)
+    // 3. DB 업데이트 (트랜잭션 시작)
     await connection.beginTransaction();
     transactionStarted = true;
 
-    // 결제 이력 남기기 (0원 or 실제금액)
+    // 결제 이력 남기기
     await connection.query(`
       INSERT INTO program_payments (parent_id, student_id, program_id, amount, payment_date, status, dojang_code, source_id, idempotency_key, payment_id)
       VALUES (?, ?, ?, ?, NOW(), 'completed', ?, ?, ?, ?)`,
@@ -115,7 +123,7 @@ const processPaymentForSubscription = async (subscription) => {
           subscription.parent_id, 
           subscription.student_id, 
           subscription.program_id, 
-          fee, // 0 또는 합산금액
+          fee, 
           subscription.dojang_code, 
           subscription.source_id || 'bundle_system', 
           subscription.idempotency_key || uuidv4(), 
@@ -123,9 +131,10 @@ const processPaymentForSubscription = async (subscription) => {
       ]
     );
 
-    // 다음 결제일 갱신 (모든 가족 구성원이 한 달씩 밀림)
+    // 다음 결제일 갱신
     const currentDate = dayjs(subscription.next_payment_date);
     const nextDate = currentDate.add(1, 'month');
+    // 말일(28일 이후) 처리 로직
     const correctedNextDate = (currentDate.date() >= 28 ? nextDate.endOf('month') : nextDate.date(currentDate.date())).format('YYYY-MM-DD');
 
     await connection.query(`
@@ -138,8 +147,15 @@ const processPaymentForSubscription = async (subscription) => {
     return { success: true };
 
   } catch (error) {
+     // 4. 시스템 에러 처리 (DB 연결 실패, 쿼리 오류 등)
      if (transactionStarted) await connection.rollback();
-     // 에러 처리...
+     
+     console.error(`❌ System Error processing payment:`, error);
+     const systemErrorMsg = `System error processing payment for ${studentName}: ${error.message}`;
+     
+     // 🔔 시스템 에러 알림 생성
+     await createNotification(subscription.dojang_code, systemErrorMsg);
+
      return { success: false, error: error.message };
   } finally {
      if (connection) connection.release();

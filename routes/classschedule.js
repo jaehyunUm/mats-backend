@@ -5,14 +5,12 @@ const db = require('../db'); // 데이터베이스 모듈
 const verifyToken = require('../middleware/verifyToken');
 
 
-// 스케줄 데이터를 가져오는 엔드포인트
 router.get('/get-schedule', verifyToken, async (req, res) => {
-  const { dojang_code } = req.user; // 세미콜론 하나만
+  const { dojang_code } = req.user;
 
   try {
-    // ✅ sort_order까지 조회 + 정렬
-    //   보조 정렬로 시작시각을 파싱해(문자열 정렬 문제 방지) 그리고 id로 최종 안정화
-    const query = `
+    // 1️⃣ 기존 스케줄 틀(표) 가져오기
+    const scheduleQuery = `
       SELECT id, time, Mon, Tue, Wed, Thur, Fri, Sat, dojang_code, sort_order
       FROM schedule
       WHERE dojang_code = ?
@@ -21,17 +19,58 @@ router.get('/get-schedule', verifyToken, async (req, res) => {
         STR_TO_DATE(SUBSTRING_INDEX(time, '~', 1), '%H:%i') ASC,
         id ASC
     `;
+    const [scheduleRows] = await db.query(scheduleQuery, [dojang_code]);
 
-    const [results] = await db.query(query, [dojang_code]);
+    // 2️⃣ 각 수업별 등록된 학생 수 카운트하기
+    // class_details(요일/시간)와 student_classes(학생등록)를 조인하여 카운트
+    const countQuery = `
+      SELECT cd.day, cd.time, COUNT(sc.student_id) as student_count
+      FROM class_details cd
+      LEFT JOIN student_classes sc ON cd.class_id = sc.class_id
+      WHERE cd.dojang_code = ?
+      GROUP BY cd.class_id, cd.day, cd.time
+    `;
+    const [counts] = await db.query(countQuery, [dojang_code]);
 
-    // ✅ 빈 배열을 200으로 반환 (프론트 단에서 404 처리 번거로움 방지)
-    return res.status(200).json(results || []);
+    // 3️⃣ 카운트 데이터를 검색하기 쉽게 맵(Map)으로 변환
+    // Key: "요일_시간" (예: "Mon_4:00~4:40") -> Value: 5 (명)
+    const countMap = {};
+    counts.forEach(row => {
+      const key = `${row.day}_${row.time}`;
+      countMap[key] = row.student_count;
+    });
+
+    // 4️⃣ 스케줄 데이터에 학생 수(Count) 붙이기
+    const days = ['Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'];
+    
+    const finalData = scheduleRows.map(row => {
+      const newRow = { ...row }; // 원본 객체 복사
+
+      days.forEach(day => {
+        const className = newRow[day]; // 예: "Level 1"
+        
+        // 클래스 이름이 존재할 때만 카운트 표시
+        if (className && className.trim() !== '') {
+          const key = `${day}_${row.time}`; // 매핑 키 생성
+          const count = countMap[key] || 0; // 학생 수 (없으면 0)
+
+          // ⭐️ 학생 수가 0명 이상일 때만 뒤에 (N) 붙이기
+          if (count > 0) {
+            newRow[day] = `${className} (${count})`; 
+          }
+        }
+      });
+
+      return newRow;
+    });
+
+    return res.status(200).json(finalData || []);
+
   } catch (err) {
     console.error('Error fetching schedule:', err);
     return res.status(500).json({ message: 'Error fetching schedule' });
   }
 });
-
 
 // 빈 문자열을 NULL로 변환하는 함수
 const nullifyEmpty = (value) => (value === '' ? null : value);
