@@ -756,12 +756,10 @@ router.get('/belt-sizes', verifyToken, async (req, res) => {
 });
 
 
-
 router.post('/recommend-classes', verifyToken, async (req, res) => {
-  const { dojang_code } = req.user; // ✅ 여기서 꺼내야 함
+  const { dojang_code } = req.user; 
 
   try {
-
       const { age, belt_rank } = req.body;
 
       console.log("Received age:", age);
@@ -773,7 +771,7 @@ router.post('/recommend-classes', verifyToken, async (req, res) => {
           return res.status(400).json({ message: 'Invalid belt_rank value' });
       }
 
-      // 클래스 조건 필터링
+      // 1️⃣ 클래스 조건 필터링 (나이, 벨트 기준)
       const classQuery = `
           SELECT class_name
           FROM classconditions
@@ -788,12 +786,13 @@ router.post('/recommend-classes', verifyToken, async (req, res) => {
       }
 
       const classNames = classConditions.map(cls => cls.class_name);
+      // SQL IN 절에 넣기 위해 문자열 포맷팅 ('Level 1', 'Level 2' ...)
       const classNamesString = classNames.map(name => `'${name}'`).join(",");
 
       console.log("Class names for schedule filtering:", classNamesString);
 
-       // **🔥 변경된 요일 필드명 반영**
-       const scheduleQuery = `
+      // 2️⃣ 스케줄 조회 (조건에 맞는 클래스만 필터링)
+      const scheduleQuery = `
        SELECT time,
            CASE WHEN Mon IN (${classNamesString}) THEN Mon ELSE '' END AS Mon,
            CASE WHEN Tue IN (${classNamesString}) THEN Tue ELSE '' END AS Tue,
@@ -811,7 +810,7 @@ router.post('/recommend-classes', verifyToken, async (req, res) => {
            Fri IN (${classNamesString}) OR
            Sat IN (${classNamesString})
        );
-   `;
+      `;
       const [schedule] = await db.query(scheduleQuery, [dojang_code]);
 
       if (schedule.length === 0) {
@@ -819,16 +818,63 @@ router.post('/recommend-classes', verifyToken, async (req, res) => {
           return res.status(404).json({ message: 'No schedule found for the selected classes.' });
       }
 
-       // 정상 응답
-  res.json({ schedule });
-} catch (error) {
-console.error("Error processing request:", error);
-res.status(500).json({ message: "Server error", error: error.message });
-}
+      // ============================================================
+      // 🔥 [추가된 부분] 학생 수 카운트 및 병합 로직 시작
+      // ============================================================
+
+      // 3️⃣ 각 수업별 등록된 학생 수 카운트하기
+      const countQuery = `
+        SELECT cd.day, cd.time, COUNT(sc.student_id) as student_count
+        FROM class_details cd
+        LEFT JOIN student_classes sc ON cd.class_id = sc.class_id
+        WHERE cd.dojang_code = ?
+        GROUP BY cd.class_id, cd.day, cd.time
+      `;
+      const [counts] = await db.query(countQuery, [dojang_code]);
+
+      // 4️⃣ 카운트 데이터를 검색하기 쉽게 맵(Map)으로 변환
+      const countMap = {};
+      counts.forEach(row => {
+        const key = `${row.day}_${row.time}`;
+        countMap[key] = row.student_count;
+      });
+
+      // 5️⃣ 필터링된 스케줄 데이터에 학생 수(Count) 붙이기
+      const days = ['Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'];
+      
+      const finalSchedule = schedule.map(row => {
+        const newRow = { ...row }; // 원본 객체 복사
+
+        days.forEach(day => {
+          const className = newRow[day]; 
+          
+          // 클래스 이름이 존재할 때만 카운트 표시
+          if (className && className.trim() !== '') {
+            const key = `${day}_${row.time}`; 
+            const count = countMap[key] || 0; 
+
+            // 학생 수가 0명 이상일 때만 뒤에 (N) 붙이기
+            if (count > 0) {
+              newRow[day] = `${className} (${count})`; 
+            }
+          }
+        });
+
+        return newRow;
+      });
+
+      // ============================================================
+      // 🔥 [추가된 부분] 끝
+      // ============================================================
+
+      // 정상 응답 (수정된 finalSchedule 반환)
+      res.json({ schedule: finalSchedule });
+
+  } catch (error) {
+      console.error("Error processing request:", error);
+      res.status(500).json({ message: "Server error", error: error.message });
+  }
 });
-
-
-
 
 
 
