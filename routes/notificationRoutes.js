@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db'); // ⚠️ DB 연결 파일 경로 확인 필요
-const transporter = require('./mailer'); // ⚠️ 위에서 만든 mailer.js 경로 확인 필요
+const transporter = require('../modules/mailer'); // ⚠️ 위에서 만든 mailer.js 경로 확인 필요
 const verifyToken = require('../middleware/verifyToken');
 
 // 알림 가져오기
