@@ -109,6 +109,14 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
           WHEN p.payment_type = 'monthly_pay' THEN mp.program_fee
           ELSE NULL
         END AS program_fee
+        CASE 
+          WHEN p.payment_type = 'monthly_pay' THEN mp.source_id 
+          ELSE NULL 
+        END AS source_id,
+        CASE 
+          WHEN p.payment_type = 'monthly_pay' THEN mp.customer_id 
+          ELSE NULL 
+        END AS customer_id
       FROM students s
       LEFT JOIN programs p ON s.program_id = p.id
       LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
@@ -130,7 +138,9 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
     // 결제 정보 구성
     const paymentInfo = {
       type: student.payment_type,
-      operationType: student.operation_type
+      operationType: student.operation_type,
+      source_id: student.source_id,
+      customer_id: student.customer_id
     };
     
     // payment_type에 따라 추가 정보 설정
