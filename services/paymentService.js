@@ -111,40 +111,48 @@ const processPaymentForSubscription = async (subscription) => {
         }
     }
 
-    // 3. DB 업데이트 (트랜잭션 시작)
-    await connection.beginTransaction();
-    transactionStarted = true;
+// 3. DB 업데이트 (트랜잭션 시작)
+await connection.beginTransaction();
+transactionStarted = true;
 
-    // 결제 이력 남기기
-    await connection.query(`
-      INSERT INTO program_payments (parent_id, student_id, program_id, amount, payment_date, status, dojang_code, source_id, idempotency_key, payment_id)
-      VALUES (?, ?, ?, ?, NOW(), 'completed', ?, ?, ?, ?)`,
-      [
-          subscription.parent_id, 
-          subscription.student_id, 
-          subscription.program_id, 
-          fee, 
-          subscription.dojang_code, 
-          subscription.source_id || 'bundle_system', 
-          subscription.idempotency_key || uuidv4(), 
-          paymentIntentId
-      ]
-    );
+// 결제 이력 남기기 (이건 좋습니다)
+await connection.query(`
+  INSERT INTO program_payments (parent_id, student_id, program_id, amount, payment_date, status, dojang_code, source_id, idempotency_key, payment_id)
+  VALUES (?, ?, ?, ?, NOW(), 'completed', ?, ?, ?, ?)`,
+  [
+      subscription.parent_id, 
+      subscription.student_id, 
+      subscription.program_id, 
+      fee, 
+      subscription.dojang_code, 
+      subscription.source_id || 'bundle_system', 
+      subscription.idempotency_key || uuidv4(), 
+      paymentIntentId
+  ]
+);
 
-    // 다음 결제일 갱신
-    const currentDate = dayjs(subscription.next_payment_date);
-    const nextDate = currentDate.add(1, 'month');
-    // 말일(28일 이후) 처리 로직
-    const correctedNextDate = (currentDate.date() >= 28 ? nextDate.endOf('month') : nextDate.date(currentDate.date())).format('YYYY-MM-DD');
+// 다음 결제일 계산
+const currentDate = dayjs(subscription.next_payment_date);
+const nextDate = currentDate.add(1, 'month');
+const correctedNextDate = (currentDate.date() >= 28 ? nextDate.endOf('month') : nextDate.date(currentDate.date())).format('YYYY-MM-DD');
 
-    await connection.query(`
-      UPDATE monthly_payments SET last_payment_date = CURDATE(), next_payment_date = ?, payment_status = 'pending', status = 'completed'
-      WHERE id = ?`,
-      [correctedNextDate, subscription.id]
-    );
+// ✨ [핵심 수정] 다음 달을 위해 '새로운 키'를 생성해서 저장하거나, NULL로 초기화해야 합니다.
+const nextMonthIdempotencyKey = uuidv4(); 
 
-    await connection.commit();
-    return { success: true };
+await connection.query(`
+  UPDATE monthly_payments 
+  SET 
+    last_payment_date = CURDATE(), 
+    next_payment_date = ?, 
+    payment_status = 'pending', 
+    status = 'completed',
+    idempotency_key = ?  -- 👈 여기에 새로운 키를 넣어줘야 합니다!
+  WHERE id = ?`,
+  [correctedNextDate, nextMonthIdempotencyKey, subscription.id]
+);
+
+await connection.commit();
+return { success: true };
 
   } catch (error) {
      // 4. 시스템 에러 처리 (DB 연결 실패, 쿼리 오류 등)
