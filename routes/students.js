@@ -108,7 +108,7 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
         CASE 
           WHEN p.payment_type = 'monthly_pay' THEN mp.program_fee
           ELSE NULL
-        END AS program_fee
+        END AS program_fee,
         CASE 
           WHEN p.payment_type = 'monthly_pay' THEN mp.source_id 
           ELSE NULL 
