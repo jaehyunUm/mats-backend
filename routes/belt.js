@@ -317,7 +317,7 @@ router.get('/get-attendance-count/:studentId', verifyToken, async (req, res) => 
 });
 
 
-// GET /eligible-test-students
+
 router.get('/eligible-test-students', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
   console.log(`\n[API CALL] /eligible-test-students for dojang_code: ${dojang_code}`);

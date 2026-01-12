@@ -155,8 +155,6 @@ const customerRoutes = require('./routes/customer'); // customer.js 파일 경�
 app.use('/api', customerRoutes);
 const myclassRoutes = require('./routes/myclass'); // myclass.js 라우터 가져오기
 app.use('/api', myclassRoutes); // '/api/myclass' 경로 연결
-const notificationRoutes = require('./routes/Notifications'); // notification.js 라우터 가져오기
-app.use("/api", notificationRoutes);
 const subscriptionRoutes = require("./routes/subscription");
 app.use("/api", subscriptionRoutes);
 const growthRoutes = require('./routes/growth'); // ✅ 학생 성장 기록 라우터
@@ -169,6 +167,8 @@ const changePasswordRoutes = require('./routes/changepassword');
 app.use('/api', changePasswordRoutes);
 const goalRoutes = require('./routes/goalRoutes'); // ✅ 1. 목표(Goal) 라우트 불러오기
 app.use('/api', goalRoutes); // ✅ 2. 목표(Goal) 라우트 등록
+const notificationRoutes = require('./routes/notificationRoutes'); 
+app.use('/api/notifications', notificationRoutes);
 
 // Webhook 엔드포인트 설정
 app.post('/webhook', (req, res) => {
