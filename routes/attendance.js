@@ -269,26 +269,36 @@ router.get('/absences', verifyToken, async (req, res) => {
   }
 });
 
-// 요일에 맞는 클래스를 가져오기 위한 API
 router.get('/schedule', verifyToken, async (req, res) => {
   const { date } = req.query;
   const { dojang_code } = req.user;
   
   try {
-    // 간단하게 요일 매핑
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'];
-    const dayOfWeek = new Date(date).getDay();
+    // date가 유효하지 않을 경우를 대비한 방어 코드
+    const dateObj = new Date(date);
+    if (isNaN(dateObj)) {
+        return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    const dayOfWeek = dateObj.getDay();
     const dayColumn = days[dayOfWeek];
     
     console.log('Selected day:', dayColumn);
     
-    // 도장 코드에 맞는 스케줄에서 요일에 맞는 클래스 불러오기
-    const [rows] = await db.query(
-      `SELECT time, ${dayColumn} as class_name, '${dayColumn}' as day
-       FROM schedule
-       WHERE ${dayColumn} IS NOT NULL AND dojang_code = ?`,
-       [dojang_code]
-    );
+    // ⭐️ 수정된 부분: Test나 Promotion이 포함된 경우 제외 (AND NOT LIKE 사용)
+    // sort_order가 있다면 정렬해서 보내주는 것이 좋습니다.
+    const query = `
+      SELECT time, ${dayColumn} as class_name, '${dayColumn}' as day
+      FROM schedule
+      WHERE ${dayColumn} IS NOT NULL 
+        AND dojang_code = ?
+        AND ${dayColumn} NOT LIKE '%Test%'       -- 'Test'가 포함된 수업 제외
+        AND ${dayColumn} NOT LIKE '%Promotion%'  -- 'Promotion'이 포함된 수업 제외
+      ORDER BY sort_order ASC                    -- 시간 순서대로 정렬 (옵션)
+    `;
+
+    const [rows] = await db.query(query, [dojang_code]);
     
     res.json(rows);
   } catch (error) {
