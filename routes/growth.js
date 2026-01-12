@@ -202,8 +202,6 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     }
   
     try {
-      // ⭐️ 수정된 쿼리
-      // programs 테이블의 컬럼명은 'name'이므로, 'p.name'을 가져와서 'program_name'이라는 별명을 붙여줍니다.
       const query = `
         SELECT 
           sg.id,
@@ -217,6 +215,9 @@ router.get('/growth/history', verifyToken, async (req, res) => {
         WHERE sg.status = 'canceled'
           AND sg.dojang_code = ?
           AND YEAR(sg.created_at) = ?
+          -- ✨ [추가됨] 프로그램 이름에 'Free' 또는 'Trial'이 포함된 경우 제외
+          AND p.name NOT LIKE '%Free%'
+          AND p.name NOT LIKE '%Trial%'
         ORDER BY sg.created_at DESC
       `;
   
