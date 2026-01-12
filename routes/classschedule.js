@@ -195,11 +195,10 @@ router.get('/student-classes/:studentId', verifyToken, async (req, res) => {
       `;
       const [classes] = await db.query(query, [studentId, dojang_code]);
 
-      if (classes.length === 0) {
-          return res.status(404).json({ message: 'No classes found for the student in this dojang.' });
-      }
+      // 💡 수정됨: 수업이 없으면(length 0) 그냥 빈 배열 []이 그대로 200 OK로 나갑니다.
+      // 프론트엔드에서는 이를 에러로 인식하지 않고 빈 리스트로 잘 처리하게 됩니다.
+      res.status(200).json(classes); 
 
-      res.status(200).json(classes);
   } catch (error) {
       console.error('Error fetching student classes:', error);
       res.status(500).json({ message: 'Failed to fetch student classes.' });

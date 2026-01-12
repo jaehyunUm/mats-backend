@@ -59,11 +59,8 @@ router.put('/notifications/:id/mark-read', async (req, res) => {
     }
   });
   
-  
-  
-  
   // 알림 삭제
-  router.delete('/notifications/:id', verifyToken, async (req, res) => {
+router.delete('/notifications/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
   
     if (!id || isNaN(id)) {
@@ -101,7 +98,7 @@ router.put('/notifications/:id/mark-read', async (req, res) => {
 
 module.exports = router;
 
-// ✅ 이메일 발송 API
+
 router.post('/notify-eligible-students', verifyToken, async (req, res) => {
     const { dojang_code } = req.user;
     
