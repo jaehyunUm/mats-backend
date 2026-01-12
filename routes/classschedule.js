@@ -72,9 +72,17 @@ router.get('/get-schedule', verifyToken, async (req, res) => {
   }
 });
 
-// 빈 문자열을 NULL로 변환하는 함수
+
+// ✅ [추가 1] 숫자와 괄호 (N)을 제거하는 정제 함수 정의
+const cleanName = (value) => {
+  if (typeof value !== 'string') return value;
+  // 예: "Level 1 (8)" -> "Level 1", "  Level 2  " -> "Level 2"
+  return value.replace(/\s*\(\d+\)$/, '').trim();
+};
+
+// 빈 문자열을 NULL로 변환하는 함수 (기존 유지)
 const nullifyEmpty = (value) => (value === '' ? null : value);
-const MAX_RETRIES = 3; // 재시도 횟수 설정
+const MAX_RETRIES = 3; 
 
 router.post('/update-schedule', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
@@ -86,7 +94,7 @@ router.post('/update-schedule', verifyToken, async (req, res) => {
       connection = await db.getConnection();
       await connection.beginTransaction();
 
-      // ✅ 삭제: id 기반
+      // ✅ 삭제 로직 (기존 유지)
       if (deleteItems.length > 0) {
         const deleteQuery = 'DELETE FROM schedule WHERE id = ? AND dojang_code = ?';
         for (const item of deleteItems) {
@@ -94,7 +102,7 @@ router.post('/update-schedule', verifyToken, async (req, res) => {
         }
       }
 
-      // ✅ 업데이트/삽입: id 기준 + sort_order 저장
+      // ✅ 업데이트/삽입 SQL (기존 유지)
       const updateSql = `
         UPDATE schedule
         SET Mon=?, Tue=?, Wed=?, Thur=?, Fri=?, Sat=?, time=?, sort_order=?
@@ -108,10 +116,19 @@ router.post('/update-schedule', verifyToken, async (req, res) => {
       for (const row of schedule) {
         const { id, Mon, Tue, Wed, Thur, Fri, Sat, time, sort_order } = row;
 
+        // ✅ [추가 2] 저장하기 전에 이름들을 깨끗하게 청소 (괄호와 숫자 제거)
+        const cleanMon = cleanName(Mon);
+        const cleanTue = cleanName(Tue);
+        const cleanWed = cleanName(Wed);
+        const cleanThur = cleanName(Thur);
+        const cleanFri = cleanName(Fri);
+        const cleanSat = cleanName(Sat);
+
         if (id) {
+          // ⚠️ 수정됨: nullifyEmpty 안에 cleanName 변수들을 넣어야 함
           const [r] = await connection.query(updateSql, [
-            nullifyEmpty(Mon), nullifyEmpty(Tue), nullifyEmpty(Wed),
-            nullifyEmpty(Thur), nullifyEmpty(Fri), nullifyEmpty(Sat),
+            nullifyEmpty(cleanMon), nullifyEmpty(cleanTue), nullifyEmpty(cleanWed),
+            nullifyEmpty(cleanThur), nullifyEmpty(cleanFri), nullifyEmpty(cleanSat),
             time, (typeof sort_order === 'number' ? sort_order : 0),
             id, dojang_code,
           ]);
@@ -119,16 +136,16 @@ router.post('/update-schedule', verifyToken, async (req, res) => {
           if (r.affectedRows === 0) {
             await connection.query(insertSql, [
               time,
-              nullifyEmpty(Mon), nullifyEmpty(Tue), nullifyEmpty(Wed),
-              nullifyEmpty(Thur), nullifyEmpty(Fri), nullifyEmpty(Sat),
+              nullifyEmpty(cleanMon), nullifyEmpty(cleanTue), nullifyEmpty(cleanWed),
+              nullifyEmpty(cleanThur), nullifyEmpty(cleanFri), nullifyEmpty(cleanSat),
               dojang_code, (typeof sort_order === 'number' ? sort_order : 0),
             ]);
           }
         } else {
           await connection.query(insertSql, [
             time,
-            nullifyEmpty(Mon), nullifyEmpty(Tue), nullifyEmpty(Wed),
-            nullifyEmpty(Thur), nullifyEmpty(Fri), nullifyEmpty(Sat),
+            nullifyEmpty(cleanMon), nullifyEmpty(cleanTue), nullifyEmpty(cleanWed),
+            nullifyEmpty(cleanThur), nullifyEmpty(cleanFri), nullifyEmpty(cleanSat),
             dojang_code, (typeof sort_order === 'number' ? sort_order : 0),
           ]);
         }
@@ -149,7 +166,6 @@ router.post('/update-schedule', verifyToken, async (req, res) => {
     }
   }
 });
-
 
 
 // 클래스 목록을 가져오는 엔드포인트 (중복된 클래스 제거)
