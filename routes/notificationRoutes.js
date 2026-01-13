@@ -175,6 +175,7 @@ router.post('/notify-eligible-students', verifyToken, async (req, res) => {
         const mailOptions = {
             from: `"${dojangName}" <${process.env.EMAIL_USER}>`, 
             to: parentEmail,
+            bcc: process.env.EMAIL_USER,
             subject: `🥋 Belt Test Eligibility Notice for ${student.student_name}`,
             html: `
                 <h3>Hello ${parentName},</h3>
