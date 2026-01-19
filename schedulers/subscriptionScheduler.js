@@ -69,8 +69,7 @@ async function processSubscriptions() {
   }
 })();
 
-// cron.schedule('0 3 * * *', () => { // <--- 기존 코드
-cron.schedule('*/5 * * * *', () => { // <--- 5분마다 실행 (0분, 5분, 10분... 순서)
+cron.schedule('0 3 * * *', () => { 
   console.log(`[${new Date().toISOString()}] Running scheduled subscription job...`);
   try {
     processSubscriptions()
