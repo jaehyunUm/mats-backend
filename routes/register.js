@@ -638,10 +638,14 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       payment_method: cardId,
       confirm: true,
       off_session: true,
-      metadata: { /* ... */ }
+      metadata: { 
+        student_id: String(studentId),
+        program: program.name
+      }
     },
     {
-      stripeAccount: connectedAccountId
+      stripeAccount: connectedAccountId,
+      idempotencyKey: finalIdempotencyKey // 👈 이 줄이 반드시 있어야 중복 결제가 방지됩니다!
     }
   );
     
