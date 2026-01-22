@@ -63,4 +63,160 @@ New Trial Request:
     }
   });
 
+  router.get('/public/grouped-objective-tests', async (req, res) => {
+    const { dojang_code } = req.query;
+  
+    if (!dojang_code) {
+      return res.status(400).json({ message: 'Dojang code is required' });
+    }
+  
+    try {
+      const [tests] = await db.query(`
+        SELECT id, test_name, evaluation_type, duration, target_count,
+          CASE
+            WHEN evaluation_type = 'count' AND duration IS NOT NULL
+              THEN CONCAT(test_name, ' for ', duration, ' Seconds')
+            WHEN evaluation_type = 'time' AND target_count IS NOT NULL
+              THEN CONCAT(test_name, ' ', target_count, ' times')
+            WHEN evaluation_type = 'attempt' AND target_count IS NOT NULL
+              THEN CONCAT(test_name, ' ', target_count, ' attempts')
+            WHEN evaluation_type = 'break' AND target_count IS NOT NULL
+              THEN CONCAT(test_name, ' ', target_count, ' boards')
+            ELSE test_name
+          END AS standardized_test_name
+        FROM test_template
+        WHERE evaluation_type IN ('count', 'time', 'attempt', 'break')
+          AND dojang_code = ?
+        ORDER BY standardized_test_name ASC
+      `, [dojang_code]);
+  
+      // 그룹화 로직 (유사한 테스트끼리 묶기)
+      const normalize = (str) => str.replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+      const createGroupId = (name, type, duration, target_count) => {
+          const value = duration !== null ? duration : target_count;
+          return `${normalize(name)}-${type}-${value}`.replace(/\s+/g, '-');
+      };
+  
+      const groups = [];
+      for (const test of tests) {
+        const normName = normalize(test.test_name);
+        const existingGroup = groups.find(group =>
+          group.evaluation_type === test.evaluation_type &&
+          group.duration === test.duration &&
+          group.target_count === test.target_count &&
+          normalize(group.test_name) === normName
+        );
+        if (existingGroup) {
+          existingGroup.items.push(test);
+        } else {
+          groups.push({
+            group_id: createGroupId(test.test_name, test.evaluation_type, test.duration, test.target_count),
+            standardized_name: test.standardized_test_name,
+            items: [test] // 나중에 items가 필요할 수 있으므로 포함
+          });
+        }
+      }
+      res.json(groups);
+    } catch (error) {
+      console.error('Error fetching public tests:', error);
+      res.status(500).json({ message: 'Failed to fetch public tests' });
+    }
+  });
+  
+  // ==========================================
+  // 4. [공개용] 실제 랭킹 데이터 조회 (신규 추가)
+  // ==========================================
+  router.get('/public/ranking/:groupId', async (req, res) => {
+    const { groupId } = req.params;
+    const { dojang_code } = req.query;
+  
+    if (!dojang_code) {
+      return res.status(400).json({ message: 'Dojang code is required' });
+    }
+  
+    try {
+      // 1. group_id 파싱
+      const parts = groupId.split('-');
+      const lastPart = parts[parts.length - 1];
+      const secondLastPart = parts[parts.length - 2];
+      
+      let evaluation_type, value;
+      if (!isNaN(lastPart)) {
+        evaluation_type = secondLastPart; 
+        value = parseInt(lastPart);
+      } else {
+        evaluation_type = lastPart; 
+        value = null;
+      }
+      
+      const test_name = parts.slice(0, -2).join(' ');
+      const normalize = (str) => str.replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+      const normalizedTestName = normalize(test_name);
+  
+      // 2. 해당하는 모든 test_template_id 찾기
+      const testTemplateQuery = `
+        SELECT id FROM test_template 
+        WHERE evaluation_type = ? 
+          AND LOWER(REPLACE(test_name, ' ', '')) = LOWER(REPLACE(?, ' ', ''))
+          AND (
+            (evaluation_type = 'count' AND duration = ?) OR
+            (evaluation_type = 'time' AND target_count = ?) OR
+            (evaluation_type = 'attempt' AND target_count = ?) OR
+            (evaluation_type = 'break' AND target_count = ?)
+          )
+      `;
+      
+      // db.query 사용 (db.execute 대신)
+      const [testTemplates] = await db.query(testTemplateQuery, [evaluation_type, normalizedTestName, value, value, value, value]);
+      
+      if (!testTemplates.length) {
+          // 테스트가 없으면 빈 배열 반환 (에러 아님)
+          return res.json([]); 
+      }
+      
+      const allTestIds = testTemplates.map(t => t.id);
+  
+      // 3. 랭킹 데이터 조회 (이름 마스킹 처리됨)
+      const query = `
+      WITH latest_tests AS (
+        SELECT tr.student_id, tr.test_template_id, tr.result_value, tr.created_at,
+          ROW_NUMBER() OVER (PARTITION BY tr.student_id, tr.test_template_id ORDER BY tr.created_at DESC) AS rn
+        FROM testresult tr
+        WHERE tr.test_template_id IN (?)
+      )
+      SELECT
+        s.id AS student_id,
+        CONCAT(s.last_name, ' ', s.first_name) AS name, 
+        YEAR(CURDATE()) - YEAR(s.birth_date) AS age,
+        b.belt_color AS belt_color,
+        d.dojang_name AS studio_name,
+        CASE
+          WHEN tt.evaluation_type = 'time' THEN
+            CONCAT(FLOOR(latest_tests.result_value / 60), "'", LPAD(MOD(latest_tests.result_value, 60), 2, '0'), '"')
+          ELSE latest_tests.result_value
+        END AS count,
+        tt.evaluation_type
+      FROM students s
+      JOIN latest_tests ON s.id = latest_tests.student_id AND latest_tests.rn = 1
+      JOIN test_template tt ON latest_tests.test_template_id = tt.id
+      JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
+      JOIN dojangs d ON s.dojang_code = d.dojang_code
+      WHERE s.dojang_code = ? 
+      ORDER BY
+        CASE WHEN tt.evaluation_type = 'time' THEN latest_tests.result_value ELSE -latest_tests.result_value END
+      LIMIT 50
+      `;
+  
+      // IN (?) 에 배열을 넣기 위해 [allTestIds] 로 감쌈
+      const params = [allTestIds, dojang_code];
+      
+      const [rankingData] = await db.query(query, params);
+      res.json(rankingData);
+  
+    } catch (error) {
+      console.error('Error fetching public ranking:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+
   module.exports = router;
