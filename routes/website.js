@@ -4,6 +4,7 @@ const db = require('../db'); // 데이터베이스 연결 파일
 const nodemailer = require('nodemailer');
 
 // 인증 없이 누구나 접근 가능한 스케줄 API
+// 백엔드 API
 router.get('/public-get-schedule', async (req, res) => {
   const { dojang_code } = req.query;
   if (!dojang_code) {
@@ -11,6 +12,7 @@ router.get('/public-get-schedule', async (req, res) => {
   }
 
   try {
+    // 🔥 중요: DB 컬럼명이 Thur 이므로, 여기서도 반드시 Thur 라고 써야 합니다.
     const query = `
       SELECT id, time, Mon, Tue, Wed, Thur, Fri, Sat, dojang_code, sort_order
       FROM schedule
@@ -19,8 +21,7 @@ router.get('/public-get-schedule', async (req, res) => {
     `;
     const [results] = await db.query(query, [dojang_code]);
 
-    // 빈 배열도 200으로
-    res.setHeader('Cache-Control', 'public, max-age=60'); // 선택: 60초 캐시
+    res.setHeader('Cache-Control', 'public, max-age=60');
     return res.status(200).json(results || []);
   } catch (err) {
     console.error('Error fetching schedule:', err);
