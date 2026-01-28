@@ -91,7 +91,9 @@ New Trial Request:
       `, [dojang_code]);
   
       // 그룹화 로직 (유사한 테스트끼리 묶기)
-      const normalize = (str) => str.replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+      // 대소문자 구분을 없애기 위해 toLowerCase() 추가 권장
+      const normalize = (str) => (str || '').toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+      
       const createGroupId = (name, type, duration, target_count) => {
           const value = duration !== null ? duration : target_count;
           return `${normalize(name)}-${type}-${value}`.replace(/\s+/g, '-');
@@ -100,19 +102,30 @@ New Trial Request:
       const groups = [];
       for (const test of tests) {
         const normName = normalize(test.test_name);
+        
+        // 기존 그룹 찾기
         const existingGroup = groups.find(group =>
           group.evaluation_type === test.evaluation_type &&
           group.duration === test.duration &&
           group.target_count === test.target_count &&
           normalize(group.test_name) === normName
         );
+
         if (existingGroup) {
           existingGroup.items.push(test);
         } else {
+          // 🔥 [수정됨] 그룹을 생성할 때, 비교에 필요한 기준 데이터들을 꼭 같이 저장해야 합니다!
           groups.push({
             group_id: createGroupId(test.test_name, test.evaluation_type, test.duration, test.target_count),
             standardized_name: test.standardized_test_name,
-            items: [test] // 나중에 items가 필요할 수 있으므로 포함
+            
+            // 아래 4가지 필드가 없어서 비교가 불가능했었습니다. 추가해주세요.
+            test_name: test.test_name,
+            evaluation_type: test.evaluation_type,
+            duration: test.duration,
+            target_count: test.target_count,
+
+            items: [test]
           });
         }
       }
