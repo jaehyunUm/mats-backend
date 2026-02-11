@@ -180,11 +180,10 @@ New Trial Request:
           )
       `;
       
-      // db.query 사용 (db.execute 대신)
+      // db.query 사용 (기존 유지)
       const [testTemplates] = await db.query(testTemplateQuery, [evaluation_type, normalizedTestName, value, value, value, value]);
       
       if (!testTemplates.length) {
-          // 테스트가 없으면 빈 배열 반환 (에러 아님)
           return res.json([]); 
       }
       
@@ -221,11 +220,44 @@ New Trial Request:
       LIMIT 50
       `;
   
-      // IN (?) 에 배열을 넣기 위해 [allTestIds] 로 감쌈
+      // IN (?) 처리를 위한 배열 감싸기 (기존 유지)
       const params = [allTestIds, dojang_code];
       
       const [rankingData] = await db.query(query, params);
-      res.json(rankingData);
+  
+      // ================= [여기부터 수정됨] =================
+      // 4. 공동 순위 계산 (1, 1, 3 방식)
+      const rankedData = rankingData.map((item, index, array) => {
+        // DB 객체 보호를 위해 복사본 생성 (권장사항)
+        const currentItem = { ...item };
+  
+        if (index === 0) {
+          currentItem.rank = 1;
+          // 배열 원본이 아닌 '처리 중인 데이터'를 위해 array[index]도 업데이트 해주는 것이 안전할 수 있음
+          array[index].rank = 1; 
+          return currentItem;
+        }
+  
+        // 이전 아이템 가져오기 (이전 루프에서 rank가 할당된 상태)
+        const prevItem = array[index - 1];
+  
+        // 결과값(count) 비교
+        if (currentItem.count === prevItem.count) {
+          // 값이 같으면 앞사람 등수 따라가기
+          currentItem.rank = prevItem.rank;
+        } else {
+          // 값이 다르면 (인덱스 + 1) 등수
+          currentItem.rank = index + 1;
+        }
+        
+        // 다음 반복을 위해 원본 배열에도 rank 업데이트 (참조 유지를 위해)
+        array[index].rank = currentItem.rank;
+        
+        return currentItem;
+      });
+  
+      res.json(rankedData);
+      // ===================================================
   
     } catch (error) {
       console.error('Error fetching public ranking:', error);
