@@ -208,7 +208,36 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
     const [rankingData] = await db.execute(query, params);
     
     console.log("결과 데이터 개수:", rankingData.length);
-    res.json(rankingData);
+
+    // ================= [여기부터 수정] =================
+    // 2. 공동 순위 계산 로직 추가 (1, 1, 3 방식)
+    const rankedData = rankingData.map((currentItem, index, array) => {
+      // 첫 번째 사람은 무조건 1등
+      if (index === 0) {
+        currentItem.rank = 1;
+        return currentItem;
+      }
+
+      const prevItem = array[index - 1];
+
+      // 이전 사람과 결과값(count)이 동일한지 비교
+      // 주의: SQL에서 'time' 타입은 문자열로 변환되어 오므로, 문자열 비교도 정상 작동합니다.
+      if (currentItem.count === prevItem.count) {
+        // 값이 같으면 이전 사람의 등수와 동일하게 설정 (공동 등수)
+        currentItem.rank = prevItem.rank;
+      } else {
+        // 값이 다르면 '현재 인덱스 + 1'이 등수가 됨
+        // (예: 인덱스 0(1등), 인덱스 1(1등) -> 인덱스 2는 3등)
+        currentItem.rank = index + 1;
+      }
+      
+      return currentItem;
+    });
+
+    // 3. rank가 포함된 데이터 반환
+    res.json(rankedData);
+    // =================================================
+
   } catch (error) {
     console.error('Error fetching ranking data:', error);
     res.status(500).json({ message: 'Failed to fetch ranking data' });
