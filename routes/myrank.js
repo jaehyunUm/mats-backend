@@ -210,30 +210,37 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
     console.log("결과 데이터 개수:", rankingData.length);
 
     // ================= [여기부터 수정] =================
-    // 2. 공동 순위 계산 로직 추가 (1, 1, 3 방식)
-    const rankedData = rankingData.map((currentItem, index, array) => {
-      // 첫 번째 사람은 무조건 1등
-      if (index === 0) {
-        currentItem.rank = 1;
-        return currentItem;
-      }
+    // 2. 공동 순위 계산 로직 (안전한 객체 복사 방식 사용)
+    const rankedData = [];
 
-      const prevItem = array[index - 1];
+    for (let i = 0; i < rankingData.length; i++) {
+      // 중요: DB에서 가져온 원본 객체를 복사해서 사용해야 수정이 가능합니다.
+      const item = { ...rankingData[i] };
+      
+      // 혹시 모를 공백 제거를 위해 문자열 변환 후 trim 처리 (안전장치)
+      const currentCount = String(item.count).trim();
 
-      // 이전 사람과 결과값(count)이 동일한지 비교
-      // 주의: SQL에서 'time' 타입은 문자열로 변환되어 오므로, 문자열 비교도 정상 작동합니다.
-      if (currentItem.count === prevItem.count) {
-        // 값이 같으면 이전 사람의 등수와 동일하게 설정 (공동 등수)
-        currentItem.rank = prevItem.rank;
+      if (i === 0) {
+        item.rank = 1;
       } else {
-        // 값이 다르면 '현재 인덱스 + 1'이 등수가 됨
-        // (예: 인덱스 0(1등), 인덱스 1(1등) -> 인덱스 2는 3등)
-        currentItem.rank = index + 1;
+        // 이미 처리가 끝난 바로 앞사람의 데이터를 가져옵니다.
+        const prevItem = rankedData[i - 1];
+        const prevCount = String(prevItem.count).trim();
+
+        // 디버깅: 값이 같은지 확인하고 싶다면 주석을 풀어보세요
+        // console.log(`비교: ${currentCount} vs ${prevCount} -> ${currentCount === prevCount}`);
+
+        if (currentCount === prevCount) {
+          // 값이 같으면 앞사람 등수 그대로 (공동 등수)
+          item.rank = prevItem.rank;
+        } else {
+          // 값이 다르면 (현재 인덱스 + 1)이 등수 (예: 0번, 1번이 1등이면 2번 인덱스는 3등)
+          item.rank = i + 1;
+        }
       }
       
-      return currentItem;
-    });
-
+      rankedData.push(item);
+    }
     // 3. rank가 포함된 데이터 반환
     res.json(rankedData);
     // =================================================
