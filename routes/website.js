@@ -180,7 +180,6 @@ New Trial Request:
           )
       `;
       
-      // db.query 사용 (기존 유지)
       const [testTemplates] = await db.query(testTemplateQuery, [evaluation_type, normalizedTestName, value, value, value, value]);
       
       if (!testTemplates.length) {
@@ -189,7 +188,7 @@ New Trial Request:
       
       const allTestIds = testTemplates.map(t => t.id);
   
-      // 3. 랭킹 데이터 조회 (이름 마스킹 처리됨)
+      // 3. 랭킹 데이터 조회
       const query = `
       WITH latest_tests AS (
         SELECT tr.student_id, tr.test_template_id, tr.result_value, tr.created_at,
@@ -220,41 +219,39 @@ New Trial Request:
       LIMIT 50
       `;
   
-      // IN (?) 처리를 위한 배열 감싸기 (기존 유지)
       const params = [allTestIds, dojang_code];
       
       const [rankingData] = await db.query(query, params);
   
       // ================= [여기부터 수정됨] =================
-      // 4. 공동 순위 계산 (1, 1, 3 방식)
-      const rankedData = rankingData.map((item, index, array) => {
-        // DB 객체 보호를 위해 복사본 생성 (권장사항)
-        const currentItem = { ...item };
+      // 4. 공동 순위 계산 (for 루프 + 객체 복사 방식)
+      const rankedData = [];
   
-        if (index === 0) {
-          currentItem.rank = 1;
-          // 배열 원본이 아닌 '처리 중인 데이터'를 위해 array[index]도 업데이트 해주는 것이 안전할 수 있음
-          array[index].rank = 1; 
-          return currentItem;
-        }
+      for (let i = 0; i < rankingData.length; i++) {
+        // DB 객체는 수정이 안 될 수 있으므로 복사해서 사용
+        const item = { ...rankingData[i] };
+        
+        // 비교를 위해 문자열 변환 및 공백 제거
+        const currentCount = String(item.count).trim();
   
-        // 이전 아이템 가져오기 (이전 루프에서 rank가 할당된 상태)
-        const prevItem = array[index - 1];
-  
-        // 결과값(count) 비교
-        if (currentItem.count === prevItem.count) {
-          // 값이 같으면 앞사람 등수 따라가기
-          currentItem.rank = prevItem.rank;
+        if (i === 0) {
+          item.rank = 1;
         } else {
-          // 값이 다르면 (인덱스 + 1) 등수
-          currentItem.rank = index + 1;
+          // 이미 처리된(rank가 부여된) 바로 앞사람 데이터 가져오기
+          const prevItem = rankedData[i - 1];
+          const prevCount = String(prevItem.count).trim();
+  
+          if (currentCount === prevCount) {
+            // 점수가 같으면 앞사람 등수 그대로 (공동 등수)
+            item.rank = prevItem.rank;
+          } else {
+            // 점수가 다르면 (현재 인덱스 + 1) 등수
+            item.rank = i + 1;
+          }
         }
         
-        // 다음 반복을 위해 원본 배열에도 rank 업데이트 (참조 유지를 위해)
-        array[index].rank = currentItem.rank;
-        
-        return currentItem;
-      });
+        rankedData.push(item);
+      }
   
       res.json(rankedData);
       // ===================================================
