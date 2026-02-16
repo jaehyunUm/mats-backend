@@ -137,8 +137,8 @@ New Trial Request:
     }
   });
   
-  // ==========================================
-  // 4. [공개용] 실제 랭킹 데이터 조회 (신규 추가)
+// ==========================================
+  // 4. [공개용] 실제 랭킹 데이터 조회 (수정됨)
   // ==========================================
   router.get('/public/ranking/:groupId', async (req, res) => {
     const { groupId } = req.params;
@@ -189,6 +189,7 @@ New Trial Request:
       const allTestIds = testTemplates.map(t => t.id);
   
       // 3. 랭킹 데이터 조회
+      // [수정 포인트 1] 원본 점수(raw_score)를 별도로 가져옵니다.
       const query = `
       WITH latest_tests AS (
         SELECT tr.student_id, tr.test_template_id, tr.result_value, tr.created_at,
@@ -202,6 +203,7 @@ New Trial Request:
         YEAR(CURDATE()) - YEAR(s.birth_date) AS age,
         b.belt_color AS belt_color,
         d.dojang_name AS studio_name,
+        latest_tests.result_value AS raw_score,  -- [추가됨] 비교를 위한 원본 숫자 값
         CASE
           WHEN tt.evaluation_type = 'time' THEN
             CONCAT(FLOOR(latest_tests.result_value / 60), "'", LPAD(MOD(latest_tests.result_value, 60), 2, '0'), '"')
@@ -223,38 +225,33 @@ New Trial Request:
       
       const [rankingData] = await db.query(query, params);
   
-      // ================= [여기부터 수정됨] =================
-      // 4. 공동 순위 계산 (for 루프 + 객체 복사 방식)
+      // 4. 공동 순위 계산
       const rankedData = [];
   
       for (let i = 0; i < rankingData.length; i++) {
-        // DB 객체는 수정이 안 될 수 있으므로 복사해서 사용
         const item = { ...rankingData[i] };
         
-        // 비교를 위해 문자열 변환 및 공백 제거
-        const currentCount = String(item.count).trim();
-  
         if (i === 0) {
           item.rank = 1;
         } else {
-          // 이미 처리된(rank가 부여된) 바로 앞사람 데이터 가져오기
           const prevItem = rankedData[i - 1];
-          const prevCount = String(prevItem.count).trim();
-  
-          if (currentCount === prevCount) {
-            // 점수가 같으면 앞사람 등수 그대로 (공동 등수)
-            item.rank = prevItem.rank;
+          
+          // [수정 포인트 2] 화면용 문자열(count)이 아니라 실제 숫자(raw_score)를 비교합니다.
+          // DB에서 숫자로 오지만 확실하게 비교하기 위해 Number() 사용
+          if (Number(item.raw_score) === Number(prevItem.raw_score)) {
+            item.rank = prevItem.rank; // 점수가 같으면 공동 등수
           } else {
-            // 점수가 다르면 (현재 인덱스 + 1) 등수
-            item.rank = i + 1;
+            item.rank = i + 1; // 점수가 다르면 (인덱스 + 1) 등수
           }
         }
+        
+        // 프론트엔드에 굳이 raw_score를 보낼 필요가 없다면 삭제 (선택사항)
+        // delete item.raw_score; 
         
         rankedData.push(item);
       }
   
       res.json(rankedData);
-      // ===================================================
   
     } catch (error) {
       console.error('Error fetching public ranking:', error);
