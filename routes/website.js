@@ -189,7 +189,6 @@ New Trial Request:
       const allTestIds = testTemplates.map(t => t.id);
   
       // 3. 랭킹 데이터 조회
-      // [수정 포인트 1] 원본 점수(raw_score)를 별도로 가져옵니다.
       const query = `
       WITH latest_tests AS (
         SELECT tr.student_id, tr.test_template_id, tr.result_value, tr.created_at,
@@ -203,7 +202,7 @@ New Trial Request:
         YEAR(CURDATE()) - YEAR(s.birth_date) AS age,
         b.belt_color AS belt_color,
         d.dojang_name AS studio_name,
-        latest_tests.result_value AS raw_score,  -- [추가됨] 비교를 위한 원본 숫자 값
+        latest_tests.result_value AS raw_score,
         CASE
           WHEN tt.evaluation_type = 'time' THEN
             CONCAT(FLOOR(latest_tests.result_value / 60), "'", LPAD(MOD(latest_tests.result_value, 60), 2, '0'), '"')
@@ -218,7 +217,7 @@ New Trial Request:
       WHERE s.dojang_code = ? 
       ORDER BY
         CASE WHEN tt.evaluation_type = 'time' THEN latest_tests.result_value ELSE -latest_tests.result_value END
-      LIMIT 50
+      LIMIT 10  -- [수정 완료] 50 -> 10으로 변경하여 상위 10명만 가져옴
       `;
   
       const params = [allTestIds, dojang_code];
@@ -236,17 +235,13 @@ New Trial Request:
         } else {
           const prevItem = rankedData[i - 1];
           
-          // [수정 포인트 2] 화면용 문자열(count)이 아니라 실제 숫자(raw_score)를 비교합니다.
-          // DB에서 숫자로 오지만 확실하게 비교하기 위해 Number() 사용
+          // 원본 점수(raw_score) 비교
           if (Number(item.raw_score) === Number(prevItem.raw_score)) {
-            item.rank = prevItem.rank; // 점수가 같으면 공동 등수
+            item.rank = prevItem.rank; 
           } else {
-            item.rank = i + 1; // 점수가 다르면 (인덱스 + 1) 등수
+            item.rank = i + 1; 
           }
         }
-        
-        // 프론트엔드에 굳이 raw_score를 보낼 필요가 없다면 삭제 (선택사항)
-        // delete item.raw_score; 
         
         rankedData.push(item);
       }
