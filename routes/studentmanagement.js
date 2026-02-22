@@ -41,8 +41,8 @@ router.get('/students/program/:programName', verifyToken, async (req, res) => {
   
   
 
-// 학생 검색 (전체 목록 겸용)
-// 학생 검색 (전체 목록 겸용 + 출석/심사 정보 포함)
+
+// 학생 검색 (전체 목록 겸용 + 출석/심사 정보 포함) - 취소된 학생 제외
 router.get('/students', verifyToken, async (req, res) => {
   const { search } = req.query;
   const dojangCode = req.user.dojang_code;
@@ -98,6 +98,7 @@ router.get('/students', verifyToken, async (req, res) => {
 
       WHERE 
         s.dojang_code = ?
+        AND s.program_id IS NOT NULL -- ⭐️ 이 부분을 추가하여 취소된 학생을 제외합니다.
     `;
 
     // 2. 파라미터 초기화
