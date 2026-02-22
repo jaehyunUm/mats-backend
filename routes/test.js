@@ -165,19 +165,30 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
     // ID 생성
     const mainPaymentId = uuidv4();
     const finalIdempotencyKey = idempotencyKey || uuidv4();
-    const testFeeValue = (amountValue / 100).toFixed(2); // 센트 -> 달러 변환
     const tempSourceId = `temp_${Date.now()}_${mainPaymentId}`;
 
-    // 1. 테스트 심사비 기록 (Pending)
+    // ⭐️ 1. 송판(아이템) 총 금액 계산
+    let totalBoardAmount = 0;
+    if (boards && boards.length > 0) {
+      for (const board of boards) {
+        totalBoardAmount += parseFloat(board.price || 0);
+      }
+    }
+
+    // ⭐️ 2. 전체 금액(달러)에서 송판 총 금액을 빼서 '순수 심사비' 계산
+    const totalAmountDollars = amountValue / 100; 
+    const pureTestFee = (totalAmountDollars - totalBoardAmount).toFixed(2); 
+
+    // 3. 테스트 심사비 기록 (Pending) - 💡 여기서 pureTestFee 변수를 사용합니다!
     await connection.query(`
       INSERT INTO test_payments (
         student_id, amount, status, 
         dojang_code, idempotency_key, source_id, parent_id, card_id,
         payment_method, currency, payment_date
       ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, 'card', ?, NOW())
-    `, [student_id, testFeeValue, dojang_code, finalIdempotencyKey, tempSourceId, parent_id, paymentMethodId, currency]);
+    `, [student_id, pureTestFee, dojang_code, finalIdempotencyKey, tempSourceId, parent_id, paymentMethodId, currency]);
 
-    // 2. 송판(Board) 재고 차감 및 기록 (Pending)
+    // 4. 송판(Board) 재고 차감 및 기록 (Pending)
     if (boards && boards.length > 0) {
       for (const board of boards) {
         const itemId = board.id;
@@ -204,17 +215,17 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, 'card', ?, NOW(), 'pending', ?, ?, ?)
         `, [
           student_id, itemId, size, quantity, board.price || 0, 
-          finalIdempotencyKey, // 나중에 업데이트하기 쉽게 같은 키 사용
-          `temp_board_${itemId}`, // 임시 소스 ID
+          finalIdempotencyKey, 
+          `temp_board_${itemId}`, 
           currency, dojang_code, parent_id, paymentMethodId
         ]);
       }
     }
 
-    // 3. Stripe 결제 요청
+    // 5. Stripe 결제 요청 - 💡 Stripe에는 전체 금액(amountValue)으로 청구합니다!
     const paymentIntent = await stripe.paymentIntents.create(
       {
-        amount: Math.round(amountValue),
+        amount: Math.round(amountValue), 
         currency: currency.toLowerCase(),
         payment_method: paymentMethodId,
         customer: customer_id,
@@ -223,12 +234,12 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
       },
       {
         stripeAccount: connectedAccountId,
-        idempotencyKey: finalIdempotencyKey // ⭐️ [수정] 중복 결제 방지 키 추가됨
+        idempotencyKey: finalIdempotencyKey
       }
     );
 
     if (paymentIntent && paymentIntent.status === "succeeded") {
-      // 4. 결제 성공 후 DB 상태 업데이트 (Pending -> Completed)
+      // 6. 결제 성공 후 DB 상태 업데이트 (Pending -> Completed)
       
       // A. 심사비 업데이트
       await connection.query(`
@@ -237,7 +248,7 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
         WHERE source_id = ? AND student_id = ?
       `, [paymentIntent.id, tempSourceId, student_id]);
 
-      // B. 송판 구매 업데이트 (⭐️ 추가된 부분)
+      // B. 송판 구매 업데이트
       if (boards && boards.length > 0) {
         await connection.query(`
           UPDATE item_payments 
