@@ -47,7 +47,10 @@ router.get('/test-results/:studentId', verifyToken, async (req, res) => {
         r.result_value,
         r.test_type,
         DATE_FORMAT(r.created_at, '%Y-%m-%d') AS date,
-        LAG(r.result_value) OVER (PARTITION BY r.student_id, t.test_name ORDER BY r.created_at) AS previous_result
+        -- 이전 기록 (전회차 비교용)
+        LAG(r.result_value) OVER (PARTITION BY r.student_id, t.test_name ORDER BY r.created_at) AS previous_result,
+        -- ⭐️ 최초 기록 (누적 비교용) 추가!
+        FIRST_VALUE(r.result_value) OVER (PARTITION BY r.student_id, t.test_name ORDER BY r.created_at) AS initial_result
       FROM testresult r
       JOIN test_template t ON r.test_template_id = t.id
       WHERE r.student_id = ? AND t.dojang_code = ?
@@ -55,31 +58,42 @@ router.get('/test-results/:studentId', verifyToken, async (req, res) => {
       [studentId, dojang_code]
     );
 
-    // 성장률 계산 추가
+    // 성장률 및 누적성장률 계산
     const processedResults = testResults.map((result) => {
       const previous = result.previous_result;
+      const initial = result.initial_result; // 최초 기록
       const current = result.result_value;
-      let growthRate;
       
-      if (previous) {
+      let growthRate;
+      let cumulativeGrowthRate; // 누적 성장률
+      
+      // 첫 번째 테스트가 아닌 경우(previous가 있는 경우)에만 계산
+      if (previous !== null && previous !== undefined) {
         if (result.evaluation_type === 'time') {
-          // time 타입인 경우 성장률 부호 반전 (시간이 줄어들면 성장)
+          // time 타입인 경우 (시간이 줄어들면 성장)
           growthRate = (((previous - current) / previous) * 100).toFixed(1);
+          // ⭐️ 누적 성장률: (최초기록 - 현재기록) / 최초기록
+          cumulativeGrowthRate = (((initial - current) / initial) * 100).toFixed(1); 
         } else {
-          // 다른 타입은 기존 방식대로 계산
+          // 다른 타입 (숫자가 커지면 성장)
           growthRate = (((current - previous) / previous) * 100).toFixed(1);
+          // ⭐️ 누적 성장률: (현재기록 - 최초기록) / 최초기록
+          cumulativeGrowthRate = (((current - initial) / initial) * 100).toFixed(1);
         }
       } else {
+        // 첫 번째 기록일 경우 비교 대상이 없으므로 N/A 처리
         growthRate = 'N/A';
+        cumulativeGrowthRate = 'N/A';
       }
       
       return {
         ...result,
         growth_rate: growthRate,
+        cumulative_growth_rate: cumulativeGrowthRate, // API 응답에 추가
       };
     });
 
-    console.log('Processed Test Results with Growth Rate:', processedResults);
+    console.log('Processed Test Results with Growth Rates:', processedResults);
     res.json(processedResults);
   } catch (error) {
     console.error('Error fetching test results:', error);
