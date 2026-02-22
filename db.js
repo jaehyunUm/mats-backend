@@ -10,6 +10,7 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   bigNumberStrings: true, // ✅ BigInt를 자동으로 문자열로 변환
+  dateStrings: true, // ⭐️ 이 한 줄만 추가해 주세요!
 });
 
 console.log("👉 DB_HOST:", process.env.DB_HOST);
