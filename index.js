@@ -169,6 +169,8 @@ const goalRoutes = require('./routes/goalRoutes'); // ✅ 1. 목표(Goal) 라우
 app.use('/api', goalRoutes); // ✅ 2. 목표(Goal) 라우트 등록
 const notificationRoutes = require('./routes/notificationRoutes'); 
 app.use('/api', notificationRoutes);
+const lessonPlanRoutes = require('./routes/lessonplan');
+app.use('/api/lessonplan', lessonPlanRoutes);
 
 // Webhook 엔드포인트 설정
 app.post('/webhook', (req, res) => {
