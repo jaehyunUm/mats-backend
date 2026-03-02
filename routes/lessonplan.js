@@ -45,9 +45,10 @@ router.get('/lessonplan/categories', verifyToken, async (req, res) => {
   // ==========================================
   
   // [GET] /api/lessonplan
-  router.get('/lessonplan', verifyToken, async (req, res) => {
+// [GET] 특정 기간 레슨 플랜 불러오기
+router.get('/lessonplan', verifyToken, async (req, res) => {
     const { dojang_code } = req.user;
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate } = req.query; // 앱에서 요청한 이번 주 월요일(startDate), 토요일(endDate)
     
     try {
       const query = `
@@ -63,11 +64,15 @@ router.get('/lessonplan/categories', verifyToken, async (req, res) => {
           c.color 
         FROM lesson_plans p
         LEFT JOIN lesson_categories c ON p.category_id = c.id
-        WHERE p.dojang_code = ? AND p.start_date = ? AND p.end_date = ?
+        WHERE p.dojang_code = ? 
+          -- 🌟 [핵심] 정확히 일치(=)가 아니라, 기간이 조금이라도 겹치면 다 가져오도록 수정!
+          AND p.start_date <= ? 
+          AND p.end_date >= ?
         ORDER BY p.start_time ASC
       `;
       
-      const [plans] = await db.query(query, [dojang_code, startDate, endDate]);
+      // 🌟 주의: ? 에 들어갈 순서가 endDate, startDate 순서로 바뀝니다.
+      const [plans] = await db.query(query, [dojang_code, endDate, startDate]);
       res.json({ success: true, plans });
     } catch (err) {
       console.error('Plan fetch error:', err);
