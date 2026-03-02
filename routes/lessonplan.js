@@ -108,5 +108,27 @@ router.get('/lessonplan/categories', verifyToken, async (req, res) => {
       res.status(500).json({ success: false });
     }
   });
+
+  router.delete('/categories/:id', verifyToken, async (req, res) => {
+    const { dojang_code } = req.user;
+    const categoryId = req.params.id;
+    
+    try {
+      // 보안을 위해 dojang_code가 일치하는 카테고리만 삭제
+      const [result] = await db.query(
+        'DELETE FROM lesson_categories WHERE id = ? AND dojang_code = ?', 
+        [categoryId, dojang_code]
+      );
+  
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: 'Category not found or access denied.' });
+      }
+  
+      res.json({ success: true, message: 'Category deleted successfully.' });
+    } catch (err) {
+      console.error('Delete category error:', err);
+      res.status(500).json({ success: false, message: 'Server error' });
+    }
+  });
   
   module.exports = router;
