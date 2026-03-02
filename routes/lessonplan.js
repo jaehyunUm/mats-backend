@@ -109,7 +109,7 @@ router.get('/lessonplan/categories', verifyToken, async (req, res) => {
     }
   });
 
-  router.delete('/categories/:id', verifyToken, async (req, res) => {
+  router.delete('/lessonplan/categories/:id', verifyToken, async (req, res) => {
     const { dojang_code } = req.user;
     const categoryId = req.params.id;
     
