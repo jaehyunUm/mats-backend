@@ -136,4 +136,27 @@ router.get('/lessonplan', verifyToken, async (req, res) => {
     }
   });
   
+  // [PUT] 레슨 플랜(훈련 내용 및 카테고리) 수정하기
+router.put('/lessonplan/:id', verifyToken, async (req, res) => {
+    const { dojang_code } = req.user;
+    const planId = req.params.id;
+    const { categoryId, title } = req.body; // 프론트에서 보낸 변경된 카테고리와 훈련내용
+  
+    try {
+      const [result] = await db.query(
+        'UPDATE lesson_plans SET category_id = ?, title = ? WHERE id = ? AND dojang_code = ?',
+        [categoryId, title, planId, dojang_code]
+      );
+  
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: 'Plan not found or access denied.' });
+      }
+  
+      res.json({ success: true, message: 'Plan updated successfully.' });
+    } catch (err) {
+      console.error('Update error:', err);
+      res.status(500).json({ success: false, message: 'Server error' });
+    }
+  });
+  
   module.exports = router;
