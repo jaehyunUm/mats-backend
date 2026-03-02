@@ -169,8 +169,8 @@ const goalRoutes = require('./routes/goalRoutes'); // ✅ 1. 목표(Goal) 라우
 app.use('/api', goalRoutes); // ✅ 2. 목표(Goal) 라우트 등록
 const notificationRoutes = require('./routes/notificationRoutes'); 
 app.use('/api', notificationRoutes);
-const lessonPlanRoutes = require('./routes/lessonplan');
-app.use('/api/lessonplan', lessonPlanRoutes);
+const lessonPlanRoutes = require('./routes/lessonplan'); // 파일명이 정확한지 확인!
+app.use('/api', lessonPlanRoutes); // 여기서 '/api'를 이미 붙였습니다.
 
 // Webhook 엔드포인트 설정
 app.post('/webhook', (req, res) => {
