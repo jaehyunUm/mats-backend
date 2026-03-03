@@ -136,16 +136,17 @@ router.get('/lessonplan', verifyToken, async (req, res) => {
     }
   });
   
-  // [PUT] 레슨 플랜(훈련 내용 및 카테고리) 수정하기
+// [PUT] 레슨 플랜(훈련 내용, 카테고리, 시간) 수정하기
 router.put('/lessonplan/:id', verifyToken, async (req, res) => {
     const { dojang_code } = req.user;
     const planId = req.params.id;
-    const { categoryId, title } = req.body; // 프론트에서 보낸 변경된 카테고리와 훈련내용
+    // 프론트에서 넘어오는 startTime, endTime도 받습니다.
+    const { categoryId, title, startTime, endTime } = req.body; 
   
     try {
       const [result] = await db.query(
-        'UPDATE lesson_plans SET category_id = ?, title = ? WHERE id = ? AND dojang_code = ?',
-        [categoryId, title, planId, dojang_code]
+        'UPDATE lesson_plans SET category_id = ?, title = ?, start_time = ?, end_time = ? WHERE id = ? AND dojang_code = ?',
+        [categoryId, title, startTime, endTime, planId, dojang_code]
       );
   
       if (result.affectedRows === 0) {
@@ -158,5 +159,5 @@ router.put('/lessonplan/:id', verifyToken, async (req, res) => {
       res.status(500).json({ success: false, message: 'Server error' });
     }
   });
-  
+
   module.exports = router;
