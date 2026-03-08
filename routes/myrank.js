@@ -163,7 +163,7 @@ router.get('/ranking/:groupId', verifyToken, async (req, res) => {
       CONCAT(s.last_name, ' ', s.first_name) AS name,
       s.dojang_code AS dojang_code,
       d.dojang_name AS studio_name,
-      YEAR(CURDATE()) - YEAR(s.birth_date) AS age,
+      TIMESTAMPDIFF(YEAR, s.birth_date, CURDATE()) AS age,
       s.belt_rank AS belt_rank,
       b.belt_color AS belt_color,
       CASE
