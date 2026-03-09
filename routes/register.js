@@ -480,23 +480,54 @@ router.post('/process-payment', verifyToken, async (req, res) => {
         console.error(`알 수 없는 operation_type: ${programInfo.operation_type}`);
       }
       
-      // 이제 NULL 값을 허용하므로 그대로 쿼리 실행
-      await connection.query(`
-        INSERT INTO payinfull_payment
-        (student_id, payment_id, total_classes, remaining_classes, 
-         start_date, end_date, dojang_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [
-        studentId,
-        mainPaymentId, // 프로그램 결제 ID 사용
-        totalClasses,
-        remainingClasses,
-        startDate,
-        endDateStr,
-        dojang_code
-      ]);
-      
-      console.log("✅ Pay in full 등록 완료");
+      // ⭐️ 1단계: 이 학생이 이전에 Pay in full을 결제한 기록이 있는지 찾습니다.
+      const [existingPayInFull] = await connection.query(`
+        SELECT id FROM payinfull_payment 
+        WHERE student_id = ? AND dojang_code = ?
+      `, [studentId, dojang_code]);
+
+      if (existingPayInFull.length > 0) {
+        // ⭐️ 2-A단계 (덮어쓰기 로직): 기존 기록이 있으면 새로운 값으로 모두 덮어씌웁니다 (UPDATE)
+        // 기존 횟수에 더하는 것(remaining_classes + ?)이 아니라, 새로운 횟수(?)로 완전히 교체합니다.
+        console.log("🟡 기존 Pay in full 기록 발견. 새 결제 정보로 덮어씌웁니다.");
+        
+        await connection.query(`
+          UPDATE payinfull_payment
+          SET payment_id = ?, 
+              total_classes = ?, 
+              remaining_classes = ?, 
+              start_date = ?, 
+              end_date = ?
+          WHERE student_id = ? AND dojang_code = ?
+        `, [
+          mainPaymentId,     // 새로운 결제 영수증 ID로 덮어쓰기
+          totalClasses,      // 새 프로그램의 총 횟수로 덮어쓰기
+          remainingClasses,  // 새 프로그램의 남은 횟수로 덮어쓰기
+          startDate,         // 새 프로그램의 시작일로 덮어쓰기
+          endDateStr,        // 새 프로그램의 종료일로 덮어쓰기
+          studentId,
+          dojang_code
+        ]);
+        console.log("✅ Pay in full 기존 데이터 덮어쓰기(UPDATE) 완료");
+      } else {
+        // ⭐️ 2-B단계 (신규 등록): 기존 기록이 없으면 처음으로 줄을 만듭니다 (INSERT)
+        console.log("🟢 기존 기록 없음. 신규 삽입합니다.");
+        await connection.query(`
+          INSERT INTO payinfull_payment
+          (student_id, payment_id, total_classes, remaining_classes, 
+           start_date, end_date, dojang_code)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [
+          studentId,
+          mainPaymentId, 
+          totalClasses,
+          remainingClasses,
+          startDate,
+          endDateStr,
+          dojang_code
+        ]);
+        console.log("✅ Pay in full 신규 데이터 삽입(INSERT) 완료");
+      }
     }
 
     // 월간 결제 처리
