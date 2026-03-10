@@ -330,52 +330,101 @@ router.put('/students/parents/:id', verifyToken, async (req, res) => {
 });
 
 
-//monthly 결제 정보 업데이트
+// 결제 정보 업데이트 (Monthly & Pay in Full 통합 처리)
 router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
-  const { studentId } = req.params; // URL에서 studentId 가져오기
-  const { nextPaymentDate, startDate, endDate, programFee } = req.body; // 요청 바디에서 데이터 가져오기
-  const { dojang_code } = req.user; // 토큰에서 추출한 도장 코드
+  const { studentId } = req.params; 
+  const { 
+    nextPaymentDate, 
+    startDate, 
+    endDate, 
+    programFee, 
+    totalClasses, 
+    remainingClasses 
+  } = req.body; 
+  const { dojang_code } = req.user;
 
   try {
-    // ✅ 업데이트할 필드들을 동적으로 구성
+    // 1️⃣ 학생의 결제 타입(payment_type) 먼저 확인하기
+    const [studentData] = await db.query(
+      `SELECT payment_type FROM students WHERE id = ? AND dojang_code = ?`,
+      [studentId, dojang_code]
+    );
+
+    if (studentData.length === 0) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+
+    const paymentType = studentData[0].payment_type;
     const updateFields = [];
     const updateValues = [];
 
-    if (nextPaymentDate !== undefined) {
-      updateFields.push('next_payment_date = ?');
-      updateValues.push(nextPaymentDate);
+    // 2️⃣ Monthly Pay 인 경우 (monthly_payments 테이블 업데이트)
+    if (paymentType === 'monthly_pay') {
+      if (nextPaymentDate !== undefined) {
+        updateFields.push('next_payment_date = ?');
+        updateValues.push(nextPaymentDate);
+      }
+      if (startDate !== undefined) {
+        updateFields.push('start_date = ?');
+        updateValues.push(startDate);
+      }
+      if (endDate !== undefined) {
+        updateFields.push('end_date = ?');
+        updateValues.push(endDate);
+      }
+      if (programFee !== undefined) {
+        updateFields.push('program_fee = ?');
+        updateValues.push(programFee);
+      }
+
+      if (updateFields.length === 0) {
+        return res.status(400).json({ success: false, message: 'No fields to update for monthly pay' });
+      }
+
+      updateValues.push(studentId, dojang_code);
+      
+      await db.query(`
+        UPDATE monthly_payments
+        SET ${updateFields.join(', ')}
+        WHERE student_id = ? AND dojang_code = ?;
+      `, updateValues);
+
+    // 3️⃣ Pay in Full 인 경우 (payinfull_payment 테이블 업데이트)
+    } else if (paymentType === 'pay_in_full') {
+      if (startDate !== undefined) {
+        updateFields.push('start_date = ?');
+        updateValues.push(startDate);
+      }
+      if (endDate !== undefined) {
+        updateFields.push('end_date = ?');
+        updateValues.push(endDate);
+      }
+      // ⭐️ Class based 횟수 처리 (값이 빈 문자열이 아닐 때만 업데이트)
+      if (totalClasses !== undefined && totalClasses !== '') {
+        updateFields.push('total_classes = ?');
+        updateValues.push(Number(totalClasses));
+      }
+      if (remainingClasses !== undefined && remainingClasses !== '') {
+        updateFields.push('remaining_classes = ?');
+        updateValues.push(Number(remainingClasses));
+      }
+
+      if (updateFields.length === 0) {
+        return res.status(400).json({ success: false, message: 'No fields to update for pay in full' });
+      }
+
+      updateValues.push(studentId, dojang_code);
+      
+      // 관장님 테이블 명: payinfull_payment
+      await db.query(`
+        UPDATE payinfull_payment
+        SET ${updateFields.join(', ')}
+        WHERE student_id = ? AND dojang_code = ?;
+      `, updateValues);
+
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid payment type or no update required' });
     }
-
-    if (startDate !== undefined) {
-      updateFields.push('start_date = ?');
-      updateValues.push(startDate);
-    }
-
-    if (endDate !== undefined) {
-      updateFields.push('end_date = ?');
-      updateValues.push(endDate);
-    }
-
-    if (programFee !== undefined) {
-      updateFields.push('program_fee = ?');
-      updateValues.push(programFee);
-    }
-
-    // ✅ 업데이트할 필드가 없으면 에러 반환
-    if (updateFields.length === 0) {
-      return res.status(400).json({ success: false, message: 'No fields to update' });
-    }
-
-    // ✅ WHERE 조건 추가
-    updateValues.push(studentId, dojang_code);
-
-    const updateQuery = `
-      UPDATE monthly_payments
-      SET ${updateFields.join(', ')}
-      WHERE student_id = ? AND dojang_code = ?;
-    `;
-
-    await db.query(updateQuery, updateValues);
 
     res.status(200).json({ success: true, message: 'Payment information updated successfully' });
   } catch (error) {
