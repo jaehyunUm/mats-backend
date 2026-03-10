@@ -347,7 +347,10 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
   try {
     // 1️⃣ 학생의 결제 타입(payment_type) 확인
     const [studentData] = await db.query(
-      `SELECT payment_type FROM students WHERE id = ? AND dojang_code = ?`,
+      `SELECT s.id, p.payment_type 
+       FROM students s
+       LEFT JOIN programs p ON s.program_id = p.id
+       WHERE s.id = ? AND s.dojang_code = ?`,
       [studentId, dojang_code]
     );
 
