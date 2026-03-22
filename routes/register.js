@@ -668,8 +668,8 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       customer: customer_id,
       payment_method: cardId,
       confirm: true,
-      off_session: true,
-      metadata: { 
+      setup_future_usage: 'off_session', 
+      metadata: {
         student_id: String(studentId),
         program: program.name
       }
