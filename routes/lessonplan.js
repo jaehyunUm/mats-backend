@@ -160,4 +160,46 @@ router.put('/lessonplan/:id', verifyToken, async (req, res) => {
     }
   });
 
+  // 1. 해당 주차의 피드백 가져오기 (GET)
+router.get('/lessonplan/feedback', verifyToken, async (req, res) => {
+    const { startDate } = req.query;
+    const { dojang_code } = req.user;
+
+    try {
+        const [rows] = await db.query(
+            'SELECT feedback_text FROM lesson_plan_feedback WHERE dojang_code = ? AND week_start_date = ?',
+            [dojang_code, startDate]
+        );
+        
+        // 피드백이 없으면 빈 문자열 반환
+        const feedback = rows.length > 0 ? rows[0].feedback_text : '';
+        res.json({ success: true, feedback });
+    } catch (error) {
+        console.error("❌ Fetch Feedback Error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch feedback" });
+    }
+});
+
+// 2. 피드백 저장 및 업데이트 (POST)
+router.post('/lessonplan/feedback', verifyToken, async (req, res) => {
+    const { startDate, feedbackText } = req.body;
+    const { dojang_code } = req.user;
+
+    if (!startDate) return res.status(400).json({ success: false, message: "Start date is required" });
+
+    try {
+        // 데이터가 없으면 INSERT, 있으면 UPDATE 수행 (Upsert)
+        await db.query(`
+            INSERT INTO lesson_plan_feedback (dojang_code, week_start_date, feedback_text)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE feedback_text = VALUES(feedback_text)
+        `, [dojang_code, startDate, feedbackText || '']);
+
+        res.json({ success: true, message: 'Feedback saved successfully' });
+    } catch (error) {
+        console.error("❌ Save Feedback Error:", error);
+        res.status(500).json({ success: false, message: "Failed to save feedback" });
+    }
+});
+
   module.exports = router;
