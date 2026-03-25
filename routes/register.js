@@ -661,6 +661,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
   const connectedAccountId = rows[0].stripe_account_id;
 
   // Stripe 결제
+  // Stripe 결제
   const paymentIntent = await stripe.paymentIntents.create(
     {
       amount: Math.round(amountValue * 100),
@@ -669,6 +670,14 @@ router.post('/process-payment', verifyToken, async (req, res) => {
       payment_method: cardId,
       confirm: true,
       setup_future_usage: 'off_session', 
+      
+      // ⬇️ 여기부터 4줄을 추가해 주세요! ⬇️
+      automatic_payment_methods: {
+        enabled: true,
+        allow_redirects: 'never' // "다른 창으로 이동하는 결제 방식은 안 쓸 거야!" 라는 뜻
+      },
+      // ⬆️ 추가 끝 ⬆️
+
       metadata: {
         student_id: String(studentId),
         program: program.name
@@ -676,7 +685,7 @@ router.post('/process-payment', verifyToken, async (req, res) => {
     },
     {
       stripeAccount: connectedAccountId,
-      idempotencyKey: finalIdempotencyKey // 👈 이 줄이 반드시 있어야 중복 결제가 방지됩니다!
+      idempotencyKey: finalIdempotencyKey
     }
   );
     
