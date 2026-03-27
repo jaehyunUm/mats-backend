@@ -305,23 +305,28 @@ router.put('/students/parents/:id', verifyToken, async (req, res) => {
   const { dojang_code } = req.user; // 미들웨어에서 추출된 도장 코드
 
   try {
+    // ✅ email과 referral_source 쿼리에 추가
     const updateQuery = `
     UPDATE parents 
     SET 
       first_name = ?, 
       last_name = ?, 
-      phone = ?
+      phone = ?,
+      email = ?,
+      referral_source = ?
     WHERE id = ? AND dojang_code = ?
   `;
   
+  // ✅ 배열에 email과 referral_source 값 추가 (프론트에서 넘어온 키 이름 확인)
   await db.execute(updateQuery, [
     parent.firstName || null,
     parent.lastName || null,
     parent.phone || null,
+    parent.email || null,             // 추가됨
+    parent.referral_source || null,   // 추가됨
     parentId,
     dojang_code,
   ]);
-
 
     res.status(200).json({ success: true, message: 'Parent information updated successfully' }); // ✅ 수정됨
   } catch (error) {
