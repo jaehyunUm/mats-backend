@@ -161,18 +161,19 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       }
     }
     
-      // ✅ 학부모 정보 조회
-      let parent = null;
-      if (student.parentId) {
-        const parentQuery = `
-          SELECT
-            first_name AS firstName,
-            last_name AS lastName,
-            phone AS phoneNumber,
-            email  -- 이메일 필드를 여기에 추가합니다.
-          FROM parents
-          WHERE id = ? AND dojang_code = ?;
-        `;
+ // ✅ 학부모 정보 조회 부분 찾기
+ let parent = null;
+ if (student.parentId) {
+   const parentQuery = `
+     SELECT
+       first_name AS firstName,
+       last_name AS lastName,
+       phone AS phoneNumber,
+       email,            -- 기존 콤마 확인
+       referral_source   -- ✅ 이 줄을 반드시 추가해야 DB에서 값을 가져옵니다!
+     FROM parents
+     WHERE id = ? AND dojang_code = ?;
+   `;
         
         const [parentResult] = await db.query(parentQuery, [student.parentId, dojang_code]);
         parent = parentResult.length > 0 ? parentResult[0] : null;
