@@ -579,13 +579,19 @@ router.get('/analytics/referral-stats', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
   
   try {
-    // referral_source 별로 몇 명인지 그룹화하여 내림차순(가장 많은 순)으로 정렬
+    // ✅ 활성 자녀(program_id가 NULL이 아님)가 한 명이라도 있는 부모만 포함
     const query = `
       SELECT 
         referral_source, 
         COUNT(*) as count 
-      FROM parents 
+      FROM parents p
       WHERE dojang_code = ? 
+      AND EXISTS (
+          SELECT 1 
+          FROM students s 
+          WHERE s.parent_id = p.id 
+          AND s.program_id IS NOT NULL
+      )
       GROUP BY referral_source
       ORDER BY count DESC
     `;
