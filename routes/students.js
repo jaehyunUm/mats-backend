@@ -575,4 +575,28 @@ router.get('/students/:parentId', verifyToken, async (req, res) => {
   }
 });
 
+router.get('/analytics/referral-stats', verifyToken, async (req, res) => {
+  const { dojang_code } = req.user;
+  
+  try {
+    // referral_source 별로 몇 명인지 그룹화하여 내림차순(가장 많은 순)으로 정렬
+    const query = `
+      SELECT 
+        referral_source, 
+        COUNT(*) as count 
+      FROM parents 
+      WHERE dojang_code = ? 
+      GROUP BY referral_source
+      ORDER BY count DESC
+    `;
+    
+    const [stats] = await db.query(query, [dojang_code]);
+    
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('Error fetching referral stats:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 module.exports = router;
