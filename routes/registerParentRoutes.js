@@ -5,7 +5,8 @@ const bcrypt = require('bcryptjs');
 const db = require('../db'); // 데이터베이스 연결 가져오기
 
 router.post('/register-parent', async (req, res) => {
-    // ✅ 1. req.body에서 referral_source 추가로 받기
+    console.log("프론트에서 넘어온 데이터:", req.body);
+    
     let { firstName, lastName, selectedDojang, email, phone, referral_source } = req.body;
     const { password, privacy_policy_agreed } = req.body;
 
