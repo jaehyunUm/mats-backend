@@ -9,10 +9,12 @@ router.get('/growth/history', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Dojang code is required.' });
   }
 
-  const TIMEZONE = '-04:00'; // 필요 시 환경변수나 유저 정보에서 가져옴
+  // (참고) 쿼리 2, 3번과 일관성을 맞추기 위해 1번 쿼리에도 CONVERT_TZ를 적용했습니다.
+  const TIMEZONE = '-04:00'; // 또는 req.user.timezone 등에서 가져옵니다.
 
   try {
-    // 1. [차트용] 프로그램별 등록/변경 집계
+    // 1. 프로그램별 등록/변경 집계 (기존과 동일 - 차트용)
+    // ✅ 타임존 변환 함수(CONVERT_TZ) 추가
     const [programStats] = await db.query(
       `
       SELECT 
@@ -30,17 +32,17 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       [TIMEZONE, dojang_code]
     );
 
-    // 2. [차트용] 취소 건수 집계 (단순 건수)
+    // 2. 취소 집계 (기존과 동일)
     const [cancellationData] = await db.query(
       `
       SELECT 
         DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', ?), '%Y-%m-01') AS month_key, 
-        COUNT(*) AS canceled_count
+        COUNT(*) AS canceled_students
       FROM student_growth g
       LEFT JOIN programs p ON g.program_id = p.id
       WHERE g.dojang_code = ?
         AND g.status = 'canceled'
-        AND g.student_id IS NOT NULL
+        AND g.student_id IS NOT NULL -- ⭐️⭐️⭐️ 이 줄을 추가 ⭐️⭐️⭐️
         AND (p.name IS NULL OR LOWER(p.name) NOT LIKE '%free trial%')
       GROUP BY month_key
       ORDER BY month_key ASC;
@@ -48,77 +50,67 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       [TIMEZONE, dojang_code]
     );
 
-    // 3. 🚀 [핵심 수정] 월별 실제 누적 인원 (스냅샷 방식)
-    // 데이터가 존재하는 모든 월을 가져온 뒤, 각 월의 마지막 날 기준 활성 학생수를 계산합니다.
-    const [monthsResult] = await db.query(
+    // 3. 🚀 [신규 추가] 월별 *순수* 신규 유료 학생 집계
+    // 학생별로 'free'가 아닌 프로그램에 처음 등록/변경된 월을 찾아서 집계합니다.
+    const [newStudentData] = await db.query(
       `
-      SELECT DISTINCT DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', ?), '%Y-%m-01') AS month_key
-      FROM student_growth
-      WHERE dojang_code = ?
-      ORDER BY month_key ASC
+      WITH StudentFirstPaidMonth AS (
+        SELECT
+          g.student_id,
+          MIN(DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', ?), '%Y-%m-01')) AS first_month_key
+        FROM student_growth g
+        JOIN programs p ON g.program_id = p.id
+        WHERE g.dojang_code = ?
+          AND g.status IN ('registered', 'updated')
+          AND LOWER(p.name) NOT LIKE '%free%'
+          AND g.student_id IS NOT NULL
+        GROUP BY g.student_id
+      )
+      SELECT
+        first_month_key AS month_key,
+        COUNT(student_id) AS new_students
+      FROM StudentFirstPaidMonth
+      GROUP BY first_month_key
+      ORDER BY first_month_key ASC;
       `,
       [TIMEZONE, dojang_code]
     );
 
-    const history = [];
-    for (const row of monthsResult) {
-      const month = row.month_key;
-      
-      // 해당 월의 마지막 날짜 구하기 (YYYY-MM-DD 23:59:59 기준)
-      const lastDayOfMonth = `${month.substring(0, 7)}-31 23:59:59`; 
+    // 4. 모든 month_key 모으기 (newStudentData 포함)
+    const months = [
+      ...new Set([
+        ...programStats.map(r => r.month_key),
+        ...cancellationData.map(r => r.month_key),
+        ...newStudentData.map(r => r.month_key), // 🚀 신규 쿼리 결과 포함
+      ])
+    ].sort();
 
-      const [activeCount] = await db.query(
-        `
-        SELECT COUNT(*) AS total_students
-        FROM (
-          SELECT 
-            g.student_id,
-            g.status,
-            ROW_NUMBER() OVER(PARTITION BY g.student_id ORDER BY g.created_at DESC) as rn
-          FROM student_growth g
-          JOIN programs p ON g.program_id = p.id
-          WHERE g.dojang_code = ?
-            AND CONVERT_TZ(g.created_at, '+00:00', ?) <= LAST_DAY(STR_TO_DATE(?, '%Y-%m-%d %H:%i:%s'))
-            AND LOWER(p.name) NOT LIKE '%free%'
-        ) t
-        WHERE t.rn = 1 AND t.status IN ('registered', 'updated')
-        `,
-        [dojang_code, TIMEZONE, lastDayOfMonth]
-      );
+    // 5. 총 집계 (✅ 수정된 로직)
+    let cumulativeTotal = 0;
 
-      // 이번 달의 신규 등록(최초 등록) 수 추출
-      const [newCount] = await db.query(
-        `
-        SELECT COUNT(student_id) AS new_registrations
-        FROM (
-          SELECT student_id, MIN(CONVERT_TZ(created_at, '+00:00', ?)) as first_reg
-          FROM student_growth g
-          JOIN programs p ON g.program_id = p.id
-          WHERE g.dojang_code = ? 
-            AND status IN ('registered', 'updated')
-            AND LOWER(p.name) NOT LIKE '%free%'
-          GROUP BY student_id
-        ) first_times
-        WHERE DATE_FORMAT(first_reg, '%Y-%m-01') = ?
-        `,
-        [TIMEZONE, dojang_code, month]
-      );
+    const history = months.map(month => {
+      const canceled = cancellationData.find(r => r.month_key === month)?.canceled_students || 0;
 
-      const canceledThisMonth = cancellationData.find(c => c.month_key === month)?.canceled_count || 0;
+      // 🚀 [수정] 1번 programStats 대신 3번 newStudentData에서 신규 학생 수 조회
+      const newRegistrations = newStudentData.find(r => r.month_key === month)?.new_students || 0;
 
-      history.push({
+      const netThisMonth = newRegistrations - canceled;
+      cumulativeTotal += netThisMonth;
+
+      return {
         month,
-        registered: newCount[0].new_registrations, // 해당 월에 처음 시작한 순수 신규 학생
-        canceled: canceledThisMonth,               // 해당 월에 발생한 취소 건수
-        total_students: activeCount[0].total_students // 해당 월 말 기준 실제 총원 (오차 없음)
-      });
-    }
+        registered: newRegistrations, // 순수 신규 학생 수
+        canceled,
+        total_students: cumulativeTotal < 0 ? 0 : cumulativeTotal
+      };
+    });
 
+    // 6. 응답
     res.status(200).json({ 
       success: true, 
-      programStats,
-      cancellationData,
-      history
+      programStats,     // 프로그램별 월별 등록 (차트용)
+      cancellationData, // 월별 취소 (차트용)
+      history           // [수정됨] 순수 학생 수 기반 누적 히스토리
     });
 
   } catch (error) {
