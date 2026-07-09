@@ -73,35 +73,42 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       [TIMEZONE, dojang_code]
     );
 
-    // 4. 🚀 [신규 추가] 매월 기준 "실제 등록 상태인 총 학생 수" 집계
-    // 데이터베이스 버전 호환성을 위해 RECURSIVE 대신 안전한 방식으로 쿼리를 작성했습니다.
-    const [monthlyActiveData] = await db.query(
-      `
-      WITH ExistingMonths AS (
-        SELECT DISTINCT DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', ?), '%Y-%m-01') AS month_key
-        FROM student_growth
-        WHERE dojang_code = ?
-      ),
-      StudentLastStatus AS (
-        SELECT 
-          m.month_key,
-          g.student_id,
-          SUBSTRING_INDEX(GROUP_CONCAT(g.status ORDER BY g.created_at DESC), ',', 1) AS last_status
-        FROM ExistingMonths m
-        JOIN student_growth g ON g.dojang_code = ?
-          AND DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', ?), '%Y-%m-01') <= m.month_key
-        WHERE g.student_id IS NOT NULL
-        GROUP BY m.month_key, g.student_id
-      )
+   // 4. 🚀 [수정됨] 매월 기준 "실제 정식 등록 상태인 총 학생 수" 집계 (Trial 제외)
+   const [monthlyActiveData] = await db.query(
+    `
+    WITH ExistingMonths AS (
+      SELECT DISTINCT DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', ?), '%Y-%m-01') AS month_key
+      FROM student_growth
+      WHERE dojang_code = ?
+    ),
+    RankedLogs AS (
+      -- 각 학생별로 해당 월 기준 가장 마지막 상태(최신 로그)를 순위 매김
       SELECT 
-        month_key,
-        COUNT(DISTINCT CASE WHEN last_status IN ('registered', 'updated') THEN student_id END) AS exact_total_students
-      FROM StudentLastStatus
-      GROUP BY month_key
-      ORDER BY month_key ASC;
-      `,
-      [TIMEZONE, dojang_code, dojang_code, TIMEZONE]
-    );
+        m.month_key,
+        g.student_id,
+        g.status,
+        g.program_id,
+        ROW_NUMBER() OVER (PARTITION BY m.month_key, g.student_id ORDER BY g.created_at DESC) as rn
+      FROM ExistingMonths m
+      JOIN student_growth g ON g.dojang_code = ?
+        AND DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', ?), '%Y-%m-01') <= m.month_key
+      WHERE g.student_id IS NOT NULL
+    )
+    SELECT 
+      r.month_key,
+      COUNT(DISTINCT r.student_id) AS exact_total_students
+    FROM RankedLogs r
+    LEFT JOIN programs p ON r.program_id = p.id
+    WHERE r.rn = 1 
+      AND r.status IN ('registered', 'updated')
+      -- ⭐️ 핵심: 정식 멤버만 카운트하기 위한 필터링 (Trial 제외)
+      AND p.price > 0 
+      AND LOWER(p.name) NOT LIKE '%trial%' 
+    GROUP BY r.month_key
+    ORDER BY r.month_key ASC;
+    `,
+    [TIMEZONE, dojang_code, dojang_code, TIMEZONE]
+  );
 
     // 5. 모든 month_key 모으기 (monthlyActiveData 결과도 배열에 포함)
     const months = [
