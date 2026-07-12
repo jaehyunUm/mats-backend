@@ -341,13 +341,9 @@ router.put('/students/parents/:id', verifyToken, async (req, res) => {
 router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
   const { studentId } = req.params; 
   const { 
-    nextPaymentDate, 
-    startDate, 
-    endDate, 
-    programFee, 
-    totalClasses, 
-    remainingClasses 
-  } = req.body; 
+    nextPaymentDate, startDate, endDate, programFee, totalClasses, remainingClasses,
+    sourceId, customerId // ⭐️ 프론트에서 넘어올 카드 정보 추가
+  } = req.body;
   const { dojang_code } = req.user;
 
   try {
@@ -387,6 +383,8 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
         if (startDate !== undefined) { updateFields.push('start_date = ?'); updateValues.push(startDate); }
         if (endDate !== undefined) { updateFields.push('end_date = ?'); updateValues.push(endDate); }
         if (programFee !== undefined) { updateFields.push('program_fee = ?'); updateValues.push(programFee); }
+        if (sourceId !== undefined) { updateFields.push('source_id = ?'); updateValues.push(sourceId); } // ⭐️ 카드 수정
+        if (customerId !== undefined) { updateFields.push('customer_id = ?'); updateValues.push(customerId); } // ⭐️ 고객 수정
 
         if (updateFields.length > 0) {
           updateFields.push('updated_at = NOW()'); // 업데이트 시간 기록
@@ -402,20 +400,14 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
         // 🚀 [신규 추가] 데이터가 없음 (수동 등록 등) -> 새로 INSERT 실행
         const dummyPaymentId = `manual-${crypto.randomUUID()}`; 
 
-        await db.query(`
+       await db.query(`
           INSERT INTO monthly_payments 
-          (parent_id, student_id, program_id, dojang_code, payment_id, next_payment_date, start_date, end_date, program_fee, status, payment_status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'pending', NOW(), NOW())
+          (parent_id, student_id, program_id, dojang_code, payment_id, next_payment_date, start_date, end_date, program_fee, status, payment_status, source_id, customer_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'pending', ?, ?, NOW(), NOW())
         `, [
-          parent_id,
-          studentId,
-          program_id,
-          dojang_code,
-          dummyPaymentId,
-          nextPaymentDate || null,
-          startDate || null,
-          endDate || null,
-          programFee || 0
+          parent_id, studentId, program_id, dojang_code, dummyPaymentId,
+          nextPaymentDate || null, startDate || null, endDate || null, programFee || 0,
+          sourceId || null, customerId || null // ⭐️ 빈 값이면 null (현금결제 등)
         ]);
 
         console.log(`🆕 새로운 수동 결제 데이터가 monthly_payments에 생성되었습니다. (Student ID: ${studentId})`);
