@@ -312,9 +312,12 @@ router.get('/get-test-names', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   try {
-    // `class_details` 테이블에서 `type = 'test'`인 경우 `classname` 가져오기
+    // ⭐️ [수정] 쿼리 맨 끝에 ORDER BY classname ASC 를 추가했습니다.
     const [classDetailsResults] = await db.execute(
-      'SELECT DISTINCT classname FROM class_details WHERE dojang_code = ? AND type = "test"',
+      `SELECT DISTINCT classname 
+       FROM class_details 
+       WHERE dojang_code = ? AND type = 'test' 
+       ORDER BY classname ASC`,
       [dojang_code]
     );
 
