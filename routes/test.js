@@ -774,10 +774,10 @@ router.put('/test-template/:id', verifyToken, async (req, res) => {
 });
 
 
-// 도장 오너가 생성한 평가 기준 목록 가져오기
+// 도장 오너가 생성한 평가 기준 목록 가져오기 (다중 선택 지원)
 router.get('/test-templates', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
-  const { test_type } = req.query;
+  const { test_types } = req.query; // ⭐️ test_type -> test_types (복수형으로 변경)
 
   try {
     let query = `
@@ -800,9 +800,11 @@ router.get('/test-templates', verifyToken, async (req, res) => {
 
     const queryParams = [dojang_code];
 
-    if (test_type) {
-      query += ` AND test_type = ?`;
-      queryParams.push(test_type);
+    if (test_types) {
+      // ⭐️ 쉼표(,)로 구분된 문자열을 배열로 변환하여 IN 절에 사용
+      const typesArray = test_types.split(',');
+      query += ` AND test_type IN (?)`;
+      queryParams.push(typesArray);
     }
 
     query += ` ORDER BY \`order\` ASC, id ASC`;
