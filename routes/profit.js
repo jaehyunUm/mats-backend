@@ -121,9 +121,11 @@ router.get('/owner/payment-history/monthly', verifyToken, async (req, res) => {
         console.log("🔹 [MONTHLY] Request Received - Dojang Code:", dojang_code);
 
         const query = `
-            SELECT
+    SELECT
                 mp.id,
-                mp.next_payment_date AS payment_date,
+                -- ⭐️ 두 날짜를 헷갈리지 않게 고유 이름 그대로 보냅니다!
+                mp.next_payment_date, 
+                IFNULL(mp.last_payment_date, mp.updated_at) AS last_payment_date, 
                 mp.program_fee AS amount,
                 p.name AS program_name,
                 s.first_name,
@@ -133,8 +135,8 @@ router.get('/owner/payment-history/monthly', verifyToken, async (req, res) => {
             LEFT JOIN students s ON mp.student_id = s.id AND s.dojang_code = mp.dojang_code
             WHERE mp.dojang_code = ?
             AND mp.status = 'completed'
-            AND mp.program_fee > 0 -- ✅ 0원 초과(유료 결제 대상)인 경우만 조회
-            ORDER BY mp.next_payment_date DESC`;
+            AND mp.program_fee > 0
+            ORDER BY last_payment_date DESC`;
 
         const [rows] = await db.query(query, [dojang_code]);
         
