@@ -30,23 +30,24 @@ router.get('/growth/history', verifyToken, async (req, res) => {
       [TIMEZONE, dojang_code]
     );
 
-    // 2. 취소 집계 (기존과 동일 - 차트 및 히스토리용)
-    const [cancellationData] = await db.query(
-      `
-      SELECT 
-        DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', ?), '%Y-%m-01') AS month_key, 
-        COUNT(*) AS canceled_students
-      FROM student_growth g
-      LEFT JOIN programs p ON g.program_id = p.id
-      WHERE g.dojang_code = ?
-        AND g.status = 'canceled'
-        AND g.student_id IS NOT NULL 
-        AND (p.name IS NULL OR LOWER(p.name) NOT LIKE '%free trial%')
-      GROUP BY month_key
-      ORDER BY month_key ASC;
-      `,
-      [TIMEZONE, dojang_code]
-    );
+// 2. 취소 집계 (기존과 동일 - 차트 및 히스토리용)
+const [cancellationData] = await db.query(
+  `
+  SELECT 
+    DATE_FORMAT(CONVERT_TZ(g.created_at, '+00:00', ?), '%Y-%m-01') AS month_key, 
+    COUNT(*) AS canceled_students
+  FROM student_growth g
+  LEFT JOIN programs p ON g.program_id = p.id
+  WHERE g.dojang_code = ?
+    AND g.status = 'canceled'
+    AND g.student_id IS NOT NULL 
+    -- ⭐️ 리스트 쿼리와 똑같이 'free'와 'trial'을 모두 제외하고 NULL을 허용합니다.
+    AND (p.name IS NULL OR (LOWER(p.name) NOT LIKE '%free%' AND LOWER(p.name) NOT LIKE '%trial%'))
+  GROUP BY month_key
+  ORDER BY month_key ASC;
+  `,
+  [TIMEZONE, dojang_code]
+);
 
     // 3. 월별 *순수* 신규 유료 학생 집계 (기존과 동일 - 히스토리의 'registered' 표기용)
     const [newStudentData] = await db.query(
