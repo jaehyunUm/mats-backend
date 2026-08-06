@@ -252,26 +252,26 @@ router.get('/programs/:programId', verifyToken, async (req, res) => {
 
 
 
-// 도장별 프로그램 가져오기
-router.get('/programs', verifyToken, async (req, res) => {
-  const { dojang_code } = req.user;
-
-  if (!dojang_code) {
-    return res.status(400).json({ message: 'Missing dojang_code' });
-  }
-
-  try {
-    const [programs] = await db.query(
-      'SELECT id, name FROM programs WHERE dojang_code = ?',
-      [dojang_code]
-    );
-
-    res.json(programs);
-  } catch (error) {
-    console.error('Error fetching programs:', error);
-    res.status(500).json({ message: 'Failed to fetch programs' });
-  }
-});
+  router.get('/programs', verifyToken, async (req, res) => {
+    const { dojang_code } = req.user;
+  
+    if (!dojang_code) {
+      return res.status(400).json({ message: 'Missing dojang_code' });
+    }
+  
+    try {
+      // 🚀 SELECT id, name을 SELECT * 로 변경했습니다.
+      const [programs] = await db.query(
+        'SELECT * FROM programs WHERE dojang_code = ?',
+        [dojang_code]
+      );
+  
+      res.json(programs);
+    } catch (error) {
+      console.error('Error fetching programs:', error);
+      res.status(500).json({ message: 'Failed to fetch programs' });
+    }
+  });
 
 
 
