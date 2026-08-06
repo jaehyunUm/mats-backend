@@ -5,51 +5,58 @@ const db = require('../db'); // 데이터베이스 모듈 불러오기
 const verifyToken = require('../middleware/verifyToken');
 
 // 프로그램 생성 API
+// 프로그램 생성 API
 router.post('/create-program', verifyToken, async (req, res) => {
-    const {
-      name,
-      description,
-      paymentType,
-      operationType,
-      price,
-      totalClasses,
-      durationMonths,
-      classesPerWeek,
-      registrationFee,  // 등록비 추가
-    } = req.body;
+  let { // ⚠️ const 대신 let으로 변경 (값을 수정할 수 있게)
+    name,
+    description,
+    paymentType,
+    operationType,
+    price,
+    totalClasses,
+    durationMonths,
+    classesPerWeek,
+    registrationFee,
+  } = req.body;
 
-    const { dojang_code } = req.user;
-    
-    // ✅ 등록비 값이 null 또는 undefined이면 기본값 0을 설정
-    const formattedRegistrationFee = registrationFee !== undefined && registrationFee !== null
-        ? parseFloat(registrationFee) || 0
-        : 0;
+  const { dojang_code } = req.user;
+  
+  // ✅ 등록비 기본값 설정
+  const formattedRegistrationFee = registrationFee !== undefined && registrationFee !== null
+      ? parseFloat(registrationFee) || 0
+      : 0;
 
-    try {
-      await db.query(
-        `INSERT INTO programs (
-             name, description, payment_type, operation_type, price,
-            total_classes, duration_months, classes_per_week, registration_fee, dojang_code
-        ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          name,
-          description,
-          paymentType,
-          operationType || null,
-          price || null,
-          totalClasses || null,
-          durationMonths || null,
-          classesPerWeek || null,
-          formattedRegistrationFee, // ✅ 등록비 값이 항상 숫자로 저장됨
-          dojang_code,
-        ]
-      );
+  // 🛡️ [안전장치 추가] Cash Pay일 경우 operationType과 totalClasses는 필요 없으므로 강제 null 처리
+  if (paymentType === 'cash_pay') {
+      operationType = null;
+      totalClasses = null;
+  }
 
-      res.status(201).json({ message: 'Program created successfully!' });
-    } catch (error) {
-      console.error('Error inserting program into DB:', error);
-      res.status(500).json({ error: 'Failed to create program.' });
-    }
+  try {
+    await db.query(
+      `INSERT INTO programs (
+           name, description, payment_type, operation_type, price,
+          total_classes, duration_months, classes_per_week, registration_fee, dojang_code
+      ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name,
+        description,
+        paymentType,
+        operationType || null,
+        price || null,
+        totalClasses || null,
+        durationMonths || null,
+        classesPerWeek || null,
+        formattedRegistrationFee,
+        dojang_code,
+      ]
+    );
+
+    res.status(201).json({ message: 'Program created successfully!' });
+  } catch (error) {
+    console.error('Error creating program:', error);
+    res.status(500).json({ message: 'Failed to create program', error: error.message });
+  }
 });
 
 
@@ -201,7 +208,7 @@ router.get('/programs/:programId', verifyToken, async (req, res) => {
     const { programId } = req.params;
     const { dojang_code } = req.user;;
   
-    const {
+    let { // ⚠️ const 대신 let으로 변경
       name,
       description,
       paymentType,
@@ -212,6 +219,12 @@ router.get('/programs/:programId', verifyToken, async (req, res) => {
       classesPerWeek,
       registrationFee
     } = req.body;
+  
+    // 🛡️ [안전장치 추가] Cash Pay일 경우 불필요한 데이터 강제 초기화
+    if (paymentType === 'cash_pay') {
+        operationType = null;
+        totalClasses = null;
+    }
   
     const sql = `
       UPDATE programs SET
