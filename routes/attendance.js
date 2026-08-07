@@ -58,6 +58,8 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
         [studentId, dojang_code]
       );
 
+      
+
       if (payInFull.length > 0 && payInFull[0].remaining_classes > 0) {
         const payment = payInFull[0];
         const newRemaining = payment.remaining_classes - 1;
@@ -89,7 +91,47 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
           await connection.query(`UPDATE payinfull_payment SET week_notification_1 = 1 WHERE id = ?`, [payment.id]);
         }
       }
+
+      // 6. 💵 현금 결제(Cash) 다가오는 결제일 알림 (3일 전)
+      const [monthlyPayments] = await connection.query(
+        `SELECT * FROM monthly_payments 
+         WHERE student_id = ? AND dojang_code = ? 
+         ORDER BY id DESC LIMIT 1`,
+        [studentId, dojang_code]
+      );
+
+      if (monthlyPayments.length > 0) {
+        const mPayment = monthlyPayments[0];
+        
+        // 현금 결제 대상자(source_id가 'cash')이면서, 다음 결제일이 있는 경우
+        if (mPayment.source_id === 'cash' && mPayment.next_payment_date) {
+          const today = new Date();
+          const nextDate = new Date(mPayment.next_payment_date);
+          
+          // 날짜 차이 계산
+          const timeDiff = nextDate.getTime() - today.getTime();
+          const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+
+          // 결제일이 3일 이하로 남았고(0~3일), 이번 달에 아직 알림을 안 보낸 경우
+          if (daysLeft <= 3 && daysLeft >= 0 && mPayment.day_notification_3 === 0) {
+            
+            // ⭐️ 알림 생성 (앱에서 이 알림을 누르면 학생 프로필로 가게 만들 수 있습니다)
+            await createNotification(
+              dojang_code, 
+              `💵 [${first_name}]'s cash payment is due in ${daysLeft} days. (Next: ${mPayment.next_payment_date.toISOString().split('T')[0]})`
+            );
+            
+            // 알림 발송 완료 처리 (중복 방지)
+            await connection.query(
+              `UPDATE monthly_payments SET day_notification_3 = 1 WHERE id = ?`, 
+              [mPayment.id]
+            );
+          }
+        }
+      }
     }
+
+    
 
     await connection.commit();
     res.status(200).json({ success: true, message: 'Attendance recorded successfully' });
