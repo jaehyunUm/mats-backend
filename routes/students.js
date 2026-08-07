@@ -90,39 +90,42 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
         END AS remaining_classes,
         CASE 
           WHEN p.payment_type = 'pay_in_full' THEN pf.start_date
-          WHEN p.payment_type = 'monthly_pay' THEN mp.start_date 
+          -- ⭐️ IN ('monthly_pay', 'cash_pay') 로 변경
+          WHEN p.payment_type IN ('monthly_pay', 'cash_pay') THEN mp.start_date 
           ELSE NULL
         END AS start_date,
         CASE 
           WHEN p.payment_type = 'pay_in_full' THEN pf.end_date
-          WHEN p.payment_type = 'monthly_pay' THEN mp.end_date
+          -- ⭐️ IN ('monthly_pay', 'cash_pay') 로 변경
+          WHEN p.payment_type IN ('monthly_pay', 'cash_pay') THEN mp.end_date
           ELSE NULL
         END AS end_date,
         CASE 
-          WHEN p.payment_type = 'monthly_pay' THEN mp.payment_status
+          WHEN p.payment_type IN ('monthly_pay', 'cash_pay') THEN mp.payment_status
           ELSE NULL
         END AS payment_status,
         CASE 
-          WHEN p.payment_type = 'monthly_pay' THEN mp.next_payment_date
+          WHEN p.payment_type IN ('monthly_pay', 'cash_pay') THEN mp.next_payment_date
           ELSE NULL
         END AS next_payment_date,
         CASE 
-          WHEN p.payment_type = 'monthly_pay' THEN mp.program_fee
+          WHEN p.payment_type IN ('monthly_pay', 'cash_pay') THEN mp.program_fee
           ELSE NULL
         END AS program_fee,
         CASE 
-          WHEN p.payment_type = 'monthly_pay' THEN mp.source_id 
+          WHEN p.payment_type IN ('monthly_pay', 'cash_pay') THEN mp.source_id 
           ELSE NULL 
         END AS source_id,
         CASE 
-          WHEN p.payment_type = 'monthly_pay' THEN mp.customer_id 
+          WHEN p.payment_type IN ('monthly_pay', 'cash_pay') THEN mp.customer_id 
           ELSE NULL 
         END AS customer_id
       FROM students s
       LEFT JOIN programs p ON s.program_id = p.id
       LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
       LEFT JOIN payinfull_payment pf ON s.id = pf.student_id AND p.payment_type = 'pay_in_full'
-      LEFT JOIN monthly_payments mp ON s.id = mp.student_id AND p.payment_type = 'monthly_pay'
+      -- ⭐️ 조인 조건에도 IN ('monthly_pay', 'cash_pay') 적용!
+      LEFT JOIN monthly_payments mp ON s.id = mp.student_id AND p.payment_type IN ('monthly_pay', 'cash_pay')
       WHERE s.id = ? AND s.dojang_code = ?;
     `;
     
@@ -144,8 +147,8 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       customer_id: student.customer_id
     };
     
-    // payment_type에 따라 추가 정보 설정
-    if (student.payment_type === 'monthly_pay') {
+    // ⭐️ JS 로직에서도 cash_pay일 때 동일하게 정보를 채워주도록 수정
+    if (student.payment_type === 'monthly_pay' || student.payment_type === 'cash_pay') {
       paymentInfo.nextPaymentDate = student.next_payment_date;
       paymentInfo.paymentStatus = student.payment_status;
       paymentInfo.startDate = student.start_date;
@@ -161,23 +164,23 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
       }
     }
     
- // ✅ 학부모 정보 조회 부분 찾기
- let parent = null;
- if (student.parentId) {
-   const parentQuery = `
-     SELECT
-       first_name AS firstName,
-       last_name AS lastName,
-       phone AS phoneNumber,
-       email,            -- 기존 콤마 확인
-       referral_source   -- ✅ 이 줄을 반드시 추가해야 DB에서 값을 가져옵니다!
-     FROM parents
-     WHERE id = ? AND dojang_code = ?;
-   `;
-        
-        const [parentResult] = await db.query(parentQuery, [student.parentId, dojang_code]);
-        parent = parentResult.length > 0 ? parentResult[0] : null;
-      }
+    // ✅ 학부모 정보 조회
+    let parent = null;
+    if (student.parentId) {
+      const parentQuery = `
+        SELECT
+          first_name AS firstName,
+          last_name AS lastName,
+          phone AS phoneNumber,
+          email,
+          referral_source
+        FROM parents
+        WHERE id = ? AND dojang_code = ?;
+      `;
+      
+      const [parentResult] = await db.query(parentQuery, [student.parentId, dojang_code]);
+      parent = parentResult.length > 0 ? parentResult[0] : null;
+    }
     
     // ✅ 학생의 클래스 정보 조회
     const classQuery = `
@@ -204,7 +207,6 @@ router.get('/students/profile/:studentId', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 
   
 // 학생 정보 업데이트 API
