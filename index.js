@@ -62,8 +62,8 @@ const storage = multer.memoryStorage(); // 메모리 저장소를 사용하여 �
 const upload = multer({ storage: storage });
 module.exports = { upload };
 require('./schedulers/subscriptionScheduler'); // 스케줄러 로드
-const { birthdayScheduler } = require('./schedulers/birthdayScheduler'); // 👈 실제 파일이 있는 경로로 맞춰주세요! (예: './schedulers/birthdayScheduler')
-birthdayScheduler();
+const { startBirthdayScheduler } = require('./schedulers/birthdayScheduler'); // 경로 확인!
+startBirthdayScheduler();
 app.options("*", cors(corsOptions)); // ✅ 모든 경로에 대한 OPTIONS 요청 허용
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // form-urlencoded 지원
