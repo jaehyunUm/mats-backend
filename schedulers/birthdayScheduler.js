@@ -1,17 +1,17 @@
 const cron = require("node-cron");
-const db = require("../db"); // 실제 db 연결 파일 경로에 맞게 수정해주세요.
+const db = require("../db"); // 실제 db 연결 파일 경로
+const createNotification = require("./createNotification"); // ⭐️ 방금 만든 알림 함수 불러오기 (경로 확인 필수!)
 
 // 생일자를 찾아 알림을 생성하는 핵심 로직
 async function checkAndCreateBirthdayNotifications() {
   try {
-    // 1. students 테이블에서 오늘 날짜(월-일)와 birth_date(월-일)가 일치하는 학생 조회
+    // 1. 학생 ID도 같이 가져오도록 'id' 추가
     const [birthdayStudents] = await db.query(`
-      SELECT first_name, last_name, dojang_code 
+      SELECT id, first_name, last_name, dojang_code 
       FROM students 
       WHERE DATE_FORMAT(birth_date, '%m-%d') = DATE_FORMAT(CURDATE(), '%m-%d')
     `);
 
-    // 오늘 생일인 학생이 없으면 종료
     if (birthdayStudents.length === 0) {
       console.log("✅ 오늘 생일인 학생이 없습니다.");
       return;
@@ -19,15 +19,17 @@ async function checkAndCreateBirthdayNotifications() {
 
     let successCount = 0;
 
-    // 2. 생일인 학생들을 순회하며 notifications 테이블에 알림 추가
     for (const student of birthdayStudents) {
-      // 알림 메시지 생성 (원하시는 문구로 자유롭게 수정 가능합니다)
       const message = `🎉 Happy Birthday to ${student.first_name} ${student.last_name}!`;
       
-      await db.query(
-        `INSERT INTO notifications (dojang_code, message) VALUES (?, ?)`,
-        [student.dojang_code, message]
+      // ⭐️ 우리가 만든 튼튼한 알림 함수 사용 (type은 'birthday'로 지정)
+      await createNotification(
+        student.dojang_code, 
+        message, 
+        'birthday', 
+        student.id
       );
+      
       successCount++;
     }
 
@@ -39,9 +41,13 @@ async function checkAndCreateBirthdayNotifications() {
 
 // 스케줄러 실행 함수 (매일 오전 9시 정각에 실행)
 const startBirthdayScheduler = () => {
+  // ⭐️ timezone 옵션을 추가하여 조지아주(미국 동부) 시간에 정확히 맞춥니다!
   cron.schedule('0 9 * * *', () => {
     console.log(`[${new Date().toISOString()}] 생일자 스케줄러 실행 중...`);
     checkAndCreateBirthdayNotifications();
+  }, {
+    scheduled: true,
+    timezone: "America/New_York" // 애틀랜타/스머나 시간대
   });
 };
 
