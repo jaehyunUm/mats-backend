@@ -636,4 +636,60 @@ router.get('/analytics/referral-stats', verifyToken, async (req, res) => {
   }
 });
 
+router.post('/receive-cash/:studentId', verifyToken, async (req, res) => {
+  const { studentId } = req.params;
+  const { dojang_code } = req.user;
+
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+
+  try {
+    // 1. 해당 학생의 현재 현금 결제(monthly_payments) 정보 가져오기
+    const [payments] = await connection.query(
+      `SELECT * FROM monthly_payments 
+       WHERE student_id = ? AND dojang_code = ? AND source_id = 'cash'
+       ORDER BY id DESC LIMIT 1`,
+      [studentId, dojang_code]
+    );
+
+    if (payments.length === 0) {
+      await connection.release();
+      return res.status(404).json({ success: false, message: 'Cash payment record not found for this student.' });
+    }
+
+    const payment = payments[0];
+    
+    // 2. 날짜 계산 (기존 다음 결제일에서 정확히 1달 뒤로 미룸)
+    const todayDate = new Date();
+    const currentNextDate = new Date(payment.next_payment_date);
+    
+    const newNextPaymentDate = new Date(currentNextDate);
+    newNextPaymentDate.setMonth(newNextPaymentDate.getMonth() + 1); // 1달 추가
+
+    // 3. 데이터베이스 업데이트 (최근 결제일 갱신, 다음 결제일 연장, 알림 발송상태 0으로 리셋)
+    await connection.query(
+      `UPDATE monthly_payments 
+       SET 
+           last_payment_date = ?, 
+           next_payment_date = ?, 
+           day_notification_3 = 0 
+       WHERE id = ?`,
+      [todayDate, newNextPaymentDate, payment.id]
+    );
+
+    // ✅ 만약 결제 내역(payment_history 등)을 기록하는 테이블이 따로 있다면 
+    // 여기에 INSERT 구문을 추가하셔도 좋습니다. (현재는 만료일 연장만 완벽히 수행합니다.)
+
+    await connection.commit();
+    res.status(200).json({ success: true, message: 'Cash payment processed successfully.' });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ Error processing cash payment:', error);
+    res.status(500).json({ success: false, message: 'Server error processing cash payment.' });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router;
