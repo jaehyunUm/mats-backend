@@ -344,14 +344,15 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
   const { studentId } = req.params; 
   const { 
     nextPaymentDate, startDate, endDate, programFee, totalClasses, remainingClasses,
-    sourceId, customerId, paymentStatus // ⭐️ 프론트에서 넘어올 상태(paymentStatus) 추가
+    sourceId, customerId, paymentStatus, 
+    paymentType // ⭐️ 프론트에서 못 박아서 보낸 결제 타입 받기!
   } = req.body;
   const { dojang_code } = req.user;
 
   try {
     // 1️⃣ 학생의 결제 타입(payment_type) 및 필수 뼈대 정보 확인
     const [studentData] = await db.query(
-      `SELECT s.id, s.parent_id, s.program_id, p.payment_type 
+      `SELECT s.id, s.parent_id, s.program_id, p.payment_type AS db_payment_type 
        FROM students s
        LEFT JOIN programs p ON s.program_id = p.id
        WHERE s.id = ? AND s.dojang_code = ?`,
@@ -362,12 +363,15 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
 
-    const { payment_type: paymentType, parent_id, program_id } = studentData[0];
+    const { db_payment_type, parent_id, program_id } = studentData[0];
+    
+    // ⭐️ 핵심! 프론트에서 넘어온 값을 최우선으로 사용합니다. (타이밍 에러 완벽 차단)
+    const finalPaymentType = paymentType || db_payment_type;
 
     // ==========================================
     // 2️⃣ Monthly Pay 이거나 Cash Pay 인 경우 (둘 다 monthly_payments 사용!)
     // ==========================================
-    if (paymentType === 'monthly_pay' || paymentType === 'cash_pay') { // ⭐️ cash_pay 추가
+    if (finalPaymentType === 'monthly_pay' || finalPaymentType === 'cash_pay') { 
       
       // [A] 데이터가 존재하는지 먼저 확인 (Upsert 로직 도입)
       const [existingRecord] = await db.query(
@@ -386,7 +390,7 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
         if (programFee !== undefined) { updateFields.push('program_fee = ?'); updateValues.push(programFee); }
         if (sourceId !== undefined) { updateFields.push('source_id = ?'); updateValues.push(sourceId); } 
         if (customerId !== undefined) { updateFields.push('customer_id = ?'); updateValues.push(customerId); } 
-        if (paymentStatus !== undefined) { updateFields.push('payment_status = ?'); updateValues.push(paymentStatus); } // ⭐️ 상태 업데이트 추가
+        if (paymentStatus !== undefined) { updateFields.push('payment_status = ?'); updateValues.push(paymentStatus); } 
 
         if (updateFields.length > 0) {
           updateFields.push('updated_at = NOW()'); // 업데이트 시간 기록
@@ -399,7 +403,7 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
         }
 
       } else {
-        // 🚀 [신규 추가] 데이터가 없음 -> 새로 INSERT 실행
+        // 🚀 데이터가 없음 -> 새로 INSERT 실행
         const dummyPaymentId = `manual-${crypto.randomUUID()}`; 
 
         await db.query(`
@@ -409,17 +413,15 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
         `, [
           parent_id, studentId, program_id, dojang_code, dummyPaymentId,
           nextPaymentDate || null, startDate || null, endDate || null, programFee || 0,
-          paymentStatus || 'pending', // ⭐️ 프론트에서 넘어온 상태 우선, 없으면 pending
+          paymentStatus || 'pending', 
           sourceId || null, customerId || null 
         ]);
-
-        console.log(`🆕 새로운 수동 결제 데이터가 monthly_payments에 생성되었습니다. (Student ID: ${studentId}, Type: ${paymentType})`);
       }
 
     // ==========================================
     // 3️⃣ Pay in Full 인 경우 
     // ==========================================
-    } else if (paymentType === 'pay_in_full') {
+    } else if (finalPaymentType === 'pay_in_full') {
       
       const [existingRecord] = await db.query(
         `SELECT id FROM payinfull_payment WHERE student_id = ? AND dojang_code = ?`,
@@ -457,16 +459,8 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
           (student_id, dojang_code, payment_id, start_date, end_date, total_classes, remaining_classes)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `, [
-          studentId, 
-          dojang_code, 
-          dummyPaymentId, 
-          startDate || null, 
-          endDate || null, 
-          parsedTotal, 
-          parsedRemaining
+          studentId, dojang_code, dummyPaymentId, startDate || null, endDate || null, parsedTotal, parsedRemaining
         ]);
-        
-        console.log(`🆕 새로운 수동 결제 데이터가 payinfull_payment에 생성되었습니다. (Student ID: ${studentId})`);
       }
 
     } else {
