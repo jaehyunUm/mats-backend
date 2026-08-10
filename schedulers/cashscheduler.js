@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const createNotification = require('./createNotification'); // 경로에 맞게 수정
+const db = require('../db'); // ⭐️ 이 줄이 무조건 들어가야 합니다! (파일 경로 주의)
 
 // ⏰ 1분마다 실행 (테스트용, 테스트 끝나면 '0 9 * * *' 로 변경)
 cron.schedule('* * * * *', async () => {
