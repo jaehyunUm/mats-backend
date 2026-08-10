@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const createNotification = require('./createNotification'); // 경로에 맞게 수정
 
 // ⏰ 매일 아침 9시 정각에 자동 실행되는 백엔드 로직
-cron.schedule('0 9 * * *', async () => {
+cron.schedule('* * * * * *', async () => {
   console.log('⏰ Running daily cash payment check...');
   
   const connection = await db.getConnection();
