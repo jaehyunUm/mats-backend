@@ -280,7 +280,51 @@ router.post('/submit-test-payment', verifyToken, async (req, res) => {
 
 
 
+// 수동으로 테스트 학생 추가 (결제 시스템 없이 현장 결제 또는 무료 추가)
+router.post('/add-manual-test', verifyToken, async (req, res) => {
+  const { student_id, test_type } = req.body;
+  const { dojang_code } = req.user;
 
+  if (!student_id || !test_type) {
+    return res.status(400).json({ success: false, message: "Missing student_id or test_type" });
+  }
+
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    // 1. 학생 확인 및 학생 테이블의 test_belt/current_belt 업데이트 로직 (필요시 추가)
+    // 예: 테스트 타입을 기반으로 학생의 test_belt를 지정하는 로직이 있다면 여기서 처리
+
+    const idempotencyKey = uuidv4();
+    const sourceId = `manual_${Date.now()}`;
+
+    // 2. test_payments 에 결제 완료 상태(completed)로 수동 삽입
+    // (이 테이블이 fetchTestNames 쿼리에서 학생 목록을 불러오는 기준이 된다고 가정)
+    await connection.query(`
+      INSERT INTO test_payments (
+        student_id, amount, status, 
+        dojang_code, idempotency_key, source_id, 
+        payment_method, currency, payment_date
+      ) VALUES (?, 0, 'completed', ?, ?, ?, 'manual', 'usd', NOW())
+    `, [student_id, dojang_code, idempotencyKey, sourceId]);
+
+    // 💡 참고: Test Type을 저장하는 테이블이나 컬럼이 따로 있다면 그곳에도 저장을 해줘야 합니다.
+    // 만약 students 테이블의 test_belt를 업데이트하는 방식이라면 아래와 같이 추가하세요.
+    // await connection.query(`UPDATE students SET test_belt = ? WHERE id = ?`, [test_type, student_id]);
+
+    await connection.commit();
+    res.status(200).json({ success: true, message: "Student successfully added to test manually." });
+
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error("Manual Add Test Error:", error.message);
+    return res.status(500).json({ success: false, message: "Server error" });
+  } finally {
+    if (connection) connection.release();
+  }
+});
 
 
 

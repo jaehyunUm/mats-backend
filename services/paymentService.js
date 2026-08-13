@@ -123,25 +123,14 @@ const processPaymentForSubscription = async (subscription) => {
           paymentIntentId
       ]
     );
-
-   // ⭐️⭐️⭐️ 여기서부터 덮어씌우시면 됩니다 ⭐️⭐️⭐️
-    // (2) 다음 결제일 계산 (절대 밀리지 않는 완벽한 Cycle 로직)
-    // 항상 최초 등록일(start_date)의 '일(Day)'을 기억해서 기준을 잡습니다.
-    const startDate = dayjs(subscription.start_date);
-    const originalDay = startDate.date(); // 예: 31일에 등록했으면 '31'
-
+// ⭐️⭐️⭐️ 여기서부터 덮어씌우시면 됩니다 ⭐️⭐️⭐️
+    // (2) 다음 결제일 계산 (사범님 수동 연기 및 디클라인 지연 모두 완벽 대응)
+    // 실제 결제된 오늘 날짜가 아니라, DB에 저장되어 있던 원래 '결제 예정일'을 기준으로 1개월을 더합니다.
+    
     const scheduledDate = dayjs(subscription.next_payment_date); 
-    let nextMonth = scheduledDate.add(1, 'month'); // 일단 다음 달로 넘김
+    const formattedNextDate = scheduledDate.add(1, 'month').format('YYYY-MM-DD');
     
-    // 다음 달의 마지막 날짜가 며칠인지 확인 (예: 2월은 28일, 4월은 30일)
-    const daysInNextMonth = nextMonth.daysInMonth();
-    
-    // 원래 등록일과 다음 달의 말일 중 더 '작은' 날짜를 선택
-    // (31일에 등록했어도 2월이면 28일, 4월이면 30일로 안전하게 세팅됨)
-    const targetDay = Math.min(originalDay, daysInNextMonth);
-    
-    const formattedNextDate = nextMonth.date(targetDay).format('YYYY-MM-DD');
-    // ⭐️⭐️⭐️ 여기까지 ⭐️⭐️⭐️
+   // ⭐️⭐️⭐️ 여기까지 ⭐️⭐️⭐️
 
     // (3) Monthly Payments 정보 갱신 (키 갱신 포함)
     await connection.query(`

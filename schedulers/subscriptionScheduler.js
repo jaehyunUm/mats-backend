@@ -8,7 +8,8 @@ async function processSubscriptions() {
     const [subscriptions] = await db.execute(`
       SELECT
         mp.id, mp.parent_id, mp.student_id, mp.program_id, mp.program_fee, mp.dojang_code,
-        mp.source_id, mp.idempotency_key, mp.payment_id, mp.customer_id
+        mp.source_id, mp.idempotency_key, mp.payment_id, mp.customer_id,
+        mp.next_payment_date   /* 👈👈👈 바로 이 줄이 꼭 추가되어야 합니다! */
       FROM monthly_payments mp
       WHERE mp.next_payment_date <= CURDATE()
       AND (mp.payment_status = 'pending' OR mp.payment_status = 'failed');
