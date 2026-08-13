@@ -2,7 +2,6 @@ const { createStripeClientWithKey } = require('../modules/stripeClient');
 const db = require('../db');
 const uuidv4 = require('uuid').v4;
 const dayjs = require('dayjs');
-// const process = require('process'); // (필요 없다면 제거 가능)
 
 // ✅ 알림 생성 함수
 const createNotification = async (dojangCode, message, connection) => {
@@ -55,6 +54,9 @@ const processPaymentForSubscription = async (subscription) => {
     }
 
     let paymentIntentId = `family_bundle_${uuidv4()}`;
+    
+    // 💡 1️⃣ 결제 고유 키를 여기서 먼저 선언합니다! (그래야 DB 저장할 때도 쓸 수 있습니다)
+    let currentAttemptKey = uuidv4();
 
     // 2. Stripe 결제 시도
     if (fee > 0) {
@@ -72,21 +74,22 @@ const processPaymentForSubscription = async (subscription) => {
         const stripe = createStripeClientWithKey(ownerRows[0].stripe_access_token);
 
         try {
-            const paymentIntent = await stripe.paymentIntents.create({
-                amount: Math.round(fee * 100),
-                currency: "usd",
-                customer: subscription.customer_id,
-                payment_method: subscription.source_id,
-                off_session: true,
-                confirm: true,
-                metadata: {
-                  subscription_id: subscription.id,
-                  student_id: subscription.student_id,
-                  note: "Family Bundle Payment" 
-                },
+          const paymentIntent = await stripe.paymentIntents.create({
+              amount: Math.round(fee * 100),
+              currency: "usd",
+              customer: subscription.customer_id,
+              payment_method: subscription.source_id,
+              off_session: true,
+              confirm: true,
+              metadata: {
+                subscription_id: subscription.id,
+                student_id: subscription.student_id,
+                note: "Family Bundle Payment" 
               },
-              { idempotencyKey: subscription.idempotency_key || uuidv4(), stripeAccount: ownerRows[0].stripe_account_id }
-            );
+            },
+            // 💡 2️⃣ 방금 만든 currentAttemptKey를 사용해 결제!
+            { idempotencyKey: currentAttemptKey, stripeAccount: ownerRows[0].stripe_account_id }
+          );
         
             if (paymentIntent.status !== 'succeeded') {
                const failMsg = `Payment failed for ${studentName}: Stripe status is ${paymentIntent.status}`;
@@ -104,7 +107,6 @@ const processPaymentForSubscription = async (subscription) => {
     }
 
     // 3. DB 업데이트 (트랜잭션 시작)
-    // ⚠️ (이전 코드에서 여기가 중복되어 있었음, 하나로 통일)
     await connection.beginTransaction();
     transactionStarted = true;
 
@@ -119,18 +121,14 @@ const processPaymentForSubscription = async (subscription) => {
           fee, 
           subscription.dojang_code, 
           subscription.source_id || 'bundle_system', 
-          subscription.idempotency_key || uuidv4(), 
+          currentAttemptKey, // 💡 3️⃣ 결제에 성공한 바로 그 키를 DB 역사에 정확히 남겨둡니다!
           paymentIntentId
       ]
     );
-// ⭐️⭐️⭐️ 여기서부터 덮어씌우시면 됩니다 ⭐️⭐️⭐️
-    // (2) 다음 결제일 계산 (사범님 수동 연기 및 디클라인 지연 모두 완벽 대응)
-    // 실제 결제된 오늘 날짜가 아니라, DB에 저장되어 있던 원래 '결제 예정일'을 기준으로 1개월을 더합니다.
-    
+
+    // (2) 다음 결제일 계산
     const scheduledDate = dayjs(subscription.next_payment_date); 
     const formattedNextDate = scheduledDate.add(1, 'month').format('YYYY-MM-DD');
-    
-   // ⭐️⭐️⭐️ 여기까지 ⭐️⭐️⭐️
 
     // (3) Monthly Payments 정보 갱신 (키 갱신 포함)
     await connection.query(`
