@@ -98,7 +98,6 @@ router.get('/students', verifyToken, async (req, res) => {
 
       WHERE 
         s.dojang_code = ?
-        AND s.program_id IS NOT NULL -- ⭐️ 이 부분을 추가하여 취소된 학생을 제외합니다.
     `;
 
     // 2. 파라미터 초기화
