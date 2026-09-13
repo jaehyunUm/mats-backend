@@ -435,4 +435,58 @@ console.log("stripeAccountId:", stripeAccountId);
 
 
 
+  // ✅ 관리자(admin/owner)가 학생의 부모를 대신하여 저장된 카드를 삭제하는 API
+  // 기존 /cards/:card_id 는 로그인한 본인(req.user.id)의 카드만 지울 수 있어,
+  // 관리자가 다른 사람(부모)의 카드를 지울 때는 사용할 수 없기 때문에 별도로 만들었습니다.
+  router.delete("/admin/student-cards/:card_id", verifyToken, async (req, res) => {
+    const { card_id } = req.params;
+    const { parent_id } = req.body;
+    const { dojang_code } = req.user;
+
+    if (!parent_id) {
+      return res.status(400).json({ success: false, message: "Missing parent_id in request body" });
+    }
+
+    try {
+      // 1. 도장 오너의 Stripe Account ID 가져오기
+      const [ownerRow] = await db.query("SELECT stripe_account_id FROM owner_bank_accounts WHERE dojang_code = ?", [dojang_code]);
+      if (!ownerRow.length || !ownerRow[0].stripe_account_id) {
+        return res.status(400).json({ success: false, message: "Dojang owner has not connected Stripe" });
+      }
+      const stripeAccountId = ownerRow[0].stripe_account_id;
+
+      // 2. 같은 도장(dojang_code) 소속의 해당 부모 카드가 맞는지 확인 (다른 도장 데이터 삭제 방지)
+      const [cardRow] = await db.query(
+        "SELECT customer_id FROM saved_cards WHERE card_id = ? AND parent_id = ? AND dojang_code = ?",
+        [card_id, parent_id, dojang_code]
+      );
+      if (!cardRow.length) {
+        return res.status(404).json({ success: false, message: "Card not found for this student's parent" });
+      }
+
+      try {
+        await stripe.paymentMethods.detach(card_id, { stripeAccount: stripeAccountId });
+      } catch (err) {
+        // 이미 detach된 경우 무시
+        if (err.code !== 'resource_missing') {
+          console.error("❌ Stripe detach error:", err);
+          return res.status(400).json({ success: false, message: "Failed to detach card in Stripe", stripeError: err.message });
+        }
+      }
+
+      // 3. DB에서 삭제
+      const [result] = await db.query(
+        "DELETE FROM saved_cards WHERE card_id = ? AND parent_id = ? AND dojang_code = ?",
+        [card_id, parent_id, dojang_code]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: "Card not found in database" });
+      }
+      res.json({ success: true, message: "Card deleted successfully (Stripe)" });
+    } catch (error) {
+      console.error("❌ Error deleting card (admin):", error);
+      res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  });
+
 module.exports = router;

@@ -4,6 +4,8 @@ const router = express.Router();
 const uuidv4 = require('uuid').v4;
 const verifyToken = require('../middleware/verifyToken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 
 // 안전한 날짜 정규화: YYYY-MM-DD만 최종 허용, YYYY-MM/YY/MM은 1일로 보정
@@ -172,6 +174,114 @@ router.post("/register-student", verifyToken, async (req, res) => {
     }
     console.error("❌ ERROR /register-student:", error);
     return res.status(500).json({ success:false, message:"Server error. Please try again." });
+  }
+});
+
+
+// ✅ 관리자가 학부모 앱 가입 없이, 학생과 (필요시) 학부모를 한 번에 수동으로 등록하는 API
+// - 부모가 앱을 직접 사용하지 않는 것을 전제로 하므로, 로그인 비밀번호는 랜덤 값으로 채워 둡니다.
+// - 이메일이 같은 도장(dojang_code) 내에 이미 존재하면 그 부모 계정을 재사용합니다(형제/자매 추가 케이스).
+router.post('/admin/register-student-manual', verifyToken, async (req, res) => {
+  const {
+    parent_first_name, parent_last_name, parent_email, parent_phone,
+    first_name, last_name, birth_date, gender, belt_rank, belt_size, program_id
+  } = req.body || {};
+  const dojang_code = req.user?.dojang_code ?? null;
+
+  // 정규화
+  const parentFirst = String(parent_first_name ?? "").trim();
+  const parentLast  = String(parent_last_name ?? "").trim();
+  const parentEmail = String(parent_email ?? "").trim().toLowerCase();
+  const parentPhone = parent_phone ? String(parent_phone).replace(/\s/g, '') : null;
+
+  const firstName  = String(first_name ?? "").trim();
+  const lastName   = String(last_name ?? "").trim();
+  const genderNorm = String(gender ?? "").toLowerCase().trim();
+  const beltRank   = String(belt_rank ?? "");
+  const beltSize   = belt_size ?? null;
+  const programId  = program_id != null && program_id !== '' ? Number(program_id) : null;
+  const birthSQL   = toSqlDate(birth_date) ?? null;
+
+  if (!dojang_code) return res.status(400).json({ success:false, message:"Dojang code is missing" });
+  if (!parentFirst || !parentLast || !parentEmail) {
+    return res.status(400).json({ success:false, message:"Parent first name, last name, and email are required" });
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(parentEmail)) {
+    return res.status(400).json({ success:false, message:"Please enter a valid parent email address" });
+  }
+  if (!firstName || !lastName || !genderNorm) {
+    return res.status(400).json({ success:false, message:"Missing required student fields" });
+  }
+
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+
+  try {
+    // 1️⃣ 같은 도장 내에서 이메일이 일치하는 부모가 이미 있는지 확인 (있으면 재사용 = 형제/자매 등록)
+    const [existingParents] = await connection.query(
+      "SELECT id FROM parents WHERE email = ? AND dojang_code = ?",
+      [parentEmail, dojang_code]
+    );
+
+    let parentId;
+    let parentWasExisting = false;
+
+    if (existingParents.length > 0) {
+      parentId = existingParents[0].id;
+      parentWasExisting = true;
+      // 전화번호가 비어있었다면 이번에 입력된 값으로 보강
+      if (parentPhone) {
+        await connection.query(
+          "UPDATE parents SET phone = COALESCE(NULLIF(phone, ''), ?) WHERE id = ?",
+          [parentPhone, parentId]
+        );
+      }
+    } else {
+      // 부모가 앱에 로그인하지 않을 것이므로, 알 수 없는 임의의 비밀번호를 해시로 저장해 둡니다.
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+      const [parentResult] = await connection.query(
+        `INSERT INTO parents
+           (first_name, last_name, dojang_code, email, password, phone, role, privacy_policy_agreed, referral_source)
+         VALUES (?, ?, ?, ?, ?, ?, 'parent', 0, 'admin_manual_entry')`,
+        [parentFirst, parentLast, dojang_code, parentEmail, hashedPassword, parentPhone]
+      );
+      parentId = parentResult.insertId;
+    }
+
+    // 2️⃣ 학생 생성
+    const [studentResult] = await connection.query(
+      `INSERT INTO students
+         (first_name, last_name, birth_date, gender, belt_rank, belt_size,
+          parent_id, profile_image, program_id, dojang_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      [firstName, lastName, birthSQL, genderNorm, beltRank, beltSize, parentId, programId, dojang_code]
+    );
+    const studentId = studentResult.insertId;
+
+    await connection.commit();
+
+    return res.status(201).json({
+      success: true,
+      student_id: studentId,
+      parent_id: parentId,
+      parent_email: parentEmail,
+      parent_was_existing: parentWasExisting,
+    });
+  } catch (error) {
+    await connection.rollback();
+    if (error?.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ success:false, message: "A parent with this email already exists." });
+    }
+    if (error?.errno === 1452) {
+      return res.status(400).json({ success:false, message: "Invalid program selected." });
+    }
+    console.error("❌ ERROR /admin/register-student-manual:", error);
+    return res.status(500).json({ success:false, message: "Server error. Please try again." });
+  } finally {
+    connection.release();
   }
 });
 
