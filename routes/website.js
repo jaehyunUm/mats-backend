@@ -30,7 +30,7 @@ router.get('/public-get-schedule', async (req, res) => {
 });
 
   router.post('/send-trial-email', async (req, res) => {
-    const { name, age, experience, belt, phone } = req.body;
+    const { name, age, experience, belt, phone, className, classDay, classTime, classDate } = req.body;
   
     try {
       const transporter = nodemailer.createTransport({
@@ -41,6 +41,10 @@ router.get('/public-get-schedule', async (req, res) => {
         }
       });
   
+      const classLine = className
+        ? `- Requested Class: ${className} (${classDay || ''} ${classTime || ''})\n- Requested Date: ${classDate || 'N/A'}`
+        : '- Requested Class: N/A (no matching class selected)';
+
       const mailOptions = {
         from: 'saehan.jh@gmail.com',
         to: 'jcworldtkd.jh@gmail.com',
@@ -52,6 +56,7 @@ New Trial Request:
 - Phone: ${phone || 'N/A'}
 - Experience: ${experience}
 - Belt: ${belt || 'N/A'}
+${classLine}
         `
       };
   
@@ -254,4 +259,98 @@ New Trial Request:
     }
   });
 
-  module.exports = router;
+// ==========================================
+// [공개용] 벨트 목록 조회 (무료 체험 신청 폼에서 사용)
+// ==========================================
+router.get('/public/belt-levels', async (req, res) => {
+  const { dojang_code } = req.query;
+
+  if (!dojang_code) {
+    return res.status(400).json({ message: 'dojang_code is required' });
+  }
+
+  try {
+    const [belts] = await db.query(
+      `SELECT belt_color, belt_rank FROM beltsystem WHERE dojang_code = ? ORDER BY belt_rank ASC`,
+      [dojang_code]
+    );
+
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.status(200).json(belts);
+  } catch (err) {
+    console.error('Error fetching belt levels:', err);
+    return res.status(500).json({ message: 'Error fetching belt levels' });
+  }
+});
+
+// ==========================================
+// [공개용] 무료 체험 신청자를 위한 클래스 추천 (로그인 불필요)
+// register.js의 /recommend-classes 와 동일한 로직(classconditions + schedule 매칭)을
+// 인증 없이 사용할 수 있도록 만든 공개 버전입니다.
+// ==========================================
+router.post('/public/recommend-classes', async (req, res) => {
+  const { dojang_code, age, belt_name } = req.body;
+
+  if (!dojang_code || age === undefined || age === null || age === '') {
+    return res.status(400).json({ message: 'dojang_code and age are required' });
+  }
+
+  const numericAge = parseInt(age, 10);
+  if (isNaN(numericAge)) {
+    return res.status(400).json({ message: 'Invalid age value' });
+  }
+
+  try {
+    // belt_name이 주어지면 belt_rank로 변환하고, 없으면 초보자(가장 낮은 랭크)로 간주합니다.
+    let numericBeltRank = 1;
+    if (belt_name) {
+      const [beltRows] = await db.query(
+        `SELECT belt_rank FROM beltsystem WHERE dojang_code = ? AND belt_color = ? LIMIT 1`,
+        [dojang_code, belt_name]
+      );
+      if (beltRows.length > 0) {
+        numericBeltRank = beltRows[0].belt_rank;
+      }
+    }
+
+    // 1) 나이 / 벨트 조건에 맞는 클래스 이름 조회
+    const [classConditions] = await db.query(
+      `SELECT class_name FROM classconditions
+       WHERE age_min <= ? AND age_max >= ?
+         AND belt_min_rank <= ? AND belt_max_rank >= ?
+         AND dojang_code = ?`,
+      [numericAge, numericAge, numericBeltRank, numericBeltRank, dojang_code]
+    );
+
+    if (classConditions.length === 0) {
+      return res.status(200).json({ classes: [] });
+    }
+
+    const classNames = classConditions.map((c) => c.class_name);
+
+    // 2) 해당 클래스가 배정된 요일/시간(스케줄) 조회
+    const [scheduleRows] = await db.query(
+      `SELECT time, Mon, Tue, Wed, Thur, Fri, Sat FROM schedule WHERE dojang_code = ?`,
+      [dojang_code]
+    );
+
+    const days = ['Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'];
+    const classes = [];
+
+    for (const row of scheduleRows) {
+      for (const day of days) {
+        const cellValue = row[day];
+        if (cellValue && classNames.includes(cellValue)) {
+          classes.push({ class_name: cellValue, day, time: row.time });
+        }
+      }
+    }
+
+    return res.status(200).json({ classes });
+  } catch (error) {
+    console.error('Error recommending classes:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+module.exports = router;
