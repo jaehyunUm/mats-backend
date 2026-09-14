@@ -271,7 +271,11 @@ router.get('/public/belt-levels', async (req, res) => {
 
   try {
     const [belts] = await db.query(
-      `SELECT belt_color, belt_rank FROM beltsystem WHERE dojang_code = ? ORDER BY belt_rank ASC`,
+      `SELECT belt_color, MIN(belt_rank) AS belt_rank
+       FROM beltsystem
+       WHERE dojang_code = ?
+       GROUP BY belt_color
+       ORDER BY belt_rank ASC`,
       [dojang_code]
     );
 
@@ -301,26 +305,41 @@ router.post('/public/recommend-classes', async (req, res) => {
   }
 
   try {
-    // belt_name이 주어지면 belt_rank로 변환하고, 없으면 초보자(가장 낮은 랭크)로 간주합니다.
-    let numericBeltRank = 1;
+    // belt_name이 주어지면 belt_rank로 변환합니다 (같은 색상에 세부 랭크가
+    // 여러 개 있을 수 있어 가장 낮은 랭크로 통일). belt_name이 없으면
+    // "처음 방문하는 학생"으로 보고 벨트 조건 없이 나이만으로 매칭합니다.
+    // (예전에는 랭크 1을 기본값으로 썼는데, 이 도장은 랭크 1이
+    // "White (3-4 years old)" 전용 벨트라서 7세 등 다른 나이의
+    // 초보자가 전혀 매칭되지 않는 문제가 있었습니다.)
+    let numericBeltRank = null;
     if (belt_name) {
       const [beltRows] = await db.query(
-        `SELECT belt_rank FROM beltsystem WHERE dojang_code = ? AND belt_color = ? LIMIT 1`,
+        `SELECT MIN(belt_rank) AS belt_rank FROM beltsystem WHERE dojang_code = ? AND belt_color = ?`,
         [dojang_code, belt_name]
       );
-      if (beltRows.length > 0) {
+      if (beltRows.length > 0 && beltRows[0].belt_rank !== null) {
         numericBeltRank = beltRows[0].belt_rank;
       }
     }
 
-    // 1) 나이 / 벨트 조건에 맞는 클래스 이름 조회
-    const [classConditions] = await db.query(
-      `SELECT class_name FROM classconditions
-       WHERE age_min <= ? AND age_max >= ?
-         AND belt_min_rank <= ? AND belt_max_rank >= ?
-         AND dojang_code = ?`,
-      [numericAge, numericAge, numericBeltRank, numericBeltRank, dojang_code]
-    );
+    // 1) 나이 조건에 맞는 클래스 이름 조회 (벨트가 주어졌을 때만 벨트 조건도 함께 적용)
+    let classConditions;
+    if (numericBeltRank !== null) {
+      [classConditions] = await db.query(
+        `SELECT class_name FROM classconditions
+         WHERE age_min <= ? AND age_max >= ?
+           AND belt_min_rank <= ? AND belt_max_rank >= ?
+           AND dojang_code = ?`,
+        [numericAge, numericAge, numericBeltRank, numericBeltRank, dojang_code]
+      );
+    } else {
+      [classConditions] = await db.query(
+        `SELECT class_name FROM classconditions
+         WHERE age_min <= ? AND age_max >= ?
+           AND dojang_code = ?`,
+        [numericAge, numericAge, dojang_code]
+      );
+    }
 
     if (classConditions.length === 0) {
       return res.status(200).json({ classes: [] });
