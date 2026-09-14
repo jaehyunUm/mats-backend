@@ -64,6 +64,8 @@ module.exports = { upload };
 require('./schedulers/subscriptionScheduler'); // 스케줄러 로드
 const { startBirthdayScheduler } = require('./schedulers/birthdayScheduler'); // 경로 확인!
 startBirthdayScheduler();
+const { startAbsenceScheduler } = require('./schedulers/absenceScheduler'); // 결석 SMS 알림 스케줄러 (매일 19:30)
+startAbsenceScheduler();
 require('./schedulers/cashscheduler');
 app.options("*", cors(corsOptions)); // ✅ 모든 경로에 대한 OPTIONS 요청 허용
 app.use(express.json());
