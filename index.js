@@ -64,9 +64,10 @@ module.exports = { upload };
 require('./schedulers/subscriptionScheduler'); // 스케줄러 로드
 const { startBirthdayScheduler } = require('./schedulers/birthdayScheduler'); // 경로 확인!
 startBirthdayScheduler();
-const { startAbsenceScheduler } = require('./schedulers/absenceScheduler'); // 결석 SMS 알림 스케줄러 (매일 19:30)
+const { startAbsenceScheduler } = require('./schedulers/absenceScheduler'); // 결석 문자 초안 스케줄러 (매일 19:30, 반자동)
 startAbsenceScheduler();
 require('./schedulers/cashscheduler');
+require('./migrations/runMigrations')(); // ✅ notifications.parent_phone / push_tokens 테이블 자동 확인·생성
 app.options("*", cors(corsOptions)); // ✅ 모든 경로에 대한 OPTIONS 요청 허용
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // form-urlencoded 지원
@@ -173,6 +174,8 @@ const goalRoutes = require('./routes/goalRoutes'); // ✅ 1. 목표(Goal) 라우
 app.use('/api', goalRoutes); // ✅ 2. 목표(Goal) 라우트 등록
 const notificationRoutes = require('./routes/notificationRoutes'); 
 app.use('/api', notificationRoutes);
+const pushTokenRoutes = require('./routes/pushTokenRoutes'); // ✅ 사장님 휴대폰 Expo 푸시 토큰 등록
+app.use('/api', pushTokenRoutes);
 const lessonPlanRoutes = require('./routes/lessonplan'); // 파일명이 정확한지 확인!
 app.use('/api', lessonPlanRoutes); // 여기서 '/api'를 이미 붙였습니다.
 

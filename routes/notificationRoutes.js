@@ -13,7 +13,7 @@ router.get("/notifications", verifyToken, async (req, res) => {
   try {
     // ⭐️ SELECT 문에 type과 student_id를 추가했습니다!
     const [rows] = await db.query(
-      `SELECT id, message, is_read, date, type, student_id 
+      `SELECT id, message, is_read, date, type, student_id, parent_phone
        FROM notifications 
        WHERE dojang_code = ? 
        ORDER BY date DESC`,
