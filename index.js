@@ -176,6 +176,8 @@ const notificationRoutes = require('./routes/notificationRoutes');
 app.use('/api', notificationRoutes);
 const pushTokenRoutes = require('./routes/pushTokenRoutes'); // ✅ 사장님 휴대폰 Expo 푸시 토큰 등록
 app.use('/api', pushTokenRoutes);
+const appVersionRoutes = require('./routes/appVersionRoutes'); // ✅ 강제 업데이트 여부 확인용 (인증 불필요)
+app.use('/api', appVersionRoutes);
 const lessonPlanRoutes = require('./routes/lessonplan'); // 파일명이 정확한지 확인!
 app.use('/api', lessonPlanRoutes); // 여기서 '/api'를 이미 붙였습니다.
 
