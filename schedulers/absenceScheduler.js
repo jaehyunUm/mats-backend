@@ -9,7 +9,7 @@ async function checkAndSendAbsenceNotifications() {
     // 같은 학생이 하루에 여러 수업을 결석해도 문자는 한 번만 가도록 DISTINCT 처리
     const [absentStudents] = await db.query(`
       SELECT DISTINCT
-        s.id, s.first_name, s.last_name, a.dojang_code,
+        s.id, s.first_name, s.last_name, s.gender, a.dojang_code,
         p.phone AS parent_phone,
         d.dojang_name
       FROM absences a
@@ -41,7 +41,8 @@ async function checkAndSendAbsenceNotifications() {
       }
 
       const studioName = student.dojang_name || "our studio";
-      const smsBody = `Hi, this is ${studioName}. This is a note that ${student.first_name} ${student.last_name} was marked absent from today's class. Please let us know if you have any questions.`;
+      const { subject, object } = getPronouns(student.gender);
+      const smsBody = `Hi, this is ${studioName}. We missed ${student.first_name} today - just checking in to see if everything is okay. ${student.first_name} was marked absent from class, and we want to make sure ${subject} is doing well. If there's anything going on or any questions at all, please don't hesitate to reach out. We hope to see ${object} again soon!`;
 
       const result = await sendSMS(student.parent_phone, smsBody);
       if (result.success) {
@@ -61,6 +62,13 @@ async function checkAndSendAbsenceNotifications() {
   } catch (error) {
     console.error("❌ 결석 알림 스케줄러 실행 중 오류 발생:", error);
   }
+}
+
+// gender 컬럼(male/female/그 외)에 따라 자연스러운 대명사(주격/목적격)를 골라줌
+function getPronouns(gender) {
+  if (gender === "male") return { subject: "he", object: "him" };
+  if (gender === "female") return { subject: "she", object: "her" };
+  return { subject: "they", object: "them" };
 }
 
 // 오늘 이미 해당 type의 알림(SMS 발송 기록)을 보냈는지 확인

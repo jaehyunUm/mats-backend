@@ -43,7 +43,7 @@ async function checkAndCreateBirthdayNotifications() {
       const alreadySentSms = await hasAlreadySentToday(student.id, 'birthday_sms');
       if (!alreadySentSms && student.parent_phone) {
         const studioName = student.dojang_name || "our studio";
-        const smsBody = `Hi, this is ${studioName}. Today is ${student.first_name}'s birthday - Happy Birthday! 🎉`;
+        const smsBody = `Hi, this is ${studioName}! 🎉 We just wanted to take a moment to wish ${student.first_name} a very Happy Birthday today. We hope it's filled with family, friends, cake, and maybe a few celebratory kicks and punches! Thank you for being such a wonderful part of our ${studioName} family - we're so glad to have ${student.first_name} with us. 🥋🎂`;
         const result = await sendSMS(student.parent_phone, smsBody);
         if (result.success) {
           smsSentCount++;
