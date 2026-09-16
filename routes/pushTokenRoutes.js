@@ -1,12 +1,12 @@
 // backend/routes/pushTokenRoutes.js
-// 앱(관리자)이 실행될 때 Expo 푸시 토큰을 발급받아 서버에 등록/갱신하는 라우트
+// 앱(관리자/학부모)이 실행될 때 Expo 푸시 토큰을 발급받아 서버에 등록/갱신하는 라우트
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
 
 router.post('/push-token', verifyToken, async (req, res) => {
-  const { id: user_id, dojang_code } = req.user;
+  const { id: user_id, dojang_code, role } = req.user;
   const { expo_push_token, platform } = req.body;
 
   if (!expo_push_token) {
@@ -15,10 +15,10 @@ router.post('/push-token', verifyToken, async (req, res) => {
 
   try {
     await db.query(
-      `INSERT INTO push_tokens (user_id, dojang_code, expo_push_token, platform)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), dojang_code = VALUES(dojang_code), platform = VALUES(platform)`,
-      [user_id, dojang_code, expo_push_token, platform || null]
+      `INSERT INTO push_tokens (user_id, dojang_code, expo_push_token, platform, role)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), dojang_code = VALUES(dojang_code), platform = VALUES(platform), role = VALUES(role)`,
+      [user_id, dojang_code, expo_push_token, platform || null, role || null]
     );
     res.status(200).json({ success: true, message: 'Push token registered' });
   } catch (error) {

@@ -1,6 +1,6 @@
 const cron = require("node-cron");
 const db = require("../db");
-const { sendPushToDojang } = require("../services/pushService");
+const { sendPushToOwners } = require("../services/pushService");
 
 // gender 컬럼(male/female/그 외)에 따라 자연스러운 대명사(주격/목적격)를 골라줌
 function getPronouns(gender) {
@@ -70,7 +70,7 @@ async function checkAndPrepareAbsenceDrafts() {
         `SELECT COUNT(*) AS cnt FROM notifications WHERE dojang_code = ? AND type = 'absence_draft' AND DATE(date) = CURDATE()`,
         [dojang_code]
       );
-      await sendPushToDojang(
+      await sendPushToOwners(
         dojang_code,
         "결석 안내 문자 초안이 준비됐어요",
         `오늘 결석한 학생 ${cnt}명의 문자 초안을 확인해보세요.`,

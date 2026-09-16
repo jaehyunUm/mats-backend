@@ -1,7 +1,7 @@
 const cron = require("node-cron");
 const db = require("../db"); // 실제 db 연결 파일 경로
 const createNotification = require("./createNotification"); // 기존 앱 내 알림 (생일 축하 알림 카드용)
-const { sendPushToDojang } = require("../services/pushService");
+const { sendPushToOwners } = require("../services/pushService");
 
 // 생일자를 찾아, 학부모에게 보낼 문자 "초안"을 만들어 notifications 테이블에 저장하고
 // 사장님 휴대폰으로 푸시 알림을 보내는 핵심 로직 (문자는 사장님이 직접 발송)
@@ -64,7 +64,7 @@ async function checkAndCreateBirthdayNotifications() {
         `SELECT COUNT(*) AS cnt FROM notifications WHERE dojang_code = ? AND type = 'birthday_draft' AND DATE(date) = CURDATE()`,
         [dojang_code]
       );
-      await sendPushToDojang(
+      await sendPushToOwners(
         dojang_code,
         "생일 축하 문자 초안이 준비됐어요 🎉",
         `오늘 생일인 학생 ${cnt}명의 문자 초안을 확인해보세요.`,

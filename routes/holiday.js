@@ -3,16 +3,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결 파일
 const verifyToken = require('../middleware/verifyToken');
-const { sendPushToDojang } = require('../services/pushService');
-
-function formatDateReadable(dateStr) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-  });
-}
 
 // 휴일 날짜 저장 및 삭제 API
+// (참고: 도장 전체 푸시 알림은 즉시 발송하지 않고, 매일 아침 자동으로 도는
+//  reminderScheduler.js에서 "휴일 7일 전"에 한 번만 보냅니다)
 router.post('/holiday-schedule', verifyToken, async (req, res) => {
     const { dates = [], datesToRemove = [] } = req.body;
     const { dojang_code } = req.user;
@@ -33,27 +27,6 @@ router.post('/holiday-schedule', verifyToken, async (req, res) => {
         }
 
         res.status(200).json({ message: 'Holiday dates saved and removed successfully' });
-
-        // ✅ 새로 추가된 휴일이 있으면, 학부모+사장님 휴대폰으로 푸시 알림 발송
-        //    (응답을 이미 보낸 뒤이므로, 여기서 에러가 나도 res를 절대 건드리지 않고 로그만 남깁니다)
-        if (dates.length > 0) {
-            try {
-                const [[dojangRow]] = await db.execute(
-                    'SELECT dojang_name FROM dojangs WHERE dojang_code = ?',
-                    [dojang_code]
-                );
-                const studioName = dojangRow?.dojang_name || 'our studio';
-                const dateList = dates.map(formatDateReadable).join(', ');
-                await sendPushToDojang(
-                    dojang_code,
-                    `📅 Holiday Scheduled`,
-                    `${studioName}: Please note that ${dateList} ${dates.length > 1 ? 'are' : 'is'} scheduled as a holiday - there will be no class. Enjoy your time off!`,
-                    { type: 'holiday_schedule', dates }
-                );
-            } catch (pushError) {
-                console.error('❌ Error sending holiday schedule push:', pushError);
-            }
-        }
     } catch (error) {
         console.error('Error saving or removing holiday dates:', error);
         if (!res.headersSent) {

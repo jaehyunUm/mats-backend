@@ -66,6 +66,8 @@ const { startBirthdayScheduler } = require('./schedulers/birthdayScheduler'); //
 startBirthdayScheduler();
 const { startAbsenceScheduler } = require('./schedulers/absenceScheduler'); // 결석 문자 초안 스케줄러 (매일 19:30, 반자동)
 startAbsenceScheduler();
+const { startReminderScheduler } = require('./schedulers/reminderScheduler'); // 스파링/휴일 7일 전 알림 스케줄러 (매일 09:00)
+startReminderScheduler();
 require('./schedulers/cashscheduler');
 require('./migrations/runMigrations')(); // ✅ notifications.parent_phone / push_tokens 테이블 자동 확인·생성
 app.options("*", cors(corsOptions)); // ✅ 모든 경로에 대한 OPTIONS 요청 허용

@@ -34,6 +34,35 @@ async function runMigrations() {
   } catch (err) {
     console.error("⚠️ [migration] push_tokens 테이블 생성 실패 (무시하고 계속 진행):", err.message);
   }
+
+  // 3. push_tokens 테이블에 role 컬럼 추가
+  //    (같은 앱을 사장님/학부모가 함께 쓰기 때문에, user_id만으로는 users.id와 parents.id가
+  //     서로 겹칠 수 있어 role로 반드시 구분해야 스파링 알림을 엉뚱한 사람에게 보내지 않습니다)
+  try {
+    await db.query(`ALTER TABLE push_tokens ADD COLUMN IF NOT EXISTS role VARCHAR(20) NULL`);
+    console.log("✅ [migration] push_tokens.role 컬럼 확인/추가 완료");
+  } catch (err) {
+    console.error("⚠️ [migration] push_tokens.role 컬럼 추가 실패 (무시하고 계속 진행):", err.message);
+  }
+
+  // 4. reminder_log 테이블 생성
+  //    (스파링/휴일 "7일 전" 알림을 도장당 하루에 한 번만 보내도록 중복 방지용으로 사용)
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS reminder_log (
+        id INT NOT NULL AUTO_INCREMENT,
+        dojang_code VARCHAR(50) NOT NULL,
+        type VARCHAR(20) NOT NULL,
+        ref_date DATE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uniq_reminder (dojang_code, type, ref_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    console.log("✅ [migration] reminder_log 테이블 확인/생성 완료");
+  } catch (err) {
+    console.error("⚠️ [migration] reminder_log 테이블 생성 실패 (무시하고 계속 진행):", err.message);
+  }
 }
 
 module.exports = runMigrations;
