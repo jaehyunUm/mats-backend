@@ -45,7 +45,24 @@ async function runMigrations() {
     console.error("⚠️ [migration] push_tokens.role 컬럼 추가 실패 (무시하고 계속 진행):", err.message);
   }
 
-  // 4. reminder_log 테이블 생성
+  // 4. notifications 테이블에 type / student_id / recipient_id / created_at 컬럼 추가
+  //    (스케줄러들(absenceScheduler, birthdayScheduler, createNotification.js)과
+  //     test-invite 라우트가 INSERT할 때 이 컬럼들을 사용하는데, 실제 DB에는 없어서
+  //     INSERT/SELECT가 전부 "Unknown column" 에러로 조용히 실패하고 있었음.
+  //     (관리자 앱에서 "안읽은 알림 7개"라고 뜨는데 알림 목록 화면은 텅 비어 보이는 버그의 원인:
+  //      unread-count 쿼리는 COUNT(*)만 쓰기 때문에 안 걸리고, 목록을 가져오는
+  //      GET /notifications 쿼리는 SELECT ...type, student_id... 를 쓰기 때문에 에러가 났던 것.)
+  try {
+    await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS type VARCHAR(50) NULL`);
+    await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS student_id INT NULL`);
+    await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS recipient_id INT NULL`);
+    await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS created_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP`);
+    console.log("✅ [migration] notifications.type / student_id / recipient_id / created_at 컬럼 확인/추가 완료");
+  } catch (err) {
+    console.error("⚠️ [migration] notifications 컬럼 추가 실패 (무시하고 계속 진행):", err.message);
+  }
+
+  // 5. reminder_log 테이블 생성
   //    (스파링/휴일 "7일 전" 알림을 도장당 하루에 한 번만 보내도록 중복 방지용으로 사용)
   try {
     await db.query(`
