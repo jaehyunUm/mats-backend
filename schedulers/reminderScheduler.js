@@ -76,7 +76,7 @@ async function checkSparringReminders() {
         [dojang_code, dayColumn]
       );
 
-      const message = `${studioName}: This week is sparring week! Class on ${dateLabel} - please wear Arm gear, Leg gear, Hand gear, and Feet gear before coming to class so we can run the class smoothly.`;
+      const message = `${studioName}: Next week is sparring week! Class on ${dateLabel} - please wear Arm gear, Leg gear, Hand gear, and Feet gear before coming to class so we can run the class smoothly.`;
 
       if (parentRows.length > 0) {
         const parentIds = parentRows.map((p) => p.parent_id);
