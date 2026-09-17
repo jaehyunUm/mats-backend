@@ -132,13 +132,11 @@ async function processAbsencesForDojang(dojang_code, dayColumn, todayStr) {
       `SELECT
          s.id AS student_id, s.first_name, s.last_name, s.gender,
          p.phone AS parent_phone,
-         d.dojang_name,
          cd.class_id
        FROM class_details cd
        JOIN student_classes sc ON sc.class_id = cd.class_id AND sc.dojang_code = cd.dojang_code
        JOIN students s ON s.id = sc.student_id
        LEFT JOIN parents p ON s.parent_id = p.id
-       LEFT JOIN dojangs d ON d.dojang_code = cd.dojang_code
        LEFT JOIN attendance a
          ON a.student_id = s.id AND a.class_id = cd.class_id
          AND a.dojang_code = cd.dojang_code AND a.attendance_date = ?
@@ -194,10 +192,9 @@ async function processAbsencesForDojang(dojang_code, dayColumn, todayStr) {
       const alreadyCreated = await hasAlreadyCreatedToday(row.student_id, "absence_draft");
       if (alreadyCreated) continue;
 
-      const studioName = row.dojang_name || "our studio";
       const { subject, object } = getPronouns(row.gender);
       const dateStr = formatDateReadable(new Date());
-      const draftMessage = `Hi, this is ${studioName}. We missed ${row.first_name} today (${dateStr}) - just checking in to see if everything is okay. ${row.first_name} was marked absent from class, and we want to make sure ${subject} is doing well. If there's anything going on or any questions at all, please don't hesitate to reach out. We hope to see ${object} again soon!`;
+      const draftMessage = `We missed ${row.first_name} today (${dateStr}) - just checking in to see if everything is okay. ${row.first_name} was marked absent from class, and we want to make sure ${subject} is doing well. If there's anything going on or any questions at all, please don't hesitate to reach out. We hope to see ${object} again soon!`;
 
       await db.query(
         `INSERT INTO notifications (dojang_code, message, type, student_id, parent_phone, date, is_read)
