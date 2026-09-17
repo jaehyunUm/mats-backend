@@ -1,6 +1,5 @@
 const cron = require("node-cron");
 const db = require("../db"); // 실제 db 연결 파일 경로
-const createNotification = require("./createNotification"); // 기존 앱 내 알림 (생일 축하 알림 카드용)
 const { sendPushToOwners } = require("../services/pushService");
 
 // 생일자를 찾아, 학부모에게 보낼 문자 "초안"을 만들어 notifications 테이블에 저장하고
@@ -24,27 +23,16 @@ async function checkAndCreateBirthdayNotifications() {
       return;
     }
 
-    let successCount = 0;
     let draftCount = 0;
     const dojangCodesNotified = new Set();
 
     for (const student of birthdayStudents) {
-      const message = `🎉 Happy Birthday to ${student.first_name} ${student.last_name}!`;
-
-      // 기존처럼 앱 내 알림 카드도 그대로 생성 (type='birthday')
-      await createNotification(
-        student.dojang_code,
-        message,
-        'birthday',
-        student.id
-      );
-      successCount++;
-
       // ⭐️ 부모님께 보낼 생일 축하 문자 "초안"을 만들어서 저장 (하루에 학생당 한 번만)
+      // (예전엔 이거 말고 createNotification()으로 앱 알림 카드를 하나 더 만들었는데,
+      //  같은 생일에 "Happy Birthday" 알림이 두 개씩 뜨는 원인이라 제거함. 이제 문자 초안 하나만 생성.)
       const alreadyCreated = await hasAlreadyCreatedToday(student.id, 'birthday_draft');
       if (!alreadyCreated) {
-        const studioName = student.dojang_name || "our studio";
-        const draftMessage = `Hi, this is ${studioName}! 🎉 We just wanted to take a moment to wish ${student.first_name} a very Happy Birthday today. We hope it's filled with family, friends, cake, and maybe a few celebratory kicks and punches! Thank you for being such a wonderful part of our ${studioName} family - we're so glad to have ${student.first_name} with us. 🥋🎂`;
+        const draftMessage = `🎉 We just wanted to take a moment to wish ${student.first_name} a very Happy Birthday today. We hope it's filled with family, friends, cake, and maybe a few celebratory kicks and punches! Thank you for being a part of our JC family. 🥋🎂`;
 
         await db.query(
           `INSERT INTO notifications (dojang_code, message, type, student_id, parent_phone, date, is_read)
@@ -72,7 +60,7 @@ async function checkAndCreateBirthdayNotifications() {
       );
     }
 
-    console.log(`✅ 생일자 스케줄러 완료: 앱 알림 ${successCount}건, 문자 초안 ${draftCount}건 생성.`);
+    console.log(`✅ 생일자 스케줄러 완료: 문자 초안 ${draftCount}건 생성.`);
   } catch (error) {
     console.error("❌ 생일자 스케줄러 실행 중 오류 발생:", error);
   }
