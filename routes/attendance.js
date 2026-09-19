@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db'); // 데이터베이스 연결
 const verifyToken = require('../middleware/verifyToken');
 const createNotification = require('../schedulers/createNotification');
+const { checkBirthdayPartyOnAttendance } = require('../schedulers/birthdayPartyScheduler');
 
 
 router.post('/mark-attendance', verifyToken, async (req, res) => {
@@ -41,6 +42,10 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
          ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), belt_rank = VALUES(belt_rank)`,
         [studentId, classId, dojang_code, attendance_date, belt_rank]
       );
+
+      // 3.5 생일파티 안내 대상(생일 34~28일 전) 구간 안이면, 오늘 등원한 김에 문자 초안 + 푸시 생성
+      // (독립적인 체크라 트랜잭션과 분리된 커넥션 풀을 쓰고, 내부에서 에러를 다 잡아서 출석 저장 자체엔 영향 없음)
+      await checkBirthdayPartyOnAttendance(dojang_code, studentId);
 
       // 4. 연속 결석 초기화
       await connection.query(

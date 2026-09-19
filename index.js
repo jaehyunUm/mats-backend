@@ -64,10 +64,12 @@ module.exports = { upload };
 require('./schedulers/subscriptionScheduler'); // 스케줄러 로드
 const { startBirthdayScheduler } = require('./schedulers/birthdayScheduler'); // 경로 확인!
 startBirthdayScheduler();
-const { startAbsenceScheduler } = require('./schedulers/absenceScheduler'); // 결석 문자 초안 스케줄러 (매일 19:30, 반자동)
+const { startAbsenceScheduler } = require('./schedulers/absenceScheduler'); // 결석 문자 초안 스케줄러 (매 분 체크, 도장별 마지막 수업 끝나는 시각에 실행)
 startAbsenceScheduler();
 const { startReminderScheduler } = require('./schedulers/reminderScheduler'); // 스파링/휴일 7일 전 알림 스케줄러 (매일 09:00)
 startReminderScheduler();
+const { startBirthdayPartyScheduler } = require('./schedulers/birthdayPartyScheduler'); // 생일파티 안내: 등원 시 실시간 체크 + 매일 09:00 구간 마지막 날 강제 체크
+startBirthdayPartyScheduler();
 require('./schedulers/cashscheduler');
 require('./migrations/runMigrations')(); // ✅ notifications.parent_phone / push_tokens 테이블 자동 확인·생성
 app.options("*", cors(corsOptions)); // ✅ 모든 경로에 대한 OPTIONS 요청 허용
