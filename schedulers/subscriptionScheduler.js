@@ -1,4 +1,5 @@
-const { processPaymentForSubscription, createNotification } = require("../services/paymentService"); 
+const { processPaymentForSubscription, handlePaymentDecline } = require("../services/paymentService");
+const { noCardOnFile } = require("../modules/paymentDeclineReasons");
 const cron = require("node-cron");
 const db = require("../db");
 
@@ -26,12 +27,13 @@ async function processSubscriptions() {
     for (const subscription of subscriptions) {
       console.log(`Processing subscription ID: ${subscription.id}`);
 
-      // ⭐️ source_id 누락 시 알림 추가
+      // ⭐️ source_id 누락 시 (부모가 카드를 등록한 적이 없거나, 등록했던 카드가 사라진 경우)
+      // 예전엔 "Payment skipped for Subscription #123: Missing payment method"처럼 학생 이름도 없이
+      // 구독 ID만 나와서 무슨 뜻인지 알기 어려웠음. 이제는 다른 카드 디클라인과 동일하게
+      // (1) 원장님껜 정확한 사유, (2) 학부모껜 바로 보낼 수 있는 문자 초안을 만들어줌.
       if (!subscription.source_id) {
-        const msg = `Payment skipped for Subscription #${subscription.id}: Missing payment method (Source ID).`;
-        console.error(`❌ ${msg}`);
-        // 알림 생성
-        await createNotification(subscription.dojang_code, msg); // paymentService에서 import 필요
+        console.error(`❌ Payment skipped for Subscription #${subscription.id}: no card on file.`);
+        await handlePaymentDecline(subscription, noCardOnFile());
         failCount++;
         continue;
       }

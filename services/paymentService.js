@@ -1,4 +1,6 @@
 const { createStripeClientWithKey } = require('../modules/stripeClient');
+const { classifyStripeError } = require('../modules/paymentDeclineReasons');
+const { sendPushToOwners } = require('./pushService');
 const db = require('../db');
 const uuidv4 = require('uuid').v4;
 const dayjs = require('dayjs');
@@ -24,6 +26,61 @@ const createNotification = async (dojangCode, message, connection) => {
   } catch (error) {
     console.error(`❌ Failed to create notification:`, error);
     return false;
+  }
+};
+
+// ✅ 결제 디클라인 처리: (1) 원장님께 정확한 사유의 알림 + (2) 학부모께 바로 보낼 수 있는 문자 초안 생성
+// reason은 modules/paymentDeclineReasons.js의 classifyStripeError()/noCardOnFile()이 반환하는
+// { key, owner, parent(name) } 형태.
+const handlePaymentDecline = async (subscription, reason) => {
+  try {
+    // 학생 이름 조회
+    let studentName = `Student ID: ${subscription.student_id}`;
+    try {
+      const [studentInfo] = await db.query(
+        `SELECT first_name, last_name FROM students WHERE id = ?`,
+        [subscription.student_id]
+      );
+      if (studentInfo.length) studentName = `${studentInfo[0].first_name} ${studentInfo[0].last_name}`;
+    } catch (e) {
+      // 무시 (학생 이름 조회 실패해도 알림은 보내야 함)
+    }
+
+    // 1) 원장님용: 정확한 디클라인 사유
+    await createNotification(subscription.dojang_code, `Payment declined for ${studentName}: ${reason.owner}`);
+
+    // 2) 학부모용 문자 초안 (같은 학생, 같은 날 중복 생성 방지)
+    const [existingToday] = await db.query(
+      `SELECT id FROM notifications WHERE student_id = ? AND type = 'payment_decline_draft' AND DATE(date) = CURDATE() LIMIT 1`,
+      [subscription.student_id]
+    );
+
+    if (existingToday.length === 0) {
+      let parentPhone = null;
+      try {
+        const [parentRows] = await db.query(`SELECT phone FROM parents WHERE id = ?`, [subscription.parent_id]);
+        if (parentRows.length) parentPhone = parentRows[0].phone;
+      } catch (e) {
+        // 무시
+      }
+
+      const draftMessage = reason.parent(studentName);
+
+      await db.query(
+        `INSERT INTO notifications (dojang_code, message, type, student_id, parent_phone, date, is_read)
+         VALUES (?, ?, 'payment_decline_draft', ?, ?, NOW(), 0)`,
+        [subscription.dojang_code, draftMessage, subscription.student_id, parentPhone]
+      );
+
+      await sendPushToOwners(
+        subscription.dojang_code,
+        "💳 결제 실패 문자 초안이 준비됐어요",
+        `${studentName} 학생 결제가 실패했어요 (${reason.owner}). 학부모께 보낼 문자 초안을 확인해보세요.`,
+        { type: "payment_decline_draft" }
+      );
+    }
+  } catch (error) {
+    console.error(`❌ Failed to handle payment decline notification:`, error);
   }
 };
 
@@ -100,9 +157,9 @@ const processPaymentForSubscription = async (subscription) => {
 
         } catch (stripeError) {
             console.error("Stripe Error:", stripeError.message);
-            const stripeFailMsg = `Payment declined for ${studentName}: ${stripeError.message}`;
-            await createNotification(subscription.dojang_code, stripeFailMsg);
-            return { success: false, error: stripeError.message };
+            const reason = classifyStripeError(stripeError);
+            await handlePaymentDecline(subscription, reason);
+            return { success: false, error: stripeError.message, declineReason: reason.key };
         }
     }
 
@@ -163,5 +220,6 @@ const processPaymentForSubscription = async (subscription) => {
 
 module.exports = { 
   processPaymentForSubscription,
-  createNotification
+  createNotification,
+  handlePaymentDecline
 };
