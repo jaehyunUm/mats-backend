@@ -164,8 +164,10 @@ async function checkHolidayReminders() {
 async function checkEventReminders() {
   const targetDate = getTargetDateString(7);
   try {
+    // 여러 날 이어지는 이벤트(event_end_date가 있는 경우)도 시작일(event_date) 기준
+    // 7일 전에 한 번만 발송 - 하루씩 따로 알림이 가지 않도록.
     const [rows] = await db.query(
-      `SELECT e.id, e.event_name, e.event_date, e.event_time, e.price, e.dojang_code, d.dojang_name
+      `SELECT e.id, e.event_name, e.event_date, e.event_end_date, e.event_time, e.price, e.dojang_code, d.dojang_name
        FROM event_schedule e
        LEFT JOIN dojangs d ON e.dojang_code = d.dojang_code
        WHERE e.event_date = ?`,
@@ -173,7 +175,7 @@ async function checkEventReminders() {
     );
 
     for (const row of rows) {
-      const { dojang_code, event_name, event_time, price } = row;
+      const { dojang_code, event_name, event_end_date, event_time, price } = row;
       const studioName = row.dojang_name || "our studio";
 
       // 이벤트는 id 단위로 여러 개가 같은 도장/비슷한 날짜에 있을 수 있으므로,
@@ -181,7 +183,11 @@ async function checkEventReminders() {
       const claimed = await tryClaimReminder(dojang_code, `event_${row.id}`, targetDate);
       if (!claimed) continue;
 
-      const dateLabel = formatDateReadable(targetDate);
+      const startLabel = formatDateReadable(targetDate);
+      // 여러 날짜에 걸친 이벤트면 "Dec 20 - Dec 25"처럼 범위로 표시
+      const dateLabel = event_end_date
+        ? `${startLabel} - ${formatDateReadable(event_end_date)}`
+        : startLabel;
       const timeLabel = event_time ? ` at ${event_time}` : "";
       const priceLabel = price !== null && price !== undefined ? ` ($${Number(price).toFixed(2)})` : "";
       const message = `${studioName}: "${event_name}" is coming up on ${dateLabel}${timeLabel}${priceLabel}! Don't miss it.`;
@@ -201,7 +207,7 @@ async function checkEventReminders() {
         { type: "event_announcement_reminder", date: targetDate, eventId: row.id }
       );
 
-      console.log(`✅ [event reminder] ${dojang_code} / ${targetDate} (${event_name}) - 도장 전체 발송 완료`);
+      console.log(`✅ [event reminder] ${dojang_code} / ${dateLabel} (${event_name}) - 도장 전체 발송 완료`);
     }
   } catch (error) {
     console.error("❌ 이벤트 리마인더 스케줄러 오류:", error);

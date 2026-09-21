@@ -1,8 +1,10 @@
 // eventRoutes.js
-// 이벤트(예: Movie Night) 관리 API. 휴일/스파링과 달리 특정 날짜 하나에
-// 이름/시간/가격을 함께 저장해야 해서 캘린더 토글 방식이 아니라 개별 등록/삭제 방식입니다.
+// 이벤트(예: Movie Night, 6일짜리 캠프) 관리 API. 휴일/스파링과 달리 이름/시간/가격을
+// 함께 저장해야 해서 개별 등록/삭제 방식입니다. 여러 날 이어지는 이벤트는 event_date(시작일)와
+// event_end_date(종료일)를 함께 저장해서 한 번에 등록할 수 있고(하루짜리는 event_end_date가 NULL),
+// 리마인더는 시작일 기준 7일 전에 한 번만 발송됩니다.
 // (참고: 학부모/사장님 푸시 알림은 즉시 발송하지 않고, 매일 아침 자동으로 도는
-//  reminderScheduler.js에서 "이벤트 7일 전"에 한 번만 보냅니다)
+//  reminderScheduler.js에서 "이벤트 시작일 7일 전"에 한 번만 보냅니다)
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
@@ -14,9 +16,9 @@ router.get('/event-schedule', verifyToken, async (req, res) => {
 
   try {
     const [events] = await db.execute(
-      `SELECT id, event_name, event_date, event_time, price
+      `SELECT id, event_name, event_date, event_end_date, event_time, price
        FROM event_schedule
-       WHERE dojang_code = ? AND event_date >= CURDATE()
+       WHERE dojang_code = ? AND (event_end_date >= CURDATE() OR (event_end_date IS NULL AND event_date >= CURDATE()))
        ORDER BY event_date ASC, event_time ASC`,
       [dojang_code]
     );
@@ -29,18 +31,37 @@ router.get('/event-schedule', verifyToken, async (req, res) => {
 
 // 이벤트 등록
 router.post('/event-schedule', verifyToken, async (req, res) => {
-  const { event_name, event_date, event_time, price } = req.body;
+  const { event_name, event_date, event_end_date, event_time, price } = req.body;
   const { dojang_code } = req.user;
 
   if (!event_name || !event_date) {
     return res.status(400).json({ message: 'event_name and event_date are required.' });
   }
 
+  // 종료일은 선택 사항. 주면 시작일보다 이전일 수는 없음. 시작일과 같으면 하루짜리 이벤트와
+  // 동일하게 취급하도록 NULL로 저장(목록/메시지 표시 로직을 단순하게 유지하기 위함).
+  let normalizedEndDate = event_end_date || null;
+  if (normalizedEndDate) {
+    if (normalizedEndDate < event_date) {
+      return res.status(400).json({ message: 'event_end_date cannot be before event_date.' });
+    }
+    if (normalizedEndDate === event_date) {
+      normalizedEndDate = null;
+    }
+  }
+
   try {
     const [result] = await db.execute(
-      `INSERT INTO event_schedule (dojang_code, event_name, event_date, event_time, price)
-       VALUES (?, ?, ?, ?, ?)`,
-      [dojang_code, event_name, event_date, event_time || null, price !== undefined && price !== '' ? price : null]
+      `INSERT INTO event_schedule (dojang_code, event_name, event_date, event_end_date, event_time, price)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        dojang_code,
+        event_name,
+        event_date,
+        normalizedEndDate,
+        event_time || null,
+        price !== undefined && price !== '' ? price : null,
+      ]
     );
     res.status(200).json({ message: 'Event saved successfully', id: result.insertId });
   } catch (error) {

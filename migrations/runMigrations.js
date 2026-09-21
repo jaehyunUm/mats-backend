@@ -102,6 +102,16 @@ async function runMigrations() {
   } catch (err) {
     console.error("⚠️ [migration] event_schedule 테이블 생성 실패 (무시하고 계속 진행):", err.message);
   }
+
+  // 7. event_schedule 테이블에 event_end_date 컬럼 추가
+  //    (여러 날 이어지는 이벤트(예: 6일짜리 캠프)를 한 번에 등록할 수 있도록 날짜 범위 지원.
+  //     단일 날짜 이벤트는 NULL로 두고 event_date 하나만 사용)
+  try {
+    await db.query(`ALTER TABLE event_schedule ADD COLUMN IF NOT EXISTS event_end_date DATE NULL AFTER event_date`);
+    console.log("✅ [migration] event_schedule.event_end_date 컬럼 확인/추가 완료");
+  } catch (err) {
+    console.error("⚠️ [migration] event_schedule.event_end_date 컬럼 추가 실패 (무시하고 계속 진행):", err.message);
+  }
 }
 
 module.exports = runMigrations;
