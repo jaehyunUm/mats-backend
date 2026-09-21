@@ -120,7 +120,7 @@ async function checkBirthdayPartyOnAttendance(dojang_code, studentId) {
       `SELECT s.id, s.first_name, s.last_name, s.birth_date, p.phone AS parent_phone
        FROM students s
        LEFT JOIN parents p ON s.parent_id = p.id
-       WHERE s.id = ? AND s.dojang_code = ?`,
+       WHERE s.id = ? AND s.dojang_code = ? AND s.program_id IS NOT NULL`,
       [studentId, dojang_code]
     );
     const student = rows[0];
@@ -150,7 +150,7 @@ async function forceNotifyStudentsWithNoAttendanceInWindow() {
       `SELECT s.id, s.first_name, s.last_name, s.birth_date, s.dojang_code, p.phone AS parent_phone
        FROM students s
        LEFT JOIN parents p ON s.parent_id = p.id
-       WHERE s.birth_date IS NOT NULL`
+       WHERE s.birth_date IS NOT NULL AND s.program_id IS NOT NULL`
     );
 
     for (const student of students) {

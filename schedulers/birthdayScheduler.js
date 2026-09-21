@@ -16,6 +16,7 @@ async function checkAndCreateBirthdayNotifications() {
       LEFT JOIN parents p ON s.parent_id = p.id
       LEFT JOIN dojangs d ON s.dojang_code = d.dojang_code
       WHERE DATE_FORMAT(s.birth_date, '%m-%d') = DATE_FORMAT(CURDATE(), '%m-%d')
+        AND s.program_id IS NOT NULL
     `);
 
     if (birthdayStudents.length === 0) {
