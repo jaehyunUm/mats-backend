@@ -92,6 +92,14 @@ async function checkSparringReminders() {
         console.log(`ℹ️ [sparring reminder] ${dojang_code}: ${dayColumn}요일에 등록된 클래스가 없어 학부모 대상 발송을 건너뜁니다.`);
       }
 
+      // 사장님께: 수업 끝나고 학부모님들께 직접 안내해달라는 어나운스먼트 리마인더
+      await sendPushToOwners(
+        dojang_code,
+        "🥋 스파링 윅 안내 알림",
+        `다음 주 ${dateLabel}은 스파링 윅입니다. 수업 끝나고 학부모님들께 알려주세요!`,
+        { type: "sparring_announcement_reminder", date: targetDate }
+      );
+
       // 사장님께 요약 알림
       await sendPushToOwners(
         dojang_code,
@@ -136,10 +144,67 @@ async function checkHolidayReminders() {
         { type: "holiday_reminder", date: targetDate }
       );
 
+      // 사장님께: 수업 끝나고 학부모님들께 직접 안내해달라는 어나운스먼트 리마인더
+      await sendPushToOwners(
+        dojang_code,
+        "📅 휴일 안내 알림",
+        `다음 주 ${dateLabel}은 휴일입니다. 수업 끝나고 학부모님들께 알려주세요!`,
+        { type: "holiday_announcement_reminder", date: targetDate }
+      );
+
       console.log(`✅ [holiday reminder] ${dojang_code} / ${targetDate} - 도장 전체 발송 완료`);
     }
   } catch (error) {
     console.error("❌ 휴일 리마인더 스케줄러 오류:", error);
+  }
+}
+
+// ===== 이벤트(예: Movie Night): 7일 뒤가 이벤트 날짜면, 도장 전체에 한 번만 발송 =====
+// 휴일과 마찬가지로 도장 전체 공지(특정 요일 클래스 학생만 대상이 아님) + 가격/시간 정보 포함.
+async function checkEventReminders() {
+  const targetDate = getTargetDateString(7);
+  try {
+    const [rows] = await db.query(
+      `SELECT e.id, e.event_name, e.event_date, e.event_time, e.price, e.dojang_code, d.dojang_name
+       FROM event_schedule e
+       LEFT JOIN dojangs d ON e.dojang_code = d.dojang_code
+       WHERE e.event_date = ?`,
+      [targetDate]
+    );
+
+    for (const row of rows) {
+      const { dojang_code, event_name, event_time, price } = row;
+      const studioName = row.dojang_name || "our studio";
+
+      // 이벤트는 id 단위로 여러 개가 같은 도장/비슷한 날짜에 있을 수 있으므로,
+      // reminder_log의 ref_date 대신 event id를 type에 포함시켜 이벤트별로 구분해서 중복 방지.
+      const claimed = await tryClaimReminder(dojang_code, `event_${row.id}`, targetDate);
+      if (!claimed) continue;
+
+      const dateLabel = formatDateReadable(targetDate);
+      const timeLabel = event_time ? ` at ${event_time}` : "";
+      const priceLabel = price !== null && price !== undefined ? ` ($${Number(price).toFixed(2)})` : "";
+      const message = `${studioName}: "${event_name}" is coming up on ${dateLabel}${timeLabel}${priceLabel}! Don't miss it.`;
+
+      await sendPushToDojang(
+        dojang_code,
+        "🎉 Upcoming Event",
+        message,
+        { type: "event_reminder", date: targetDate, eventId: row.id }
+      );
+
+      // 사장님께: 수업 끝나고 학부모님들께 직접 안내해달라는 어나운스먼트 리마인더
+      await sendPushToOwners(
+        dojang_code,
+        "🎉 이벤트 안내 알림",
+        `다음 주 ${dateLabel}에 "${event_name}" 이벤트가 있습니다. 수업 끝나고 학부모님들께 알려주세요!`,
+        { type: "event_announcement_reminder", date: targetDate, eventId: row.id }
+      );
+
+      console.log(`✅ [event reminder] ${dojang_code} / ${targetDate} (${event_name}) - 도장 전체 발송 완료`);
+    }
+  } catch (error) {
+    console.error("❌ 이벤트 리마인더 스케줄러 오류:", error);
   }
 }
 
@@ -148,9 +213,10 @@ const startReminderScheduler = () => {
   cron.schedule(
     "0 9 * * *",
     () => {
-      console.log(`[${new Date().toISOString()}] 스파링/휴일 리마인더 스케줄러 실행 중...`);
+      console.log(`[${new Date().toISOString()}] 스파링/휴일/이벤트 리마인더 스케줄러 실행 중...`);
       checkSparringReminders();
       checkHolidayReminders();
+      checkEventReminders();
     },
     {
       scheduled: true,
@@ -159,4 +225,4 @@ const startReminderScheduler = () => {
   );
 };
 
-module.exports = { startReminderScheduler, checkSparringReminders, checkHolidayReminders };
+module.exports = { startReminderScheduler, checkSparringReminders, checkHolidayReminders, checkEventReminders };

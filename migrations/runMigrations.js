@@ -80,6 +80,28 @@ async function runMigrations() {
   } catch (err) {
     console.error("⚠️ [migration] reminder_log 테이블 생성 실패 (무시하고 계속 진행):", err.message);
   }
+
+  // 6. event_schedule 테이블 생성
+  //    (휴일/스파링과 달리 이벤트는 날짜만이 아니라 이름/시간/가격까지 필요해서 별도 테이블로 관리.
+  //     7일 전 알림은 reminderScheduler.js의 checkEventReminders()에서 처리)
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS event_schedule (
+        id INT NOT NULL AUTO_INCREMENT,
+        dojang_code VARCHAR(50) NOT NULL,
+        event_name VARCHAR(255) NOT NULL,
+        event_date DATE NOT NULL,
+        event_time VARCHAR(20) NULL,
+        price DECIMAL(10,2) NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_dojang_date (dojang_code, event_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    console.log("✅ [migration] event_schedule 테이블 확인/생성 완료");
+  } catch (err) {
+    console.error("⚠️ [migration] event_schedule 테이블 생성 실패 (무시하고 계속 진행):", err.message);
+  }
 }
 
 module.exports = runMigrations;
