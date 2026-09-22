@@ -4,6 +4,7 @@ const db = require('../db'); // 데이터베이스 연결
 const verifyToken = require('../middleware/verifyToken');
 const createNotification = require('../schedulers/createNotification');
 const { checkBirthdayPartyOnAttendance } = require('../schedulers/birthdayPartyScheduler');
+const { checkTestEligibilityOnAttendance } = require('../schedulers/testEligibilityScheduler');
 
 
 router.post('/mark-attendance', verifyToken, async (req, res) => {
@@ -46,6 +47,9 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
       // 3.5 생일파티 안내 대상(생일 34~28일 전) 구간 안이면, 오늘 등원한 김에 문자 초안 + 푸시 생성
       // (독립적인 체크라 트랜잭션과 분리된 커넥션 풀을 쓰고, 내부에서 에러를 다 잡아서 출석 저장 자체엔 영향 없음)
       await checkBirthdayPartyOnAttendance(dojang_code, studentId);
+
+      // 3.6 이번 출석으로 현재 벨트의 테스트 조건(필요 출석 횟수)을 채웠다면 사장님께 알림 (벨트당 한 번만)
+      await checkTestEligibilityOnAttendance(dojang_code, studentId);
 
       // 4. 연속 결석 초기화
       await connection.query(
