@@ -29,12 +29,14 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
       const { belt_rank, first_name } = studentData[0];
 
       // 2. 수업 등록 여부 확인
+      // (isMakeup이 true면 - 즉 다른 반 학생이 메이크업/드롭인으로 온 경우 - 이 반에 정식
+      //  등록되어 있지 않아도 출석 처리를 허용함)
       const [registeredClasses] = await connection.query(
         `SELECT * FROM student_classes WHERE student_id = ? AND class_id = ? AND dojang_code = ?`,
         [studentId, classId, dojang_code]
       );
 
-      if (registeredClasses.length === 0) continue;
+      if (registeredClasses.length === 0 && !student.isMakeup) continue;
 
       // 3. 출석 저장
       await connection.query(
@@ -42,6 +44,13 @@ router.post('/mark-attendance', verifyToken, async (req, res) => {
          VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), belt_rank = VALUES(belt_rank)`,
         [studentId, classId, dojang_code, attendance_date, belt_rank]
+      );
+
+      // 3.1 이 반/날짜로 이미 자동 결석 처리가 되어있었다면(예: 스케줄러가 결석으로 기록한 뒤
+      // 메이크업으로 오거나, 나중에 실수였다고 정정하는 경우) 모순되지 않도록 결석 기록 제거
+      await connection.query(
+        `DELETE FROM absences WHERE student_id = ? AND class_id = ? AND dojang_code = ? AND absence_date = ?`,
+        [studentId, classId, dojang_code, attendance_date]
       );
 
       // 3.5 생일파티 안내 대상(생일 34~28일 전) 구간 안이면, 오늘 등원한 김에 문자 초안 + 푸시 생성
@@ -349,38 +358,35 @@ router.post('/get-class-id', verifyToken, async (req, res) => {
   }
 });
 
-// 클래스에 등록된 학생 목록 가져오기 (출석/결석 처리되지 않은 학생만)
+// 클래스에 등록된 학생 목록 가져오기
+// ⭐️ [변경] 예전엔 그날 이미 출석/결석 처리된 학생을 목록에서 아예 제외했는데, 그러면
+// 결석으로 자동 처리된 학생을 나중에 "사실 왔었다"로 고칠 방법이 없었음.
+// 이제는 전부 보여주되 각자의 상태(present/absent/unmarked)를 같이 내려줘서,
+// 프론트에서 이미 처리된 학생도 계속 탭해서 상태를 바꿀 수 있게 함.
 router.get('/get-students-by-class', verifyToken, async (req, res) => {
   const { classId, date } = req.query;
   const { dojang_code } = req.user;
 
   try {
-    // 해당 날짜에 이미 출석 또는 결석 처리된 학생 ID 가져오기
-    const [processedStudents] = await db.query(`
-      SELECT DISTINCT student_id 
-      FROM (
-        SELECT student_id FROM attendance 
-        WHERE class_id = ? AND dojang_code = ? AND attendance_date = ?
-        UNION
-        SELECT student_id FROM absences 
-        WHERE class_id = ? AND dojang_code = ? AND absence_date = ?
-      ) as processed_students
-    `, [classId, dojang_code, date, classId, dojang_code, date]);
-
-    const processedIds = processedStudents.map(s => s.student_id);
-    
-    // 클래스에 등록된 학생 중 아직 처리되지 않은 학생만 가져오기
     const [students] = await db.query(`
-      SELECT DISTINCT s.id, s.first_name, s.last_name, s.belt_rank
+      SELECT DISTINCT
+        s.id, s.first_name, s.last_name, s.belt_rank,
+        CASE
+          WHEN a.student_id IS NOT NULL THEN 'present'
+          WHEN ab.student_id IS NOT NULL THEN 'absent'
+          ELSE 'unmarked'
+        END AS status
       FROM students s
-      JOIN student_classes sc ON s.id = sc.student_id
-      WHERE sc.class_id = ? 
-      AND sc.dojang_code = ?
-      AND s.id NOT IN (${processedIds.length > 0 ? processedIds.join(',') : '0'})
+      JOIN student_classes sc ON s.id = sc.student_id AND sc.dojang_code = ?
+      LEFT JOIN attendance a
+        ON a.student_id = s.id AND a.class_id = ? AND a.dojang_code = ? AND a.attendance_date = ?
+      LEFT JOIN absences ab
+        ON ab.student_id = s.id AND ab.class_id = ? AND ab.dojang_code = ? AND ab.absence_date = ?
+      WHERE sc.class_id = ?
       ORDER BY s.first_name
-    `, [classId, dojang_code]);
+    `, [dojang_code, classId, dojang_code, date, classId, dojang_code, date, classId]);
 
-    console.log(`Found ${students.length} unprocessed students for class ${classId} on ${date}`);
+    console.log(`Found ${students.length} students for class ${classId} on ${date}`);
     res.json(students);
 
   } catch (error) {
