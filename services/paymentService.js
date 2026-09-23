@@ -46,10 +46,9 @@ const handlePaymentDecline = async (subscription, reason) => {
       // 무시 (학생 이름 조회 실패해도 알림은 보내야 함)
     }
 
-    // 1) 원장님용: 정확한 디클라인 사유
-    await createNotification(subscription.dojang_code, `Payment declined for ${studentName}: ${reason.owner}`);
+    // (구버전 원장님용 일반 알림은 payment_decline_draft로 대체되어 제거함 - 중복 알림 방지)
 
-    // 2) 학부모용 문자 초안 (같은 학생, 같은 날 중복 생성 방지)
+    // 학부모용 문자 초안 (같은 학생, 같은 날 중복 생성 방지)
     const [existingToday] = await db.query(
       `SELECT id FROM notifications WHERE student_id = ? AND type = 'payment_decline_draft' AND DATE(date) = CURDATE() LIMIT 1`,
       [subscription.student_id]

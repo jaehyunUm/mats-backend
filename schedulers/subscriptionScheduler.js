@@ -13,7 +13,9 @@ async function processSubscriptions() {
         mp.next_payment_date   /* 👈👈👈 바로 이 줄이 꼭 추가되어야 합니다! */
       FROM monthly_payments mp
       WHERE mp.next_payment_date <= CURDATE()
-      AND (mp.payment_status = 'pending' OR mp.payment_status = 'failed');
+      AND (mp.payment_status = 'pending' OR mp.payment_status = 'failed')
+      /* 캐시 결제 학생은 수동으로 처리하므로 자동 카드 청구/디클라인 알림 대상에서 제외 */
+      AND (mp.source_id IS NULL OR mp.source_id <> 'cash');
     `);
 
     if (subscriptions.length === 0) {
