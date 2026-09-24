@@ -368,6 +368,8 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
 
   try {
+    // 출석(present)으로 처리된 학생은 예전처럼 목록에서 빠진다(출석부를는 체크하면 사라지는 게 직관적임).
+    // 단, 결석(absent)은 서버 자동 결석 처리이므로 계속 보여줘서 오류였으면 나중에 출석으로 고칠 수 있게 함.
     const [students] = await db.query(`
       SELECT DISTINCT
         s.id, s.first_name, s.last_name, s.belt_rank,
@@ -383,6 +385,7 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
       LEFT JOIN absences ab
         ON ab.student_id = s.id AND ab.class_id = ? AND ab.dojang_code = ? AND ab.absence_date = ?
       WHERE sc.class_id = ?
+      HAVING status <> 'present'
       ORDER BY s.first_name
     `, [dojang_code, classId, dojang_code, date, classId, dojang_code, date, classId]);
 
