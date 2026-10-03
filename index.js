@@ -136,6 +136,8 @@ const holidayRouter = require('./routes/holiday');
 app.use('/api', holidayRouter);
 const eventRoutes = require('./routes/eventRoutes'); // 이벤트(예: Movie Night) 라우트 추가
 app.use('/api', eventRoutes);
+const tournamentRoutes = require('./routes/tournaments'); // 자체 대회 설정/등록/결제 라우트
+app.use('/api', tournamentRoutes);
 const testRouter = require('./routes/test'); // test 라우터 가져오기
 app.use('/api', testRouter); // /api 경로에 연결
 const attendanceRouter = require('./routes/attendance');

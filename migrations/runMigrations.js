@@ -124,6 +124,102 @@ async function runMigrations() {
   } catch (err) {
     console.error("⚠️ [migration] event_schedule.event_end_date 컬럼 추가 실패 (무시하고 계속 진행):", err.message);
   }
+
+  // 8. 대회(Tournament) 관련 테이블 생성
+  //    관리자가 앱에서 직접 대회 설정(참가비 규칙, 종목, 송판값 표)을 하고,
+  //    학부모가 종목을 골라 카드로 등록/결제하는 기능을 위한 테이블들.
+  //    기존 이벤트(event_schedule, 캘린더용)와는 완전히 별개라 접두어 tournament_ 를 사용합니다.
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tournaments (
+        id INT NOT NULL AUTO_INCREMENT,
+        dojang_code VARCHAR(50) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        event_date DATE NOT NULL,
+        location VARCHAR(255) NULL,
+        registration_deadline DATE NOT NULL,
+        is_open TINYINT(1) NOT NULL DEFAULT 0,
+        fee_one_event DECIMAL(10,2) NULL,
+        fee_two_events DECIMAL(10,2) NOT NULL DEFAULT 0,
+        fee_additional DECIMAL(10,2) NOT NULL DEFAULT 0,
+        description TEXT NULL,
+        waiver_text TEXT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_tournament_dojang (dojang_code, event_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tournament_events (
+        id INT NOT NULL AUTO_INCREMENT,
+        tournament_id INT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        description VARCHAR(500) NULL,
+        board_type VARCHAR(10) NOT NULL DEFAULT 'none',
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        PRIMARY KEY (id),
+        KEY idx_tevent_tournament (tournament_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tournament_board_prices (
+        id INT NOT NULL AUTO_INCREMENT,
+        tournament_id INT NOT NULL,
+        board_type VARCHAR(10) NOT NULL,
+        age_min INT NOT NULL,
+        age_max INT NOT NULL,
+        max_boards INT NULL,
+        board_size VARCHAR(50) NULL,
+        price DECIMAL(10,2) NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        KEY idx_tboard_tournament (tournament_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tournament_registrations (
+        id INT NOT NULL AUTO_INCREMENT,
+        tournament_id INT NOT NULL,
+        dojang_code VARCHAR(50) NOT NULL,
+        student_id INT NOT NULL,
+        parent_id INT NOT NULL,
+        age_at_event INT NOT NULL,
+        belt VARCHAR(100) NULL,
+        gender VARCHAR(20) NULL,
+        weight VARCHAR(20) NULL,
+        height VARCHAR(20) NULL,
+        medical_json TEXT NULL,
+        signed_name VARCHAR(255) NULL,
+        signed_at DATETIME NULL,
+        entry_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+        board_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+        total DECIMAL(10,2) NOT NULL DEFAULT 0,
+        payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        payment_intent_id VARCHAR(255) NULL,
+        idempotency_key VARCHAR(255) NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uniq_tournament_student (tournament_id, student_id),
+        KEY idx_treg_dojang (dojang_code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tournament_registration_events (
+        id INT NOT NULL AUTO_INCREMENT,
+        registration_id INT NOT NULL,
+        event_id INT NOT NULL,
+        board_price DECIMAL(10,2) NOT NULL DEFAULT 0,
+        max_boards INT NULL,
+        board_size VARCHAR(50) NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uniq_reg_event (registration_id, event_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    console.log("✅ [migration] tournament_* 테이블 확인/생성 완료");
+  } catch (err) {
+    console.error("⚠️ [migration] tournament_* 테이블 생성 실패 (무시하고 계속 진행):", err.message);
+  }
 }
 
 module.exports = runMigrations;
