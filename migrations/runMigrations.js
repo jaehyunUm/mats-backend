@@ -220,6 +220,29 @@ async function runMigrations() {
   } catch (err) {
     console.error("⚠️ [migration] tournament_* 테이블 생성 실패 (무시하고 계속 진행):", err.message);
   }
+
+  // 9. 대회 Wave(시간대/나이대 그룹) 테이블 생성
+  //    예: Wave I (4~5세, 9:00am~11:00am), Wave II (6~8세), Wave III (9세 이상).
+  //    학생의 Wave는 별도로 저장하지 않고 "대회 당일 나이"로 그때그때 계산하므로,
+  //    나중에 구간을 고쳐도 명단이 자동으로 다시 나뉩니다.
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tournament_waves (
+        id INT NOT NULL AUTO_INCREMENT,
+        tournament_id INT NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        age_min INT NOT NULL,
+        age_max INT NOT NULL,
+        schedule VARCHAR(255) NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        KEY idx_twave_tournament (tournament_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+    console.log("✅ [migration] tournament_waves 테이블 확인/생성 완료");
+  } catch (err) {
+    console.error("⚠️ [migration] tournament_waves 테이블 생성 실패 (무시하고 계속 진행):", err.message);
+  }
 }
 
 module.exports = runMigrations;

@@ -54,6 +54,20 @@ async function loadBoardPrices(tournamentId) {
   return rows;
 }
 
+async function loadWaves(tournamentId) {
+  const [rows] = await db.query(
+    `SELECT id, name, age_min, age_max, schedule, sort_order
+     FROM tournament_waves
+     WHERE tournament_id = ?
+     ORDER BY sort_order ASC, age_min ASC, id ASC`,
+    [tournamentId]
+  );
+  return rows;
+}
+
+// 대회 당일 나이로 Wave 찾기 (구간이 겹치면 먼저 나오는 Wave)
+const findWave = (waves, age) => waves.find((w) => age >= w.age_min && age <= w.age_max) || null;
+
 async function loadTournamentRow(id, dojangCode) {
   const [rows] = await db.query(
     `SELECT id, dojang_code, name, event_date, location, registration_deadline, is_open,
@@ -141,7 +155,8 @@ router.get('/tournaments/settings', verifyToken, requireOwner, async (req, res) 
     const tournament = await loadTournamentRow(rows[0].id, dojang_code);
     const events = await loadEvents(tournament.id, { onlyActive: false });
     const board_prices = await loadBoardPrices(tournament.id);
-    res.json({ success: true, tournament: { ...tournament, events, board_prices } });
+    const waves = await loadWaves(tournament.id);
+    res.json({ success: true, tournament: { ...tournament, events, board_prices, waves } });
   } catch (err) {
     console.error('❌ [tournaments] settings 조회 실패:', err);
     res.status(500).json({ success: false, message: 'Failed to load tournament settings.' });
@@ -168,6 +183,7 @@ router.put('/tournaments/settings', verifyToken, requireOwner, async (req, res) 
   let feeOne, feeTwo, feeAdd;
   const events = Array.isArray(b.events) ? b.events : [];
   const boardPrices = Array.isArray(b.board_prices) ? b.board_prices : [];
+  const waves = Array.isArray(b.waves) ? b.waves : [];
   try {
     feeOne = parseMoney(b.fee_one_event, '1-event fee', { allowNull: true });
     feeTwo = parseMoney(b.fee_two_events, '2-event fee');
@@ -186,6 +202,14 @@ router.put('/tournaments/settings', verifyToken, requireOwner, async (req, res) 
         throw new Error('Board price table: age range is invalid (min must be ≤ max).');
       }
       parseMoney(r.price, 'Board price');
+    }
+    for (const w of waves) {
+      if (!String(w.name || '').trim()) throw new Error('Every wave needs a name.');
+      const mn = Number(w.age_min);
+      const mx = Number(w.age_max);
+      if (!Number.isInteger(mn) || !Number.isInteger(mx) || mn < 0 || mx < mn) {
+        throw new Error('Waves: age range is invalid (min must be ≤ max).');
+      }
     }
   } catch (validationError) {
     return res.status(400).json({ success: false, message: validationError.message });
@@ -281,6 +305,18 @@ router.put('/tournaments/settings', verifyToken, requireOwner, async (req, res) 
       );
     }
 
+    // Wave 구간도 통째로 교체 (학생의 Wave는 나이로 계산하므로 등록 내역에는 영향 없음)
+    await connection.query(`DELETE FROM tournament_waves WHERE tournament_id = ?`, [tournamentId]);
+    let waveOrder = 0;
+    for (const w of waves) {
+      waveOrder += 1;
+      await connection.query(
+        `INSERT INTO tournament_waves (tournament_id, name, age_min, age_max, schedule, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [tournamentId, String(w.name).trim(), Number(w.age_min), Number(w.age_max), (w.schedule || '').toString().trim() || null, waveOrder]
+      );
+    }
+
     await connection.commit();
 
     const tournament = await loadTournamentRow(tournamentId, dojang_code);
@@ -290,6 +326,7 @@ router.put('/tournaments/settings', verifyToken, requireOwner, async (req, res) 
         ...tournament,
         events: await loadEvents(tournamentId, { onlyActive: false }),
         board_prices: await loadBoardPrices(tournamentId),
+        waves: await loadWaves(tournamentId),
       },
     });
   } catch (err) {
@@ -330,11 +367,16 @@ router.get('/tournaments/:id/registrations', verifyToken, requireOwner, async (r
       [tournament.id, dojang_code]
     );
 
+    const waves = await loadWaves(tournament.id);
+    const allEvents = await loadEvents(tournament.id, { onlyActive: false });
+
     const eventsByReg = {};
+    const eventIdsByReg = {};
     const byEvent = {};
     const boards = {};
     for (const row of evRows) {
       (eventsByReg[row.registration_id] = eventsByReg[row.registration_id] || []).push(row.name);
+      (eventIdsByReg[row.registration_id] = eventIdsByReg[row.registration_id] || []).push(row.event_id);
       byEvent[row.event_id] = byEvent[row.event_id] || { event_id: row.event_id, name: row.name, count: 0 };
       byEvent[row.event_id].count += 1;
       if (row.board_type !== 'none') {
@@ -351,16 +393,24 @@ router.get('/tournaments/:id/registrations', verifyToken, requireOwner, async (r
       }
     }
 
-    const registrations = regs.map((r) => ({
-      ...r,
-      student_name: `${r.first_name} ${r.last_name}`.trim(),
-      events: eventsByReg[r.id] || [],
-    }));
+    const registrations = regs.map((r) => {
+      const wave = findWave(waves, r.age_at_event);
+      return {
+        ...r,
+        student_name: `${r.first_name} ${r.last_name}`.trim(),
+        events: eventsByReg[r.id] || [],
+        event_ids: eventIdsByReg[r.id] || [],
+        wave_id: wave ? wave.id : null,
+        wave_name: wave ? wave.name : null,
+      };
+    });
     const total_collected = registrations.reduce((sum, r) => sum + Number(r.total || 0), 0);
 
     res.json({
       success: true,
       tournament: { id: tournament.id, name: tournament.name, event_date: tournament.event_date },
+      waves,
+      events: allEvents.map((e) => ({ id: e.id, name: e.name })),
       registrations,
       summary_by_event: Object.values(byEvent),
       board_summary: Object.values(boards),
@@ -387,12 +437,14 @@ router.get('/tournaments/active', verifyToken, async (req, res) => {
     const tournament = await loadTournamentRow(rows[0].id, dojang_code);
     const events = await loadEvents(tournament.id, { onlyActive: true });
     const board_prices = await loadBoardPrices(tournament.id);
+    const waves = await loadWaves(tournament.id);
     res.json({
       success: true,
       tournament: {
         ...tournament,
         events,
         board_prices,
+        waves,
         registration_closed: todayNY() > tournament.registration_deadline,
       },
     });
@@ -435,15 +487,25 @@ router.get('/tournaments/my-registrations', verifyToken, requireParent, async (r
     );
     const tById = Object.fromEntries(tRows.map((t) => [t.id, t]));
 
+    const wavesByTournament = {};
+    for (const tid of new Set(regs.map((r) => r.tournament_id))) {
+      wavesByTournament[tid] = await loadWaves(tid);
+    }
+
     res.json({
       success: true,
-      registrations: regs.map((r) => ({
-        ...r,
-        student_name: `${r.first_name} ${r.last_name}`.trim(),
-        tournament_name: tById[r.tournament_id]?.name || '',
-        tournament_date: tById[r.tournament_id]?.event_date || null,
-        events: eventsByReg[r.id] || [],
-      })),
+      registrations: regs.map((r) => {
+        const wave = findWave(wavesByTournament[r.tournament_id] || [], r.age_at_event);
+        return {
+          ...r,
+          student_name: `${r.first_name} ${r.last_name}`.trim(),
+          tournament_name: tById[r.tournament_id]?.name || '',
+          tournament_date: tById[r.tournament_id]?.event_date || null,
+          events: eventsByReg[r.id] || [],
+          wave_name: wave ? wave.name : null,
+          wave_schedule: wave ? wave.schedule : null,
+        };
+      }),
     });
   } catch (err) {
     console.error('❌ [tournaments] my-registrations 조회 실패:', err);
@@ -486,7 +548,12 @@ router.post('/tournaments/:id/quote', verifyToken, requireParent, async (req, re
       `SELECT 1 FROM tournament_registrations WHERE tournament_id = ? AND student_id = ? AND payment_status = 'paid' LIMIT 1`,
       [tournament.id, student.id]
     );
-    res.json({ ...quoteResponse(q, age), already_registered: dup.length > 0 });
+    const wave = findWave(await loadWaves(tournament.id), age);
+    res.json({
+      ...quoteResponse(q, age),
+      wave: wave ? { name: wave.name, schedule: wave.schedule } : null,
+      already_registered: dup.length > 0,
+    });
   } catch (err) {
     console.error('❌ [tournaments] quote 실패:', err);
     res.status(500).json({ success: false, message: 'Failed to calculate the total.' });
