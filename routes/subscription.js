@@ -718,15 +718,6 @@ router.post('/card-save', verifyToken, async (req, res) => {
 
 
 
-router.delete('/delete-account', verifyToken, async (req, res) => {
-  const userId = req.user.id;
-
-  try {
-    await db.query('DELETE FROM users WHERE id = ?', [userId]);
-    res.json({ message: 'Account deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ message: 'Error deleting account' });
-  }
-});
+// 계정 삭제는 routes/accountDeletion.js 로 이동했습니다 (원장/학부모 모두 처리).
 
 module.exports = router;

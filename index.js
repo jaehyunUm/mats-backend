@@ -138,6 +138,8 @@ const eventRoutes = require('./routes/eventRoutes'); // 이벤트(예: Movie Nig
 app.use('/api', eventRoutes);
 const tournamentRoutes = require('./routes/tournaments'); // 자체 대회 설정/등록/결제 라우트
 app.use('/api', tournamentRoutes);
+const accountDeletionRoutes = require('./routes/accountDeletion'); // 계정 삭제 (App Store 5.1.1(v))
+app.use('/api', accountDeletionRoutes);
 const testRouter = require('./routes/test'); // test 라우터 가져오기
 app.use('/api', testRouter); // /api 경로에 연결
 const attendanceRouter = require('./routes/attendance');
