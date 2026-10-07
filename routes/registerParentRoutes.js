@@ -22,13 +22,16 @@ router.post('/register-parent', async (req, res) => {
     if (phone) phone = phone.replace(/\s/g, '');
 
     // 유효성 검사 (가입 경로는 필수가 아니어도 가입되게 두거나, 필수로 만들고 싶다면 여기에 조건을 추가할 수 있습니다)
-    if (!firstName || !lastName || !selectedDojang || !email || !password || !phone) {
+    // 전화번호는 선택 입력 (App Store 5.1.1(v)) - 입력된 경우에만 형식 검사
+    if (!firstName || !lastName || !selectedDojang || !email || !password) {
         return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    const phoneRegex = /^\d{10,15}$/;
-    if (!phoneRegex.test(phone)) {
-        return res.status(400).json({ message: 'Invalid phone number. Please enter a valid phone number.' });
+    if (phone) {
+        const phoneRegex = /^\d{10,15}$/;
+        if (!phoneRegex.test(phone)) {
+            return res.status(400).json({ message: 'Invalid phone number. Please enter a valid phone number or leave it blank.' });
+        }
     }
 
     try {
@@ -42,17 +45,28 @@ router.post('/register-parent', async (req, res) => {
         `;
 
         // ✅ 3. 배열 마지막에 referral_source 값 추가 (값이 없을 경우 대비해 null 처리)
-        const [result] = await db.query(query, [
+        const buildParams = (phoneValue) => [
             firstName,
-            lastName,  
-            selectedDojang, 
-            email,     
+            lastName,
+            selectedDojang,
+            email,
             hashedPassword,
-            phone,     
+            phoneValue,
             privacy_policy_agreed ? 1 : 0,
             privacy_policy_agreed ? new Date() : null,
-            referral_source || null 
-          ]);
+            referral_source || null
+        ];
+
+        // 전화번호가 비어 있으면 NULL 저장, 컬럼이 NOT NULL이면 빈 문자열로 재시도
+        try {
+            await db.query(query, buildParams(phone || null));
+        } catch (e) {
+            if (!phone && e.code === 'ER_BAD_NULL_ERROR') {
+                await db.query(query, buildParams(''));
+            } else {
+                throw e;
+            }
+        }
 
         res.status(201).json({ message: 'Parent registered successfully' });
         
