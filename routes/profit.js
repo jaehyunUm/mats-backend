@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const verifyToken = require('../middleware/verifyToken');
+const { pausedExclusionClause } = require('../migrations/pauseColumns');
 
 // ✅ 프로그램 결제 내역 조회 (도장 오너)
 router.get('/owner/payment-history/program', verifyToken, async (req, res) => {
@@ -120,6 +121,9 @@ router.get('/owner/payment-history/monthly', verifyToken, async (req, res) => {
 
         console.log("🔹 [MONTHLY] Request Received - Dojang Code:", dojang_code);
 
+        // 일시정지(Pause) 중인 회원은 "결제 예정" 목록/합계에서 제외
+        const pausedClause = await pausedExclusionClause('mp');
+
         const query = `
     SELECT
                 mp.id,
@@ -136,6 +140,7 @@ router.get('/owner/payment-history/monthly', verifyToken, async (req, res) => {
             WHERE mp.dojang_code = ?
             AND mp.status = 'completed'
             AND mp.program_fee > 0
+            ${pausedClause}
             ORDER BY last_payment_date DESC`;
 
         const [rows] = await db.query(query, [dojang_code]);

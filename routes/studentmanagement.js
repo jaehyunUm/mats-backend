@@ -3,6 +3,24 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // MySQL 데이터베이스 연결
 const verifyToken = require('../middleware/verifyToken');
+const { ensurePauseColumns } = require('../migrations/pauseColumns');
+
+// 학생 목록에 "일시정지 여부(is_paused)"와 "복귀 예정일(pause_resume_date)"을 함께 내려주기 위한 SELECT 조각.
+// 정지 컬럼이 아직 없으면 항상 0 / NULL을 돌려줘서 목록이 깨지지 않게 함. (맨 끝에 쉼표 포함)
+async function getPauseSelect() {
+  if (await ensurePauseColumns()) {
+    return `
+        EXISTS (
+          SELECT 1 FROM monthly_payments pmp
+          WHERE pmp.student_id = s.id AND pmp.dojang_code = s.dojang_code AND pmp.pause_status = 'paused'
+        ) AS is_paused,
+        (
+          SELECT DATE_FORMAT(MAX(pmp.resume_date), '%Y-%m-%d') FROM monthly_payments pmp
+          WHERE pmp.student_id = s.id AND pmp.dojang_code = s.dojang_code AND pmp.pause_status = 'paused'
+        ) AS pause_resume_date,`;
+  }
+  return `0 AS is_paused, NULL AS pause_resume_date,`;
+}
 
 // 특정 프로그램의 학생 목록과 학생 수를 가져오는 API
 router.get('/students/program/:programName', verifyToken, async (req, res) => {
@@ -48,15 +66,18 @@ router.get('/students', verifyToken, async (req, res) => {
   const dojangCode = req.user.dojang_code;
 
   try {
+    const pauseSelect = await getPauseSelect();
+
     // 1. studentmanagement와 동일한 SELECT 및 JOIN 구조 사용
     let sql = `
-      SELECT 
+      SELECT
         s.*,
         TIMESTAMPDIFF(YEAR, s.birth_date, CURDATE()) AS age,
         b.belt_color,
         b.stripe_color,
         p.name AS program_name,
-        
+        ${pauseSelect}
+
         -- 현재 출석 횟수 (attendance 테이블 집계)
         COALESCE(att.attendance_count, 0) AS attendance,
         
@@ -131,8 +152,9 @@ router.get('/students', verifyToken, async (req, res) => {
 
   router.get('/studentmanagement', verifyToken, async (req, res) => {
     try {
-      const dojangCode = req.user.dojang_code; 
-      
+      const dojangCode = req.user.dojang_code;
+      const pauseSelect = await getPauseSelect();
+
       const sql = `
         SELECT
           s.*,
@@ -140,7 +162,8 @@ router.get('/students', verifyToken, async (req, res) => {
           b.belt_color,
           b.stripe_color,
           p.name AS program_name,
-          
+          ${pauseSelect}
+
           -- 1. 현재 출석 횟수 집계
           COALESCE(att.attendance_count, 0) AS attendance,
           

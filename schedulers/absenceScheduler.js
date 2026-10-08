@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const db = require("../db");
 const { sendPushToOwners } = require("../services/pushService");
+const { ensurePauseColumns } = require("../migrations/pauseColumns");
 
 // class_details.day 컬럼 형식과 반드시 동일해야 함 ("Thu"가 아니라 "Thur")
 const DAY_COLUMNS = ["Sun", "Mon", "Tue", "Wed", "Thur", "Fri", "Sat"];
@@ -126,6 +127,15 @@ async function checkAndPrepareAbsenceDrafts() {
 // 2) 학부모에게 보낼 문자 초안(하루 1건/학생)을 만듦
 async function processAbsencesForDojang(dojang_code, dayColumn, todayStr) {
   try {
+    // 일시정지(Pause) 중인 회원은 결석으로 처리하지 않음 (결석 기록/연속 결석/문자 초안 모두 제외)
+    // 컬럼이 아직 없으면 빈 문자열 = 기존 동작 그대로
+    const pausedFilter = (await ensurePauseColumns())
+      ? `AND NOT EXISTS (
+           SELECT 1 FROM monthly_payments mp
+           WHERE mp.student_id = s.id AND mp.dojang_code = cd.dojang_code AND mp.pause_status = 'paused'
+         )`
+      : "";
+
     // 오늘 이 도장에서 열린 수업에 등록됐는데 attendance 기록이 없는 학생 = 결석
     // (수업/학생 조합 단위로 가져와야 연속 결석 카운트를 정확히 올릴 수 있음)
     const [absentRows] = await db.query(
@@ -140,7 +150,8 @@ async function processAbsencesForDojang(dojang_code, dayColumn, todayStr) {
        LEFT JOIN attendance a
          ON a.student_id = s.id AND a.class_id = cd.class_id
          AND a.dojang_code = cd.dojang_code AND a.attendance_date = ?
-       WHERE cd.dojang_code = ? AND cd.day = ? AND a.student_id IS NULL`,
+       WHERE cd.dojang_code = ? AND cd.day = ? AND a.student_id IS NULL
+       ${pausedFilter}`,
       [todayStr, dojang_code, dayColumn]
     );
 

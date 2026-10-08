@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const createNotification = require('./createNotification'); // 경로에 맞게 수정
 const db = require('../db'); // ⭐️ 이 줄이 무조건 들어가야 합니다! (파일 경로 주의)
+const { pausedExclusionClause } = require('../migrations/pauseColumns');
 
 // ⏰ 1분마다 실행 (테스트용, 테스트 끝나면 '0 9 * * *' 로 변경)
 cron.schedule('* * * * *', async () => {
@@ -23,15 +24,19 @@ cron.schedule('* * * * *', async () => {
                             
       console.log(`🔍 Target date for 3-day notice (NY Time): ${targetDateStr}`);
   
+      // 일시정지(Pause) 중인 회원은 현금 납부 알림에서 제외
+      const pausedClause = await pausedExclusionClause('m');
+
       // 4️⃣ MySQL의 CURDATE() 대신, 우리가 똑똑하게 계산한 날짜(targetDateStr)를 넣습니다!
       const [duePayments] = await connection.query(`
-        SELECT m.id, m.student_id, m.dojang_code, m.next_payment_date, s.first_name 
+        SELECT m.id, m.student_id, m.dojang_code, m.next_payment_date, s.first_name
         FROM monthly_payments m
         JOIN students s ON m.student_id = s.id
-        WHERE m.source_id = 'cash' 
+        WHERE m.source_id = 'cash'
           AND m.payment_status = 'pending'
           AND m.day_notification_3 = 0
           AND DATE(m.next_payment_date) = ?
+          ${pausedClause}
       `, [targetDateStr]);
   
       console.log(`🔍 Found ${duePayments.length} students due for cash payment.`);

@@ -71,6 +71,8 @@ startReminderScheduler();
 const { startBirthdayPartyScheduler } = require('./schedulers/birthdayPartyScheduler'); // 생일파티 안내: 등원 시 실시간 체크 + 매일 09:00 구간 마지막 날 강제 체크
 startBirthdayPartyScheduler();
 require('./schedulers/cashscheduler');
+const { startPauseScheduler } = require('./schedulers/pauseScheduler'); // 일시정지(Pause) 회원: 복귀 7일 전 안내 / 자동 재개 / 장기 정지 점검 (매일 09:00)
+startPauseScheduler();
 require('./migrations/runMigrations')(); // ✅ notifications.parent_phone / push_tokens 테이블 자동 확인·생성
 app.options("*", cors(corsOptions)); // ✅ 모든 경로에 대한 OPTIONS 요청 허용
 app.use(express.json());
@@ -140,6 +142,8 @@ const tournamentRoutes = require('./routes/tournaments'); // 자체 대회 설�
 app.use('/api', tournamentRoutes);
 const accountDeletionRoutes = require('./routes/accountDeletion'); // 계정 삭제 (App Store 5.1.1(v))
 app.use('/api', accountDeletionRoutes);
+const studentPauseRoutes = require('./routes/studentPause'); // 회원 일시정지(Pause)/재개(Resume)
+app.use('/api', studentPauseRoutes);
 const testRouter = require('./routes/test'); // test 라우터 가져오기
 app.use('/api', testRouter); // /api 경로에 연결
 const attendanceRouter = require('./routes/attendance');

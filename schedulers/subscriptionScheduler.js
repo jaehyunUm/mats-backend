@@ -2,10 +2,14 @@ const { processPaymentForSubscription, handlePaymentDecline } = require("../serv
 const { noCardOnFile } = require("../modules/paymentDeclineReasons");
 const cron = require("node-cron");
 const db = require("../db");
+const { pausedExclusionClause } = require("../migrations/pauseColumns");
 
 // 구독 처리 로직을 함수로 추출하여 코드 중복 제거
 async function processSubscriptions() {
   try {
+    // 일시정지(Pause) 중인 회원은 자동결제에서 제외 (컬럼이 아직 없으면 빈 문자열 = 기존 동작 그대로)
+    const pausedClause = await pausedExclusionClause("mp");
+
     const [subscriptions] = await db.execute(`
       SELECT
         mp.id, mp.parent_id, mp.student_id, mp.program_id, mp.program_fee, mp.dojang_code,
@@ -15,7 +19,8 @@ async function processSubscriptions() {
       WHERE mp.next_payment_date <= CURDATE()
       AND (mp.payment_status = 'pending' OR mp.payment_status = 'failed')
       /* 캐시 결제 학생은 수동으로 처리하므로 자동 카드 청구/디클라인 알림 대상에서 제외 */
-      AND (mp.source_id IS NULL OR mp.source_id <> 'cash');
+      AND (mp.source_id IS NULL OR mp.source_id <> 'cash')
+      ${pausedClause};
     `);
 
     if (subscriptions.length === 0) {

@@ -243,6 +243,15 @@ async function runMigrations() {
   } catch (err) {
     console.error("⚠️ [migration] tournament_waves 테이블 생성 실패 (무시하고 계속 진행):", err.message);
   }
+
+  // 10. 회원 일시정지(Pause) 기능: monthly_payments에 정지 관련 컬럼 추가
+  //     (pauseColumns.js가 INFORMATION_SCHEMA로 존재 여부를 확인한 뒤 없는 컬럼만 추가함.
+  //      결제 스케줄러 등도 같은 함수를 직접 호출하므로, 서버 시작 직후 즉시 실행되는 결제 작업과도 순서가 꼬이지 않음)
+  try {
+    await require("./pauseColumns").ensurePauseColumns();
+  } catch (err) {
+    console.error("⚠️ [migration] 일시정지 컬럼 확인 실패 (무시하고 계속 진행):", err.message);
+  }
 }
 
 module.exports = runMigrations;
