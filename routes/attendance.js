@@ -372,7 +372,8 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
     // 단, 결석(absent)은 서버 자동 결석 처리이므로 계속 보여줘서 오류였으면 나중에 출석으로 고칠 수 있게 함.
     const [students] = await db.query(`
       SELECT DISTINCT
-        s.id, s.first_name, s.last_name, s.belt_rank,
+        s.id, s.first_name, s.last_name, s.belt_rank, s.profile_image,
+        b.belt_color, b.stripe_color,
         CASE
           WHEN a.student_id IS NOT NULL THEN 'present'
           WHEN ab.student_id IS NOT NULL THEN 'absent'
@@ -380,6 +381,7 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
         END AS status
       FROM students s
       JOIN student_classes sc ON s.id = sc.student_id AND sc.dojang_code = ?
+      LEFT JOIN beltsystem b ON s.belt_rank = b.belt_rank AND s.dojang_code = b.dojang_code
       LEFT JOIN attendance a
         ON a.student_id = s.id AND a.class_id = ? AND a.dojang_code = ? AND a.attendance_date = ?
       LEFT JOIN absences ab
