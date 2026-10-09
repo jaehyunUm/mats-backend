@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // ✅ MySQL 연결
 const verifyToken = require('../middleware/verifyToken');
+const { ensurePauseColumns, ensurePauseHistoryTable } = require('../migrations/pauseColumns');
 
 router.get('/growth/history', verifyToken, async (req, res) => {
   const { dojang_code } = req.user;
@@ -269,4 +270,72 @@ const [cancellationData] = await db.query(
     }
   });
   
+// ✅ 일시정지(Pause) 회원 목록 - 선택한 연도에 정지를 시작한 회원 (취소 목록과 같은 형태)
+router.get('/growth/paused-students-list', verifyToken, async (req, res) => {
+  const { year } = req.query;
+  const { dojang_code } = req.user;
+  const TIMEZONE = '-04:00'; // growth/history와 동일한 기준 시간대
+
+  if (!year) {
+    return res.status(400).json({ success: false, message: 'Year is required' });
+  }
+
+  try {
+    const historyReady = await ensurePauseHistoryTable();
+    const columnsReady = await ensurePauseColumns();
+    if (!historyReady || !columnsReady) {
+      // 테이블/컬럼 준비에 실패해도 화면이 깨지지 않도록 빈 목록을 돌려줌
+      return res.json({ success: true, data: [], active_count: 0 });
+    }
+
+    // 이 기능을 배포하기 전에 이미 정지된 회원은 이력이 없으므로, 현재 정지 중인 회원을 한 번 채워 넣음 (여러 번 실행해도 안전)
+    await db.query(
+      `INSERT INTO student_pause_history (student_id, dojang_code, paused_at, resume_date, reason)
+       SELECT mp.student_id, mp.dojang_code, COALESCE(MIN(mp.paused_at), NOW()), MAX(mp.resume_date), MAX(mp.pause_reason)
+       FROM monthly_payments mp
+       WHERE mp.dojang_code = ? AND mp.pause_status = 'paused'
+         AND NOT EXISTS (
+           SELECT 1 FROM student_pause_history h
+           WHERE h.student_id = mp.student_id AND h.dojang_code = mp.dojang_code AND h.resumed_at IS NULL
+         )
+       GROUP BY mp.student_id, mp.dojang_code`,
+      [dojang_code]
+    );
+
+    const [rows] = await db.query(
+      `SELECT
+         h.id,
+         DATE_FORMAT(CONVERT_TZ(h.paused_at, '+00:00', ?), '%Y-%m-%d') AS paused_date,
+         DATE_FORMAT(h.resume_date, '%Y-%m-%d') AS resume_date,
+         DATE_FORMAT(CONVERT_TZ(h.resumed_at, '+00:00', ?), '%Y-%m-%d') AS resumed_date,
+         h.reason,
+         (h.resumed_at IS NULL) AS is_active,
+         s.first_name,
+         s.last_name,
+         p.name AS program_name
+       FROM student_pause_history h
+       JOIN students s ON s.id = h.student_id
+       LEFT JOIN programs p ON s.program_id = p.id
+       WHERE h.dojang_code = ?
+         AND YEAR(CONVERT_TZ(h.paused_at, '+00:00', ?)) = ?
+       ORDER BY h.paused_at DESC`,
+      [TIMEZONE, TIMEZONE, dojang_code, TIMEZONE, year]
+    );
+
+    const [[activeRow]] = await db.query(
+      `SELECT COUNT(*) AS active_count FROM student_pause_history WHERE dojang_code = ? AND resumed_at IS NULL`,
+      [dojang_code]
+    );
+
+    res.json({
+      success: true,
+      data: rows.map((r) => ({ ...r, is_active: !!r.is_active })),
+      active_count: activeRow ? activeRow.active_count : 0,
+    });
+  } catch (error) {
+    console.error('Error fetching paused students:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 module.exports = router; // ✅ 라우터 내보내기

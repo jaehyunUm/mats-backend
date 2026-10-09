@@ -10,7 +10,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const verifyToken = require("../middleware/verifyToken");
-const { ensurePauseColumns } = require("../migrations/pauseColumns");
+const { ensurePauseColumns, logPauseStart, logPauseEnd } = require("../migrations/pauseColumns");
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -141,6 +141,8 @@ router.post("/students/:studentId/pause", verifyToken, async (req, res) => {
       });
     }
 
+    await logPauseStart(studentId, dojang_code, resumeDate, reason); // 성장 화면용 정지 이력
+
     return res.json({
       success: true,
       paused: true,
@@ -193,6 +195,8 @@ router.post("/students/:studentId/resume", verifyToken, async (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(400).json({ success: false, message: "This member is not paused." });
     }
+
+    await logPauseEnd(studentId, dojang_code); // 성장 화면용 정지 이력(복귀 시각)
 
     return res.json({
       success: true,

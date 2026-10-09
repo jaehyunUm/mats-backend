@@ -10,7 +10,7 @@
 const cron = require("node-cron");
 const db = require("../db");
 const { sendPushToOwners } = require("../services/pushService");
-const { ensurePauseColumns } = require("../migrations/pauseColumns");
+const { ensurePauseColumns, logPauseEnd } = require("../migrations/pauseColumns");
 
 const NOTICE_DAYS_BEFORE = 7; // 복귀 며칠 전에 안내할지
 const CHECKIN_EVERY_DAYS = 30; // 복귀일 미정 회원 점검 주기
@@ -90,6 +90,7 @@ async function autoResumeDueMembers(today) {
          WHERE id = ? AND pause_status = 'paused'`,
         [row.resume_date, row.id]
       );
+      await logPauseEnd(row.student_id, row.dojang_code); // 정지 이력에 복귀 기록
     } catch (err) {
       console.error(`❌ [pause] 자동 재개 실패 (monthly_payments #${row.id}):`, err.message);
     }
