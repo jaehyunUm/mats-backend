@@ -374,6 +374,19 @@ router.get('/get-students-by-class', verifyToken, async (req, res) => {
       SELECT DISTINCT
         s.id, s.first_name, s.last_name, s.belt_rank, s.profile_image,
         b.belt_color, b.stripe_color,
+        -- 저장된 출석 횟수 (Students 화면과 같은 방식) / 테스트에 필요한 출석 횟수
+        COALESCE((
+          SELECT COUNT(*) FROM attendance ac
+          WHERE ac.student_id = s.id AND ac.dojang_code = s.dojang_code
+        ), 0) AS attendance,
+        COALESCE((
+          SELECT tc.attendance_required
+          FROM testcondition tc
+          WHERE s.belt_rank BETWEEN tc.belt_min_rank AND tc.belt_max_rank
+            AND tc.dojang_code = s.dojang_code
+          ORDER BY tc.belt_min_rank DESC
+          LIMIT 1
+        ), 0) AS required_attendance,
         CASE
           WHEN a.student_id IS NOT NULL THEN 'present'
           WHEN ab.student_id IS NOT NULL THEN 'absent'
