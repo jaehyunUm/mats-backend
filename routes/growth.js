@@ -238,6 +238,8 @@ const [cancellationData] = await db.query(
       const query = `
         SELECT 
           sg.id,
+          sg.student_id,
+          (s.program_id IS NULL) AS is_inactive,
           sg.created_at as cancel_date,
           s.first_name,
           s.last_name,
@@ -259,6 +261,7 @@ const [cancellationData] = await db.query(
       // 날짜 포맷팅 (YYYY-MM-DD)
       const formattedRows = rows.map(row => ({
         ...row,
+        is_inactive: !!row.is_inactive,
         cancel_date: new Date(row.cancel_date).toISOString().split('T')[0]
       }));
   

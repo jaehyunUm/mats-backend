@@ -475,6 +475,67 @@ router.put('/students/payments/:studentId', verifyToken, async (req, res) => {
 });
 
 
+// ✅ 취소된 학생 컴백(복구): 프로그램을 다시 지정해서 활성화합니다.
+// 출석 기록·승급 결과·사진은 취소할 때 지우지 않으므로 그대로 이어집니다.
+router.post('/students/:studentId/restore', verifyToken, async (req, res) => {
+  const { studentId } = req.params;
+  const { program_id } = req.body;
+  const { dojang_code } = req.user;
+
+  if (!program_id) {
+    return res.status(400).json({ success: false, message: 'program_id is required' });
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [students] = await conn.query(
+      `SELECT id, parent_id, program_id FROM students WHERE id = ? AND dojang_code = ? FOR UPDATE`,
+      [studentId, dojang_code]
+    );
+    if (students.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+    if (students[0].program_id !== null) {
+      await conn.rollback();
+      return res.status(409).json({ success: false, message: 'Student is already active' });
+    }
+
+    const [programs] = await conn.query(
+      `SELECT id FROM programs WHERE id = ? AND dojang_code = ?`,
+      [program_id, dojang_code]
+    );
+    if (programs.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: 'Program not found' });
+    }
+
+    await conn.query(
+      `UPDATE students SET program_id = ? WHERE id = ? AND dojang_code = ?`,
+      [program_id, studentId, dojang_code]
+    );
+
+    // 성장 기록: 다시 등록한 것으로 남김 (취소 기록은 그대로 유지)
+    await conn.query(
+      `INSERT INTO student_growth (student_id, parent_id, program_id, dojang_code, status, created_at)
+       VALUES (?, ?, ?, ?, 'registered', NOW())`,
+      [studentId, students[0].parent_id, program_id, dojang_code]
+    );
+
+    await conn.commit();
+    res.status(200).json({ success: true, message: 'Student restored' });
+  } catch (error) {
+    await conn.rollback();
+    console.error('❌ Error restoring student:', error);
+    res.status(500).json({ success: false, message: 'Server error while restoring student' });
+  } finally {
+    conn.release();
+  }
+});
+
+
 router.delete('/students/:studentId', verifyToken, async (req, res) => {
   const { studentId } = req.params;
   const { dojang_code } = req.user;
@@ -499,17 +560,7 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
     const student = studentResult[0];
     const imageUrl = student.profile_image;
 
-    // ✅ 2. S3 이미지 삭제
-    if (imageUrl) {
-      const fileName = imageUrl.split('/').pop();
-      if (fileName) {
-        try {
-          await deleteFileFromS3(fileName, dojang_code);
-        } catch (s3Error) {
-          console.error('⚠️ Failed to delete student image from S3:', s3Error);
-        }
-      }
-    }
+    // ✅ 2. 프로필 사진은 지우지 않고 보관 (컴백할 때 그대로 쓰기 위해)
 
     // ✅ 3. "canceled" 기록 남기기 (이력 보존용)
     await conn.query(
@@ -520,10 +571,11 @@ router.delete('/students/:studentId', verifyToken, async (req, res) => {
     );
 
     // ✅ 4. 연관 데이터 정리
-    await conn.query(`DELETE FROM attendance WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
+    // 출석 기록(attendance)과 승급 결과(testresult)는 지우지 않고 보관합니다.
+    // → 나중에 컴백(restore)하면 취소 전 출석 횟수를 그대로 이어서 사용합니다.
+    // 앞으로 잡힌 수업/심사 신청만 정리합니다.
     await conn.query(`DELETE FROM student_classes WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     await conn.query(`DELETE FROM testlist WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
-    await conn.query(`DELETE FROM testresult WHERE student_id = ? AND dojang_code = ?`, [studentId, dojang_code]);
     
     // ⭐️ [변경] 월간 결제 스케줄 '삭제(DELETE)' (가장 안전한 방법)
     // 상태 체크 없이, 해당 학생의 모든 예약된 결제 스케줄을 날려버립니다.
